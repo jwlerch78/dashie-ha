@@ -1,9 +1,9 @@
 name: Chickadee
-version: "0.0.2"
+version: "0.1.0"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
-description: The Chickadee brain runtime — conversation brain + engine routing for the Chickadee integration. (Early scaffold — brain-runtime stub.)
+description: The Chickadee brain runtime — conversation brain + engine routing for the Chickadee integration. Point it at any OpenAI-compatible model server (Ollama, llama.cpp, vLLM, or a provider's compat endpoint with your own key).
 url: https://github.com/jwlerch78/chickadee-addons
 arch:
   - aarch64
@@ -30,7 +30,17 @@ map:
 # http://<hostname>:8099 — no host ports published.
 ports: {}
 
+# llm_url:     base URL of an OpenAI-compatible model server (no trailing /v1),
+#              e.g. http://homeassistant.local:11434 (Ollama) or a provider's
+#              compat endpoint. llm_model: the model id to run. llm_api_key:
+#              bearer key — leave blank for local Ollama/llama.cpp.
 options:
   log_level: info
+  llm_url: ""
+  llm_model: ""
+  llm_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+  llm_url: str?
+  llm_model: str?
+  llm_api_key: password?

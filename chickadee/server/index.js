@@ -1,13 +1,12 @@
-// Chickadee add-on — brain-runtime STUB.
+// Chickadee add-on — HTTP surface + bridge auth.
 //
 // Implements the integration↔add-on bridge contract (chickadee CONTRACTS.md):
-//   - writes the bridge secret to the addon_config mount at startup
+//   - writes the bridge secret to the addon_config + HA-config mounts at startup
 //   - GET  /api/ping            → liveness for discovery/config-flow probes
-//   - POST /api/voice/converse  → one turn; stub replies {"text": ...}
+//   - POST /api/voice/converse  → one brain turn (converse.js → shared brain core)
 //
 // Auth is ENFORCED from birth (no observe-mode debt): the integration always
 // sends X-Chickadee-Bridge-Secret — it refuses to call us without a secret.
-// The real brain runtime replaces handleConverse(); everything else stays.
 
 'use strict';
 
@@ -16,7 +15,10 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
-const VERSION = '0.0.2';  // keep in step with config.yaml version
+const { converse } = require('./converse');
+const brainMeta = require('./brain/voice-brain.bundle.meta.json');
+
+const VERSION = '0.1.0';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
@@ -122,43 +124,34 @@ function readBody(req) {
     });
 }
 
-/** The stub turn. The real brain runtime (engine routing, tools, persona) replaces this. */
 async function handleConverse(req, res) {
     if (!checkAuth(req, res)) return;
     let payload;
     try {
         payload = JSON.parse((await readBody(req)) || '{}');
     } catch (e) {
-        console.warn('[brain-stub] DROP: unparseable converse body:', e.message);
+        console.warn('[converse] DROP: unparseable converse body:', e.message);
         sendJson(res, 400, { error: 'bad_json' });
         return;
     }
-    const text = String(payload.text || '').trim();
-    const nEntities = ((payload.provided_context || {}).ha_entities || []).length;
-    // CHICKADEE-TURN is the device-verification log marker — grep for it.
-    console.log(`CHICKADEE-TURN text="${text}" endpoint_id=${payload.endpoint_id || '?'} ` +
-        `conversation_id=${payload.conversation_id || '-'} entities=${nEntities} area=${(payload.provided_context || {}).device_area || '-'}`);
-    sendJson(res, 200, {
-        text: text
-            ? `Chickadee heard: ${text}. The brain runtime isn't wired up yet, but the bridge works.`
-            : 'Chickadee is listening, but no text arrived.',
-    });
+    const { status, body } = await converse(payload);
+    sendJson(res, status, body);
 }
 
 const server = http.createServer((req, res) => {
     const url = (req.url || '').split('?')[0];
     if (req.method === 'GET' && url === '/api/ping') {
-        sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain-stub', version: VERSION });
+        sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
         return;
     }
     if (req.method === 'POST' && url === '/api/voice/converse') {
         handleConverse(req, res).catch((e) => {
-            console.error('[brain-stub] DROP: converse handler crashed:', e.message);
+            console.error('[converse] DROP: converse handler crashed:', e.message);
             sendJson(res, 500, { error: 'internal' });
         });
         return;
     }
-    console.warn(`[brain-stub] DROP: unhandled route ${req.method} ${url}`);
+    console.warn(`[http] DROP: unhandled route ${req.method} ${url}`);
     sendJson(res, 404, { error: 'not_found' });
 });
 
