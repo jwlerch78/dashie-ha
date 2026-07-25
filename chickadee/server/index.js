@@ -17,10 +17,10 @@ const path = require('path');
 
 const { converse } = require('./converse');
 const { publishWithRetry } = require('./discovery');
-const { handleStt, handleTts } = require('./engines');
+const { handleStt, handleTts, handleVoices } = require('./engines');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
-const VERSION = '0.2.0';  // keep in step with config.yaml version
+const VERSION = '0.2.2';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
@@ -149,6 +149,14 @@ const server = http.createServer((req, res) => {
     if (req.method === 'POST' && url === '/api/voice/converse') {
         handleConverse(req, res).catch((e) => {
             console.error('[converse] DROP: converse handler crashed:', e.message);
+            sendJson(res, 500, { error: 'internal' });
+        });
+        return;
+    }
+    if (url === '/api/voice/voices') {
+        if (!checkAuth(req, res)) return;
+        handleVoices(req, res, sendJson).catch((e) => {
+            console.error('[engines] DROP: voices handler crashed:', e.message);
             sendJson(res, 500, { error: 'internal' });
         });
         return;

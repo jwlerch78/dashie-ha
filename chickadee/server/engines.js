@@ -140,4 +140,34 @@ async function handleTts(req, res, sendJson) {
     }
 }
 
-module.exports = { handleStt, handleTts };
+/** GET/POST /api/voice/voices — the configured TTS engine's voice catalog,
+ *  normalized to { voices: [{voice_id, name}] } (Kokoro's {id,name} and the
+ *  Piper shim's {voice_id,name} both map). Feeds HA's native voice picker via
+ *  the integration's tts entity. */
+async function handleVoices(req, res, sendJson) {
+    const opts = readOptions();
+    const base = String(opts.tts_url || '').trim().replace(/\/+$/, '');
+    if (!base) { sendJson(res, 200, { voices: [] }); return; }
+    const url = (/\/audio\/speech$/.test(base) ? base.replace(/\/audio\/speech$/, '/audio/voices') : base + '/v1/audio/voices');
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 10000);
+    try {
+        const resp = await fetch(url, { headers: authHeaders(opts.tts_api_key), signal: ctl.signal });
+        clearTimeout(timer);
+        const data = await resp.json().catch(() => ({}));
+        const list = Array.isArray(data?.voices) ? data.voices : Array.isArray(data) ? data : [];
+        const voices = list
+            .map((v) => (typeof v === 'string'
+                ? { voice_id: v, name: v }
+                : { voice_id: String(v.voice_id || v.id || v.name || ''), name: String(v.name || v.voice_id || v.id || '') }))
+            .filter((v) => v.voice_id);
+        console.log(`[engines] voices: ${voices.length} from ${url}`);
+        sendJson(res, 200, { voices });
+    } catch (e) {
+        clearTimeout(timer);
+        console.warn('DROP: voices fetch failed:', e.message);
+        sendJson(res, 200, { voices: [] });   // picker degrades to free-text, never errors
+    }
+}
+
+module.exports = { handleStt, handleTts, handleVoices };
