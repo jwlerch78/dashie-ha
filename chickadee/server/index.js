@@ -16,6 +16,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
+const VERSION = '0.0.2';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
@@ -147,7 +148,7 @@ async function handleConverse(req, res) {
 const server = http.createServer((req, res) => {
     const url = (req.url || '').split('?')[0];
     if (req.method === 'GET' && url === '/api/ping') {
-        sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain-stub', version: '0.0.1' });
+        sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain-stub', version: VERSION });
         return;
     }
     if (req.method === 'POST' && url === '/api/voice/converse') {
