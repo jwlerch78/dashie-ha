@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.0.1"
+version: "0.0.2"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -13,13 +13,18 @@ arch:
 # Minimum HA version (any recent HA is fine).
 homeassistant: "2024.1.0"
 
-# data:rw          — private persistent storage (bridge secret master copy, later config).
-# addon_config:rw  — the add-on's OWN config folder, surfaced to HA Core at
-#                    /config/addon_configs/<slug>/ (readable by the chickadee
-#                    integration, NOT by other add-ons). Carries the bridge secret.
+# data:rw                — private persistent storage (bridge secret master copy, later config).
+# addon_config:rw        — the add-on's OWN config folder (/addon_configs/<slug>/ on the host).
+#                          NOT visible to HA Core on HAOS (verified 2026-07-25) — kept for the
+#                          future Supervisor-discovery handoff.
+# homeassistant_config:rw — the HA config dir; carries the bridge secret at
+#                          .chickadee/bridge_secret so the integration can read it.
+#                          INTERIM: any add-on with a config mount can read it too —
+#                          replace with Supervisor discovery (CONTRACTS.md).
 map:
   - data:rw
   - addon_config:rw
+  - homeassistant_config:rw
 
 # The integration reaches us on the internal hassio network at
 # http://<hostname>:8099 — no host ports published.

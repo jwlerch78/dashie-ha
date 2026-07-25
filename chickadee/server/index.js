@@ -19,11 +19,14 @@ const path = require('path');
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
-// In-container mount point for `addon_config:rw` — HA has used both names across
-// versions (surfaces to HA Core at /config/addon_configs/<slug>/). Write to
-// whichever exists. Safe: this add-on maps ONLY data + addon_config, so an
-// in-container /config can only be the addon_config mount.
+// Where to surface the secret for the integration. HA Core does NOT see
+// /addon_configs on HAOS (verified 2026-07-25), so the addon_config copy alone
+// is unreadable by the integration — we ALSO drop it inside the HA config dir
+// (homeassistant_config:rw mount) at .chickadee/bridge_secret. INTERIM channel:
+// any add-on with a config mount can read it; replace with Supervisor discovery.
 const ADDON_CONFIG_CANDIDATES = ['/addon_config', '/config'];
+const HA_CONFIG_CANDIDATES = ['/homeassistant'];
+const HA_CONFIG_SUBDIR = '.chickadee';
 const BRIDGE_HEADER = 'x-chickadee-bridge-secret';
 
 // ── Bridge secret ─────────────────────────────────────────────────────────────
@@ -52,26 +55,35 @@ function loadOrCreateSecret() {
     return _secret;
 }
 
-/** Mirror the secret to addon_config so the integration can read it. */
+/** Mirror the secret where the integration can read it. */
 function provisionSecret() {
     const secret = loadOrCreateSecret();
     let wrote = 0;
+    const targets = [];
     for (const dir of ADDON_CONFIG_CANDIDATES) {
+        targets.push(path.join(dir, 'bridge_secret'));
+    }
+    for (const dir of HA_CONFIG_CANDIDATES) {
+        targets.push(path.join(dir, HA_CONFIG_SUBDIR, 'bridge_secret'));
+    }
+    for (const dst of targets) {
         try {
-            if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
-            const dst = path.join(dir, 'bridge_secret');
+            const dir = path.dirname(dst);
+            const mountRoot = dst.split(path.sep).slice(0, 2).join(path.sep) || path.sep;
+            if (!fs.existsSync(mountRoot) || !fs.statSync(mountRoot).isDirectory()) continue;
+            fs.mkdirSync(dir, { recursive: true });
             const tmp = dst + '.tmp';
             fs.writeFileSync(tmp, secret, { mode: 0o600 });
             fs.renameSync(tmp, dst);
-            console.log(`[bridge] secret provisioned to ${dst} (surfaces at /config/addon_configs/<slug>/bridge_secret)`);
+            console.log(`[bridge] secret provisioned to ${dst}`);
             wrote++;
         } catch (e) {
-            console.warn(`[bridge] could not write ${dir}: ${e.message}`);
+            console.warn(`[bridge] could not write ${dst}: ${e.message}`);
         }
     }
     if (!wrote) {
-        console.error('[bridge] DROP: no addon_config mount found — the integration cannot ' +
-            "read the bridge secret and every converse call will fail. Is 'addon_config:rw' in config.yaml map?");
+        console.error('[bridge] DROP: no writable secret target found — the integration cannot ' +
+            'read the bridge secret and every converse call will fail. Check config.yaml map entries.');
     }
 }
 
