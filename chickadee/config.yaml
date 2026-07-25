@@ -1,0 +1,31 @@
+name: Chickadee
+version: "0.0.1"
+# Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
+# orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
+slug: chickadee
+description: The Chickadee brain runtime — conversation brain + engine routing for the Chickadee integration. (Early scaffold — brain-runtime stub.)
+url: https://github.com/jwlerch78/chickadee-addons
+arch:
+  - aarch64
+  - amd64
+  - armv7
+
+# Minimum HA version (any recent HA is fine).
+homeassistant: "2024.1.0"
+
+# data:rw          — private persistent storage (bridge secret master copy, later config).
+# addon_config:rw  — the add-on's OWN config folder, surfaced to HA Core at
+#                    /config/addon_configs/<slug>/ (readable by the chickadee
+#                    integration, NOT by other add-ons). Carries the bridge secret.
+map:
+  - data:rw
+  - addon_config:rw
+
+# The integration reaches us on the internal hassio network at
+# http://<hostname>:8099 — no host ports published.
+ports: {}
+
+options:
+  log_level: info
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
