@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.2.0"
+version: "0.2.1"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -12,6 +12,13 @@ arch:
 
 # Minimum HA version (any recent HA is fine).
 homeassistant: "2024.1.0"
+
+# Supervisor API access (SUPERVISOR_TOKEN) — used ONLY to publish the bridge
+# secret via Supervisor discovery (the same credential channel the MQTT broker
+# and Wyoming add-ons use). `discovery` declares the service we publish.
+hassio_api: true
+discovery:
+  - chickadee
 
 # data:rw                — private persistent storage (bridge secret master copy, later config).
 # addon_config:rw        — the add-on's OWN config folder (/addon_configs/<slug>/ on the host).

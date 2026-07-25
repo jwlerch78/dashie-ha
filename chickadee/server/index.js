@@ -16,6 +16,7 @@ const http = require('http');
 const path = require('path');
 
 const { converse } = require('./converse');
+const { publishWithRetry } = require('./discovery');
 const { handleStt, handleTts } = require('./engines');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
@@ -166,6 +167,9 @@ const server = http.createServer((req, res) => {
 });
 
 provisionSecret();
+// Primary secret channel: Supervisor discovery → integration async_step_hassio.
+// The file copies provisioned above remain for older integrations.
+publishWithRetry(loadOrCreateSecret());
 server.listen(PORT, () => {
     console.log(`[chickadee] brain runtime listening on :${PORT} (/api/ping, /api/voice/converse) — brain @ ${brainMeta.shortSha || '?'}`);
 });
