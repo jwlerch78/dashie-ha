@@ -18,7 +18,7 @@ const path = require('path');
 const { converse } = require('./converse');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
-const VERSION = '0.1.0';  // keep in step with config.yaml version
+const VERSION = '0.1.1';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
