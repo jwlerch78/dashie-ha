@@ -16,6 +16,7 @@ const http = require('http');
 const path = require('path');
 
 const { converse } = require('./converse');
+const { handleStt, handleTts } = require('./engines');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
 const VERSION = '0.1.1';  // keep in step with config.yaml version
@@ -147,6 +148,15 @@ const server = http.createServer((req, res) => {
     if (req.method === 'POST' && url === '/api/voice/converse') {
         handleConverse(req, res).catch((e) => {
             console.error('[converse] DROP: converse handler crashed:', e.message);
+            sendJson(res, 500, { error: 'internal' });
+        });
+        return;
+    }
+    if (req.method === 'POST' && (url === '/api/voice/stt' || url === '/api/voice/tts')) {
+        if (!checkAuth(req, res)) return;
+        const handler = url === '/api/voice/stt' ? handleStt : handleTts;
+        handler(req, res, sendJson).catch((e) => {
+            console.error(`[engines] DROP: ${url} handler crashed:`, e.message);
             sendJson(res, 500, { error: 'internal' });
         });
         return;

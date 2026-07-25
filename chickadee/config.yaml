@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.1.1"
+version: "0.2.0"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -37,13 +37,30 @@ ports: {}
 #              OpenRouter: https://openrouter.ai/api/v1/chat/completions).
 #              llm_model: the model id to run. llm_api_key: bearer key — leave
 #              blank for local Ollama/llama.cpp.
+# stt_url: an OpenAI-compatible transcription server (we append
+#          /v1/audio/transcriptions unless the URL already ends with it) —
+#          whisper.cpp server, faster-whisper/speaches, or a provider endpoint.
+# tts_url: an OpenAI-compatible speech server (we append /v1/audio/speech) —
+#          Kokoro-FastAPI, the Piper shim, or a provider endpoint.
 options:
   log_level: info
   llm_url: ""
   llm_model: ""
   llm_api_key: ""
+  stt_url: ""
+  stt_model: "whisper-1"
+  stt_api_key: ""
+  tts_url: ""
+  tts_voice: ""
+  tts_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
   llm_url: str?
   llm_model: str?
   llm_api_key: password?
+  stt_url: str?
+  stt_model: str?
+  stt_api_key: password?
+  tts_url: str?
+  tts_voice: str?
+  tts_api_key: password?
