@@ -157,5 +157,5 @@ const server = http.createServer((req, res) => {
 
 provisionSecret();
 server.listen(PORT, () => {
-    console.log(`[chickadee] brain-runtime stub listening on :${PORT} (/api/ping, /api/voice/converse)`);
+    console.log(`[chickadee] brain runtime listening on :${PORT} (/api/ping, /api/voice/converse) — brain @ ${brainMeta.shortSha || '?'}`);
 });
