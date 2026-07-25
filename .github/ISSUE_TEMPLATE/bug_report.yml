@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in the Chickadee add-on isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! If the problem is in the **integration** (entities
+        missing, config flow, pipeline setup), please file it at
+        [chickadee](https://github.com/jwlerch78/chickadee/issues) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: input
+    id: addon-version
+    attributes:
+      label: Add-on version
+      placeholder: e.g. 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version + install type
+      placeholder: e.g. 2026.7.1, HAOS on a Yellow
+    validations:
+      required: true
+  - type: textarea
+    id: engines
+    attributes:
+      label: Engine configuration
+      description: llm/stt/tts URLs + models — redact hostnames if you like, **never include keys**.
+      placeholder: |
+        llm: Ollama qwen2.5:7b at http://192.168.x.x:11434
+        stt: faster-whisper on the same box
+        tts: Kokoro-FastAPI
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Add-on log
+      description: Relevant lines from the add-on Log tab — the CHICKADEE-TURN / CHICKADEE-BRAIN / CHICKADEE-STT / CHICKADEE-TTS markers carry the engine errors. Redact anything sensitive.
+      render: text

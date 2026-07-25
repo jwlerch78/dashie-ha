@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement to the Chickadee add-on (engines, routing, runtime)
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The use case, not just the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Engine/provider involved (if any)
+      placeholder: e.g. vLLM, ElevenLabs, a Piper server
