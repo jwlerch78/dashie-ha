@@ -10,7 +10,14 @@
 
 'use strict';
 
+const auth = require('./auth');
+const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
+
+/** Signed-in JWT or null (never throws — engine handlers decide the fallback). */
+async function cloudJwt() {
+    try { return (await auth.getValidJwt()).jwt; } catch { return null; }
+}
 
 const STT_TIMEOUT_MS = 60000;
 const TTS_TIMEOUT_MS = 60000;
@@ -39,16 +46,22 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
     const base = String(opts.stt_url || '').trim().replace(/\/+$/, '');
-    if (!base) {
-        console.warn('DROP: stt requested but stt_url is not configured');
-        sendJson(res, 503, { error: 'stt_unconfigured', message: 'Set stt_url in the add-on configuration.' });
-        return;
-    }
     let audio;
     try {
         audio = await readRawBody(req);
     } catch (e) {
         sendJson(res, 400, { error: 'bad_audio', message: e.message });
+        return;
+    }
+    if (!base) {
+        // Hosted fallback: Chickadee Cloud Whisper under the account (metered).
+        const jwt = await cloudJwt();
+        if (!jwt) {
+            console.warn('DROP: stt requested but no stt_url and not signed in');
+            sendJson(res, 503, { error: 'stt_unconfigured', message: 'Sign in, or set stt_url in the add-on configuration.' });
+            return;
+        }
+        await cloudStt(audio, jwt, res, sendJson);
         return;
     }
     const url = /\/audio\/transcriptions$/.test(base) ? base : base + '/v1/audio/transcriptions';
@@ -90,15 +103,73 @@ async function handleStt(req, res, sendJson) {
     }
 }
 
+/** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}). */
+async function cloudStt(audio, jwt, res, sendJson) {
+    const boundary = '----chickadee' + Date.now().toString(16);
+    const head = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="audio.wav"\r\n` +
+        `Content-Type: audio/wav\r\n\r\n`);
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const t0 = Date.now();
+    try {
+        const resp = await fetch(`${CLOUD.url}/functions/v1/whisper-stt`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                apikey: CLOUD.anonKey,
+                Authorization: `Bearer ${jwt}`,
+            },
+            body: Buffer.concat([head, audio, tail]),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            console.warn(`DROP: cloud stt HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`);
+            sendJson(res, 502, { error: 'stt_engine_error', message: `cloud HTTP ${resp.status}` });
+            return;
+        }
+        const text = String(data.transcript || data.text || '').trim();
+        console.log(`CHICKADEE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        sendJson(res, 200, { text });
+    } catch (e) {
+        console.warn('DROP: cloud stt unreachable:', e.message);
+        sendJson(res, 504, { error: 'stt_unreachable', message: e.message });
+    }
+}
+
+/** Hosted TTS: inworld-tts edge fn ({text, voice_id?} → audio bytes, audio/mpeg). */
+async function cloudTts(text, voice, jwt, res, sendJson) {
+    const t0 = Date.now();
+    try {
+        const resp = await fetch(`${CLOUD.url}/functions/v1/inworld-tts`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: CLOUD.anonKey,
+                Authorization: `Bearer ${jwt}`,
+            },
+            body: JSON.stringify({ text, ...(voice ? { voice_id: voice } : {}) }),
+        });
+        if (!resp.ok) {
+            const detail = await resp.text().catch(() => '');
+            console.warn(`DROP: cloud tts HTTP ${resp.status}: ${detail.slice(0, 200)}`);
+            sendJson(res, 502, { error: 'tts_engine_error', message: `cloud HTTP ${resp.status}` });
+            return;
+        }
+        const audio = Buffer.from(await resp.arrayBuffer());
+        const ctype = resp.headers.get('Content-Type') || 'audio/mpeg';
+        console.log(`CHICKADEE-TTS route=cloud chars=${text.length} bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'no-store' });
+        res.end(audio);
+    } catch (e) {
+        console.warn('DROP: cloud tts unreachable:', e.message);
+        sendJson(res, 504, { error: 'tts_unreachable', message: e.message });
+    }
+}
+
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
     const base = String(opts.tts_url || '').trim().replace(/\/+$/, '');
-    if (!base) {
-        console.warn('DROP: tts requested but tts_url is not configured');
-        sendJson(res, 503, { error: 'tts_unconfigured', message: 'Set tts_url in the add-on configuration.' });
-        return;
-    }
     let payload;
     try {
         payload = JSON.parse((await readRawBody(req, 1024 * 1024)).toString('utf8') || '{}');
@@ -108,8 +179,19 @@ async function handleTts(req, res, sendJson) {
     }
     const text = String(payload.text || '').trim();
     if (!text) { sendJson(res, 400, { error: 'bad_request', message: 'text is required' }); return; }
-    const url = /\/audio\/speech$/.test(base) ? base : base + '/v1/audio/speech';
     const voice = String(payload.voice || opts.tts_voice || '');
+    if (!base) {
+        // Hosted fallback: Chickadee Cloud voice under the account (metered).
+        const jwt = await cloudJwt();
+        if (!jwt) {
+            console.warn('DROP: tts requested but no tts_url and not signed in');
+            sendJson(res, 503, { error: 'tts_unconfigured', message: 'Sign in, or set tts_url in the add-on configuration.' });
+            return;
+        }
+        await cloudTts(text, voice, jwt, res, sendJson);
+        return;
+    }
+    const url = /\/audio\/speech$/.test(base) ? base : base + '/v1/audio/speech';
 
     const t0 = Date.now();
     const ctl = new AbortController();

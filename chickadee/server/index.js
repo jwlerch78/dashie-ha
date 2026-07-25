@@ -15,12 +15,13 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
+const { handleAuthStatus, handleStartLink, handlePollLink, handleSignOut } = require('./api-auth');
 const { converse } = require('./converse');
 const { publishWithRetry } = require('./discovery');
 const { handleStt, handleTts, handleVoices } = require('./engines');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
-const VERSION = '0.2.2';  // keep in step with config.yaml version
+const VERSION = '0.3.0';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
@@ -140,8 +141,36 @@ async function handleConverse(req, res) {
     sendJson(res, status, body);
 }
 
+// /api/auth/* + the Ingress page: reachable only on the hassio container
+// network + HA Ingress (ports:{} — no LAN exposure); the Ingress page cannot
+// know the bridge secret, so these are deliberately not secret-gated.
+const AUTH_ROUTES = {
+    'GET /api/auth/status': handleAuthStatus,
+    'POST /api/auth/start-link': handleStartLink,
+    'POST /api/auth/poll-link': handlePollLink,
+    'POST /api/auth/sign-out': handleSignOut,
+};
+
 const server = http.createServer((req, res) => {
     const url = (req.url || '').split('?')[0];
+    if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
+        try {
+            const page = fs.readFileSync(path.join(__dirname, 'ui.html'));
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+            res.end(page);
+        } catch (e) {
+            sendJson(res, 500, { error: 'ui_unavailable', message: e.message });
+        }
+        return;
+    }
+    const authHandler = AUTH_ROUTES[`${req.method} ${url}`];
+    if (authHandler) {
+        authHandler(req, res, sendJson).catch((e) => {
+            console.error('[auth] DROP: handler crashed:', e.message);
+            sendJson(res, 500, { error: 'internal' });
+        });
+        return;
+    }
     if (req.method === 'GET' && url === '/api/ping') {
         sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
         return;

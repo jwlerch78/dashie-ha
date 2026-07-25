@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.2.2"
+version: "0.3.0"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -19,6 +19,14 @@ homeassistant: "2024.1.0"
 hassio_api: true
 discovery:
   - chickadee
+
+# Ingress panel: the Chickadee sign-in/status page (open-console seed), served
+# by the same server on 8099. HA proxies frontend traffic in; nothing is
+# LAN-exposed (ports stays {}).
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:bird
+panel_title: Chickadee
 
 # data:rw                — private persistent storage (bridge secret master copy, later config).
 # addon_config:rw        — the add-on's OWN config folder (/addon_configs/<slug>/ on the host).
@@ -49,8 +57,11 @@ ports: {}
 #          whisper.cpp server, faster-whisper/speaches, or a provider endpoint.
 # tts_url: an OpenAI-compatible speech server (we append /v1/audio/speech) —
 #          Kokoro-FastAPI, the Piper shim, or a provider endpoint.
+# cloud_env: which Chickadee Cloud environment a signed-in account uses
+# (development = dev.dashieapp.com auth; production = app.dashieapp.com).
 options:
   log_level: info
+  cloud_env: development
   llm_url: ""
   llm_model: ""
   llm_api_key: ""
@@ -62,6 +73,7 @@ options:
   tts_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+  cloud_env: list(development|production)
   llm_url: str?
   llm_model: str?
   llm_api_key: password?
