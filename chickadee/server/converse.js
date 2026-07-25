@@ -35,8 +35,16 @@ async function converseCloud(payload, jwt) {
         });
         clearTimeout(timer);
         const turn = await resp.json().catch(() => ({}));
+        // Degraded-but-silent turns (e.g. insufficient_credits) assume a client
+        // that renders its own notice — a headless satellite must SPEAK it.
+        if (turn && turn.ok !== false && !turn.voice && !turn.text && turn.metadata?.degraded) {
+            console.warn(`DROP-averted: cloud turn degraded=${turn.metadata.degraded} with no voice — speaking a notice`);
+            turn.voice = turn.metadata.degraded === 'insufficient_credits'
+                ? 'Your Chickadee Cloud balance is empty. Add credits to keep using hosted voice.'
+                : 'Chickadee Cloud could not complete that request right now.';
+        }
         console.log(`CHICKADEE-BRAIN route=cloud type=${turn?.type || '?'} ok=${resp.ok && turn?.ok !== false} ` +
-            `latency=${Date.now() - t0}ms`);
+            `degraded=${turn?.metadata?.degraded || '-'} latency=${Date.now() - t0}ms`);
         return { status: resp.ok ? 200 : resp.status, body: turn };
     } catch (e) {
         clearTimeout(timer);
