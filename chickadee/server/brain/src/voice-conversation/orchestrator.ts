@@ -589,6 +589,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // ("turn off the lights") resolves to THIS room. Flows to both passes via `...context` in
     // buildPrompt → rendered as {{DEVICE_AREA}} in the home_assistant prompt. Absent → area-blind.
     deviceArea: req.provided_context?.device_area ?? null,
+    // Assistant identity (Chickadee open-core): callers may name their persona;
+    // absent → buildPrompt defaults to 'Dashie' (byte-identical legacy prompt).
+    assistantName: (req as { assistant_name?: string }).assistant_name || null,
     caps,
   };
 

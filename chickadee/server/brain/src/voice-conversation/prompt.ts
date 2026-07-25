@@ -366,6 +366,10 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
 
   // deno-lint-ignore no-explicit-any
   const baseValues: Record<string, any> = {
+    // Assistant identity is a template variable (Chickadee open-core: the open
+    // build names its own persona). Default 'Dashie' — a request without
+    // assistant_name renders byte-identically to the pre-variable prompt.
+    ASSISTANT_NAME: context.assistantName || 'Dashie',
     DATE_TIME: dateTime,
     USER_REQUEST: userRequest,
     CHAT_HISTORY: context.chatHistory || '',
@@ -422,7 +426,12 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
   // says "Here's a picture of X" while the enrichment layer silently drops the hint
   // (observed on the BYOK add-on brain, 2026-07-13). Appended server-side (not in the
   // shared .md template) so the console/webapp prompt surfaces stay byte-identical.
-  if (inquiryType && inquiryType !== 'web-search') {
+  if (inquiryType === 'home-assistant') {
+    // NO image note at all on the HA pass: its template defines its own response
+    // shapes with no `image` field, so there is nothing to suppress — and small
+    // local models (qwen 1.5b/7b, 2026-07-25) paraphrase even the narrow wording
+    // into "I can't show pictures" answers on state questions.
+  } else if (inquiryType && inquiryType !== 'web-search') {
     // Second axis of the same gate: enrichment only RESOLVES an `image` hint on pass-1 and on
     // the web-search synthesis pass (orchestrator secondPass). On every other pass-2 type the
     // hint is silently dropped — so suppress the field there rather than let the model promise
