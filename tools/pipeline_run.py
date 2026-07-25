@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Create (once) and run a full Chickadee Assist pipeline over the HA WebSocket:
+"""Run a full Chickadee Assist pipeline over the HA WebSocket:
 16 kHz PCM audio in → stt.chickadee_stt → conversation.chickadee → tts.chickadee_tts.
 
-Usage: pipeline_run.py <wav-file>
+Usage: pipeline_run.py <wav-file> [pipeline-name]
+With no name, targets "Chickadee (full)" and creates it if missing (legacy rig
+behavior). With an explicit name it must already exist — no silent create, so a
+missing auto-created pipeline FAILS instead of being masked.
 Prints each pipeline event's essentials; downloads the TTS result to /tmp/pipeline-tts-out.wav.
 """
 import asyncio, json, os, sys, wave
@@ -11,7 +14,8 @@ import websockets
 
 HA = "ha.dashieapp.com"
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
-PIPELINE_NAME = "Chickadee (full)"
+PIPELINE_NAME = sys.argv[2] if len(sys.argv) > 2 else "Chickadee (full)"
+ALLOW_CREATE = len(sys.argv) <= 2
 
 
 async def ws_cmd(ws, wid, msg):
@@ -38,6 +42,10 @@ async def main():
         # Find-or-create the pipeline
         pipelines = await ws_cmd(ws, 1, {"type": "assist_pipeline/pipeline/list"})
         pipe = next((p for p in pipelines["pipelines"] if p["name"] == PIPELINE_NAME), None)
+        if not pipe and not ALLOW_CREATE:
+            print(f"FAIL: pipeline '{PIPELINE_NAME}' not found (and explicit name = no create)")
+            print("have:", [p["name"] for p in pipelines["pipelines"]])
+            sys.exit(1)
         if not pipe:
             pipe = await ws_cmd(ws, 2, {
                 "type": "assist_pipeline/pipeline/create",
