@@ -115,11 +115,18 @@ async def main():
                 print("run-end")
                 break
         if tts_url:
+            # Best-effort: tts_proxy URLs are short-lived/one-shot — an expired
+            # fetch is a warning, not a failed run (the pipeline itself succeeded).
             import urllib.request
-            req = urllib.request.Request(f"https://{HA}{tts_url}")
-            audio = urllib.request.urlopen(req, timeout=30).read()
-            open("/tmp/pipeline-tts-out.wav", "wb").write(audio)
-            print("TTS AUDIO:", len(audio), "bytes -> /tmp/pipeline-tts-out.wav")
+            try:
+                req = urllib.request.Request(
+                    f"https://{HA}{tts_url}", headers={"Authorization": f"Bearer {TOKEN}"}
+                )
+                audio = urllib.request.urlopen(req, timeout=30).read()
+                open("/tmp/pipeline-tts-out.wav", "wb").write(audio)
+                print("TTS AUDIO:", len(audio), "bytes -> /tmp/pipeline-tts-out.wav")
+            except Exception as err:
+                print(f"TTS AUDIO fetch skipped ({err}) — pipeline itself completed")
 
 
 asyncio.run(main())
