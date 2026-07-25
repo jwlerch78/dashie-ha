@@ -8,6 +8,10 @@
   `stt_model`, `stt_api_key`, `tts_url`, `tts_voice`, `tts_api_key`.
 - Full audio→action→audio Assist pipeline verified end-to-end (~8 s with
   LAN-hosted Whisper + Kokoro and a fast LLM).
+- Brain update: entity questions ("which lights are on?") are answered from live
+  entity states — no more card-assuming acknowledgements on audio-only
+  satellites — and the assistant's identity follows the name configured in the
+  integration.
 
 ## 0.1.1 — 2026-07-25
 
