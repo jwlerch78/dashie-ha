@@ -422,17 +422,24 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
   // says "Here's a picture of X" while the enrichment layer silently drops the hint
   // (observed on the BYOK add-on brain, 2026-07-13). Appended server-side (not in the
   // shared .md template) so the console/webapp prompt surfaces stay byte-identical.
-  if (context.retrievePicturesEnabled === false) {
-    prompt += '\n\nIMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are ' +
-      'showing or displaying a picture. If asked for a picture, say you can\'t show pictures right now.';
-  } else if (inquiryType && inquiryType !== 'web-search') {
+  if (inquiryType && inquiryType !== 'web-search') {
     // Second axis of the same gate: enrichment only RESOLVES an `image` hint on pass-1 and on
     // the web-search synthesis pass (orchestrator secondPass). On every other pass-2 type the
     // hint is silently dropped — so suppress the field there rather than let the model promise
     // a picture that never renders. Worded narrowly (no "you can't show pictures" claim) so it
-    // can't discourage sports/HA turns from referencing the cards they DO attach.
+    // can't discourage sports/HA turns from referencing the cards they DO attach. This branch
+    // now takes PRECEDENCE over the pictures-off branch below (2026-07-25): on the Chickadee
+    // add-on, small local models (qwen 1.5b/7b) answered UNRELATED home-assistant commands with
+    // the pictures-off apology when that stronger wording trailed the HA synthesis pass.
     prompt += '\n\nFor this answer, always set "image": null and do not say you are showing or ' +
       'displaying a picture — image display is not available for this response type.';
+  } else if (context.retrievePicturesEnabled === false) {
+    // Pass-1 / web-search synthesis with retrieve-pictures OFF: the strong gate. Worded to stay
+    // inert on non-picture turns (small models latch onto a bare trailing apology instruction).
+    prompt += '\n\nIMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are ' +
+      'showing or displaying a picture. Only if the user explicitly asked to see a picture, ' +
+      'mention that you can\'t show pictures right now — otherwise this notice is irrelevant: ' +
+      'ignore it and answer the request normally.';
   }
 
   // Personality suffix (append after response format).

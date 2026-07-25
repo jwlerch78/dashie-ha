@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.1.0"
+version: "0.1.1"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -30,10 +30,13 @@ map:
 # http://<hostname>:8099 — no host ports published.
 ports: {}
 
-# llm_url:     base URL of an OpenAI-compatible model server (no trailing /v1),
-#              e.g. http://homeassistant.local:11434 (Ollama) or a provider's
-#              compat endpoint. llm_model: the model id to run. llm_api_key:
-#              bearer key — leave blank for local Ollama/llama.cpp.
+# llm_url:     an OpenAI-compatible model server — either a base URL (we append
+#              /v1/chat/completions), e.g. http://homeassistant.local:11434 for
+#              Ollama, or a FULL chat-completions URL for providers whose compat
+#              path differs (Gemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions,
+#              OpenRouter: https://openrouter.ai/api/v1/chat/completions).
+#              llm_model: the model id to run. llm_api_key: bearer key — leave
+#              blank for local Ollama/llama.cpp.
 options:
   log_level: info
   llm_url: ""

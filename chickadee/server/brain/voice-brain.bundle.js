@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 1d644d036c02fd0c8659de2dceaebe52ad5f3532
+   Source git SHA: 36fa0b2eac2d6637fa88595b626fdecddb61a848
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md + build plan §13.16
    ============================================================ */
@@ -2057,12 +2057,12 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
       prompt = injectMultiBlock(prompt);
     }
   }
-  if (context.retrievePicturesEnabled === false) {
+  if (inquiryType && inquiryType !== "web-search") {
+    prompt += '\n\nFor this answer, always set "image": null and do not say you are showing or displaying a picture \u2014 image display is not available for this response type.';
+  } else if (context.retrievePicturesEnabled === false) {
     prompt += `
 
-IMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are showing or displaying a picture. If asked for a picture, say you can't show pictures right now.`;
-  } else if (inquiryType && inquiryType !== "web-search") {
-    prompt += '\n\nFor this answer, always set "image": null and do not say you are showing or displaying a picture \u2014 image display is not available for this response type.';
+IMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are showing or displaying a picture. Only if the user explicitly asked to see a picture, mention that you can't show pictures right now \u2014 otherwise this notice is irrelevant: ignore it and answer the request normally.`;
   }
   if (personalityConfig && personalityConfig.responseSuffix) {
     prompt += personalityConfig.responseSuffix;
@@ -5157,4 +5157,4 @@ function toolMeta(parsed, route, caps) {
   templateCanAnswer,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "1d644d036c02fd0c8659de2dceaebe52ad5f3532";
+module.exports.BRAIN_SOURCE_SHA = "36fa0b2eac2d6637fa88595b626fdecddb61a848";

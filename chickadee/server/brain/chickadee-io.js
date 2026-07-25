@@ -33,7 +33,11 @@ const TEMPERATURE = { decide: 0, narrate: 0.7 };
  * @param {function} [opts.log]
  */
 function createChickadeeIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', providerLabel = '', extraHeaders = {}, extraBody = {}, log = console.log }) {
-    const chatUrl = chatUrlOpt || (String(endpoint).replace(/\/+$/, '') + '/v1/chat/completions');
+    // endpoint may be a base URL (we append /v1/chat/completions — Ollama/llama.cpp/vLLM)
+    // or a FULL chat-completions URL for providers whose compat path differs
+    // (Gemini: .../v1beta/openai/chat/completions, OpenRouter: .../api/v1/chat/completions).
+    const base = String(endpoint || '').replace(/\/+$/, '');
+    const chatUrl = chatUrlOpt || (/\/chat\/completions$/.test(base) ? base : base + '/v1/chat/completions');
     const authHeaders = { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...extraHeaders };
 
     async function callGateway({ provider, prompt, modelId, kind = 'narrate' }) {
