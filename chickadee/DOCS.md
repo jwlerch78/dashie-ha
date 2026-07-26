@@ -11,12 +11,16 @@ ports are published.
 
 ## Setup in one minute
 
-1. Configure at least `llm_url` + `llm_model` below and start the add-on.
+1. Start the add-on, then either **sign in** (open the Chickadee panel in the HA
+   sidebar — hosted Chickadee Cloud engines, metered) or configure your own
+   engine URLs below. Anything you leave blank uses Chickadee Cloud when signed
+   in.
 2. Install the Chickadee **integration** (HACS custom repo
    `https://github.com/jwlerch78/chickadee`) and add it in
-   Settings → Devices & Services.
-3. Build a pipeline in Settings → Voice assistants using the Chickadee
-   conversation / STT / TTS entities (mix with Whisper/Piper/HA Cloud freely).
+   Settings → Devices & Services — the add-on is discovered automatically.
+3. A ready-to-use Assist pipeline wired to the Chickadee conversation / STT /
+   TTS entities is created for you (edit or mix with Whisper/Piper/HA Cloud
+   freely in Settings → Voice assistants).
 
 ## Options
 
@@ -60,6 +64,16 @@ models are reliable.
 | Option | Meaning |
 |---|---|
 | `log_level` | Add-on log verbosity. `debug` shows per-turn engine routing. |
+| `cloud_env` | Which Chickadee Cloud environment a signed-in account uses (`development` / `production`). |
+
+## Chickadee Cloud (hosted engines)
+
+Sign in from the **Chickadee panel** in the HA sidebar (link + code, approve
+from any browser). While signed in, every engine you leave blank runs on
+Chickadee Cloud under your account — brain, speech-to-text, and voices —
+metered against your credit balance. Configured URLs always win over the
+hosted fallback, so mixing (own LLM + hosted voices, or the reverse) is one
+Configuration-tab edit.
 
 Options are read fresh on each turn — changing configuration only needs an add-on
 **restart**, never a rebuild.
@@ -74,12 +88,12 @@ on your LAN and point `llm_url` / `stt_url` / `tts_url` at it — mixing is fine
 
 ## How the bridge auth works
 
-At startup the add-on generates a random bridge secret and writes it to
-`.chickadee/bridge_secret` inside your Home Assistant config directory. The
-integration reads it there and presents it on every request
-(`X-Chickadee-Bridge-Secret`); anything without it gets a 401. The secret never
-leaves the box. (Note: other add-ons with a config-directory mount could read
-this file — a Supervisor-discovery handoff is planned to close that.)
+At startup the add-on generates a random bridge secret and publishes it to the
+integration via **Supervisor discovery** (the same credential channel the MQTT
+broker uses); the integration presents it on every request
+(`X-Chickadee-Bridge-Secret`), and anything without it gets a 401. The secret
+never leaves the box. A copy is also written to `.chickadee/bridge_secret` in
+the HA config directory as a fallback for older integration versions.
 
 ## Troubleshooting
 

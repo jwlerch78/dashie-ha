@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 — 2026-07-25
+
+### Added
+- **Chickadee Cloud (hosted engines)** — sign in from the new **Chickadee panel**
+  in the HA sidebar (device flow: link + code, approve from any browser). While
+  signed in, any engine left unconfigured runs on Chickadee Cloud under your
+  account: brain, speech-to-text (Whisper), and voices — metered.
+- `cloud_env` option (development / production).
+- Degraded cloud turns (e.g. an empty credit balance) are now spoken instead of
+  silently answering "OK."
+
+## 0.2.2 — 2026-07-25
+
+### Added
+- `/api/voice/voices` — the configured TTS engine's voice catalog now feeds
+  Home Assistant's native voice picker (e.g. all 68 Kokoro voices).
+
+## 0.2.1 — 2026-07-25
+
+### Changed
+- The bridge secret is now handed to the integration via **Supervisor
+  discovery** (the MQTT-broker credential pattern) instead of a file other
+  add-ons could read. File copies remain as a fallback for older integrations.
+
 ## 0.2.0 — 2026-07-25
 
 - **STT and TTS engine endpoints** — the add-on now serves `/api/voice/stt` and
