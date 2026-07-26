@@ -9,11 +9,33 @@
 'use strict';
 
 const fs = require('fs');
-const { CLOUD, CLOUD_ENV, JWT_FILE } = require('./config');
+const path = require('path');
+const crypto = require('crypto');
+const { CLOUD, CLOUD_ENV, JWT_FILE, DATA_DIR } = require('./config');
 
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;   // refresh when <24h remain
 const DEVICE_TYPE = 'ha_app';                        // shared flow type (edge-fn validated)
 const EDGE_FN_URL = CLOUD.url + '/functions/v1/jwt-auth';
+const DEVICE_ID_FILE = path.join(DATA_DIR, 'chickadee_device_id');
+
+/**
+ * Stable device id for this add-on install, persisted OUTSIDE the JWT file so
+ * it survives sign-out. Sent on every credential mint (device-flow poll +
+ * email ops) so jwt-auth registers a user_devices row — without one, an
+ * ha_app JWT is `device_revoked` at its first refresh (D5) and the session
+ * silently dies at 72h.
+ */
+function getStableDeviceId() {
+    try {
+        const id = fs.readFileSync(DEVICE_ID_FILE, 'utf8').trim();
+        if (/^[A-Za-z0-9_-]{8,64}$/.test(id)) return id;
+    } catch { /* absent — create below */ }
+    const id = `chickadee-addon-${crypto.randomBytes(6).toString('hex')}`;
+    try { fs.writeFileSync(DEVICE_ID_FILE, id, { mode: 0o600 }); } catch (e) {
+        console.warn('[auth] could not persist device id (using ephemeral):', e.message);
+    }
+    return id;
+}
 
 function readStoredJwt() {
     try {
@@ -55,7 +77,8 @@ function clearStoredJwt() {
     try { fs.unlinkSync(JWT_FILE); } catch { /* absent */ }
 }
 
-async function edgeFnCall(operation, data = {}) {
+/** Edge-fn call returning { status, body } — body JSON-parsed when possible. */
+async function edgeFnCallRaw(operation, data = {}) {
     const resp = await fetch(EDGE_FN_URL, {
         method: 'POST',
         headers: {
@@ -64,11 +87,18 @@ async function edgeFnCall(operation, data = {}) {
         },
         body: JSON.stringify({ operation, data }),
     });
-    if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        throw new Error(`${operation} HTTP ${resp.status}: ${body.slice(0, 200)}`);
+    const text = await resp.text().catch(() => '');
+    let body;
+    try { body = JSON.parse(text); } catch { body = { error: 'bad_response', message: text.slice(0, 200) }; }
+    return { status: resp.status, body };
+}
+
+async function edgeFnCall(operation, data = {}) {
+    const { status, body } = await edgeFnCallRaw(operation, data);
+    if (status < 200 || status >= 300) {
+        throw new Error(`${operation} HTTP ${status}: ${JSON.stringify(body).slice(0, 200)}`);
     }
-    return resp.json();
+    return body;
 }
 
 /** Create a device code → { device_code, user_code, verification_url, expires_in, interval }. */
@@ -93,6 +123,9 @@ async function createDeviceCode() {
     } catch {
         verification_url = `${CLOUD.verificationBase}/auth.html?code=${encodeURIComponent(result.user_code || '')}&type=${DEVICE_TYPE}`;
     }
+    // Chickadee skin on the approval pages (brand-config.js there; unknown
+    // param = no-op on older deploys, so this is safe to send unconditionally).
+    verification_url += '&brand=chickadee';
     return {
         device_code: result.device_code,
         user_code: result.user_code,
@@ -104,7 +137,12 @@ async function createDeviceCode() {
 
 /** Poll → { status: 'pending' | 'authorized' | 'expired' }. Persists the JWT on approval. */
 async function pollDeviceCode(deviceCode) {
-    const result = await edgeFnCall('poll_device_code_status', { device_code: deviceCode });
+    // device_id: the poll is the mint moment — jwt-auth stamps this stable id
+    // into the JWT and registers the user_devices row that keeps it refreshable.
+    const result = await edgeFnCall('poll_device_code_status', {
+        device_code: deviceCode,
+        device_id: getStableDeviceId(),
+    });
     if (result.success && result.jwtToken) {
         const stored = writeStoredJwt({
             jwt: result.jwtToken,
@@ -118,6 +156,40 @@ async function pollDeviceCode(deviceCode) {
     if (result.status === 'expired_token' || result.status === 'expired') return { status: 'expired' };
     return { status: 'pending' };
 }
+
+/**
+ * Email/password sign-in or sign-up via jwt-auth (email_signin/email_signup).
+ * Success persists the JWT (same stored shape as the device flow) and returns
+ * { ok: true, user }. Failure returns { ok: false, error, message } with the
+ * edge fn's structured code (invalid_credentials, account_exists,
+ * use_google_signin, rate_limited, ...) for the panel to display.
+ */
+async function emailAuth(operation, { email, password, name }) {
+    const { status, body } = await edgeFnCallRaw(operation, {
+        email,
+        password,
+        name,
+        device_type: DEVICE_TYPE,
+        device_id: getStableDeviceId(),
+    });
+    if (body?.success && body.jwtToken) {
+        const stored = writeStoredJwt({
+            jwt: body.jwtToken,
+            userId: body.user?.id,
+            userEmail: body.user?.email,
+            userName: body.user?.name,
+        });
+        console.log(`[auth] ${operation}: signed in as ${stored.userEmail} (${CLOUD_ENV})`);
+        return { ok: true, user: body.user };
+    }
+    const error = body?.error || `http_${status}`;
+    const message = body?.message || body?.details || 'Sign-in failed.';
+    console.warn(`[auth] ${operation} rejected: ${error}`);
+    return { ok: false, error, message };
+}
+
+const emailSignIn = (creds) => emailAuth('email_signin', creds);
+const emailSignUp = (creds) => emailAuth('email_signup', creds);
 
 async function refreshJwt(currentJwt) {
     const resp = await fetch(EDGE_FN_URL, {
@@ -167,5 +239,7 @@ module.exports = {
     clearStoredJwt,
     createDeviceCode,
     pollDeviceCode,
+    emailSignIn,
+    emailSignUp,
     getValidJwt,
 };

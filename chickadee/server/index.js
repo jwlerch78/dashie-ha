@@ -15,13 +15,13 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
-const { handleAuthStatus, handleStartLink, handlePollLink, handleSignOut } = require('./api-auth');
+const { handleAuthStatus, handleStartLink, handlePollLink, handleSignOut, handleEmailSignIn, handleEmailSignUp } = require('./api-auth');
 const { converse } = require('./converse');
 const { publishWithRetry } = require('./discovery');
 const { handleStt, handleTts, handleVoices } = require('./engines');
 const brainMeta = require('./brain/voice-brain.bundle.meta.json');
 
-const VERSION = '0.3.0';  // keep in step with config.yaml version
+const VERSION = '0.4.0';  // keep in step with config.yaml version
 const PORT = 8099;
 const DATA_DIR = '/data';
 const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
@@ -149,6 +149,8 @@ const AUTH_ROUTES = {
     'POST /api/auth/start-link': handleStartLink,
     'POST /api/auth/poll-link': handlePollLink,
     'POST /api/auth/sign-out': handleSignOut,
+    'POST /api/auth/email-signin': handleEmailSignIn,
+    'POST /api/auth/email-signup': handleEmailSignUp,
 };
 
 const server = http.createServer((req, res) => {
@@ -165,7 +167,7 @@ const server = http.createServer((req, res) => {
     }
     const authHandler = AUTH_ROUTES[`${req.method} ${url}`];
     if (authHandler) {
-        authHandler(req, res, sendJson).catch((e) => {
+        authHandler(req, res, sendJson, readBody).catch((e) => {
             console.error('[auth] DROP: handler crashed:', e.message);
             sendJson(res, 500, { error: 'internal' });
         });

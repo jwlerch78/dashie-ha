@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — 2026-07-26
+
+### Added
+- **Email/password accounts** — create a Chickadee account or sign in directly
+  from the panel, no second device and no Google required.
+- **Streamlined Google sign-in** — "Continue with Google" opens the approval
+  page in a new tab of the same browser (code pre-filled); the panel picks the
+  session up automatically.
+- Credit balance shown in the panel while signed in, with a pointer to
+  self-hosted engines when the balance is empty.
+
+### Fixed
+- Sessions now survive their first token refresh: the add-on registers a
+  stable device id at sign-in (previously every session silently expired
+  after ~72 hours when the refresh was rejected as an unknown device).
+
 ## 0.3.0 — 2026-07-25
 
 ### Added

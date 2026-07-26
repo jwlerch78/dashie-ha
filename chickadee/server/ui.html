@@ -11,8 +11,16 @@
   .card { border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
   button { font-size: 15px; padding: 9px 18px; border-radius: 8px; border: 1px solid #2f7dd1; background: #2f7dd1; color: #fff; cursor: pointer; }
   button.ghost { background: none; color: inherit; border-color: color-mix(in srgb, currentColor 30%, transparent); }
+  button.linklike { background: none; border: none; color: #2f7dd1; padding: 0; font-size: 13px; text-decoration: underline; }
+  button:disabled { opacity: .5; cursor: default; }
+  input { font-size: 15px; padding: 8px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); background: transparent; color: inherit; width: 100%; box-sizing: border-box; margin: 4px 0 10px; }
+  label { font-size: 13px; opacity: .8; }
   .code { font-size: 30px; letter-spacing: 5px; font-weight: 700; text-align: center; margin: 10px 0; }
   .muted { opacity: .7; font-size: 13px; }
+  .err { color: #d13b3b; font-size: 14px; margin: 6px 0; min-height: 1em; }
+  .divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; opacity: .6; font-size: 13px; }
+  .divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); }
+  .warn { border-left: 3px solid #d1a03b; padding-left: 10px; font-size: 13px; opacity: .85; margin-top: 10px; }
   table { width: 100%; font-size: 14px; border-collapse: collapse; } td { padding: 3px 0; } td:first-child { opacity: .7; width: 60px; }
   a { color: #2f7dd1; }
 </style>
@@ -24,7 +32,9 @@
 // Relative URLs throughout — the page is served via HA Ingress, so absolute
 // paths would escape the ingress prefix.
 const $ = (h) => { document.getElementById('app').innerHTML = h; };
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let pollTimer = null;
+let signupMode = false;
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -33,32 +43,94 @@ async function api(path, opts) {
 
 function enginesTable(e) {
   return `<div class="card"><b>Engines</b><table>
-    <tr><td>Brain</td><td>${e.llm}</td></tr>
-    <tr><td>STT</td><td>${e.stt}</td></tr>
-    <tr><td>TTS</td><td>${e.tts}</td></tr></table>
+    <tr><td>Brain</td><td>${esc(e.llm)}</td></tr>
+    <tr><td>STT</td><td>${esc(e.stt)}</td></tr>
+    <tr><td>TTS</td><td>${esc(e.tts)}</td></tr></table>
     <p class="muted">Point any of these at your own OpenAI-compatible server in the add-on Configuration tab — signed-in accounts use Chickadee Cloud for whatever you leave blank.</p></div>`;
+}
+
+function creditLine(balance) {
+  if (balance === null || balance === undefined) return '';
+  const amount = `$${Number(balance).toFixed(2)}`;
+  const low = Number(balance) <= 0;
+  return low
+    ? `<div class="warn">Credits: <b>${amount}</b> — Chickadee Cloud engines need credits. Add them in the console, or point the engines at your own servers (Configuration tab) to skip credits entirely.</div>`
+    : `<p class="muted">Chickadee Cloud credits: <b>${amount}</b></p>`;
+}
+
+function emailForm() {
+  return `
+    <label>Email</label>
+    <input id="em" type="email" autocomplete="email" placeholder="you@example.com">
+    ${signupMode ? '<label>Name (optional)</label><input id="nm" type="text" autocomplete="name" placeholder="Your name">' : ''}
+    <label>Password${signupMode ? ' (8+ characters)' : ''}</label>
+    <input id="pw" type="password" autocomplete="${signupMode ? 'new-password' : 'current-password'}">
+    <div class="err" id="email-err"></div>
+    <button onclick="submitEmail()" id="email-btn">${signupMode ? 'Create account' : 'Sign in'}</button>
+    <p class="muted">${signupMode
+      ? 'Already have an account? <button class="linklike" onclick="toggleMode(false)">Sign in</button>'
+      : 'New to Chickadee? <button class="linklike" onclick="toggleMode(true)">Create an account</button>'}</p>`;
 }
 
 async function render() {
   clearInterval(pollTimer);
   const s = await api('api/auth/status');
   if (s.authenticated) {
-    $(`<div class="card"><b>Signed in</b> as ${s.user_email} <span class="muted">(${s.cloud_env})</span><br><br>
+    $(`<div class="card"><b>Signed in</b> as ${esc(s.user_email)} <span class="muted">(${esc(s.cloud_env)})</span>
+       ${creditLine(s.credit_balance)}<br>
        <button class="ghost" onclick="signOut()">Sign out</button></div>` + enginesTable(s.engines));
   } else {
-    $(`<div class="card"><b>Not signed in</b><p>Sign in with a Chickadee account to use Chickadee Cloud for the brain, speech-to-text, and voices — or configure your own engines in the add-on Configuration tab and skip the account entirely.</p>
-       <button onclick="startLink()">Sign in</button></div>` + enginesTable(s.engines));
+    $(`<div class="card"><b>Sign in to Chickadee</b>
+       <p class="muted">A Chickadee account powers the cloud brain, speech-to-text, and voices — or configure your own engines in the Configuration tab and skip the account entirely.</p>
+       ${emailForm()}
+       <div class="divider">or</div>
+       <button class="ghost" onclick="startLink()">Continue with Google</button>
+       </div>` + enginesTable(s.engines));
   }
+}
+
+function toggleMode(v) { signupMode = v; render(); }
+
+async function submitEmail() {
+  const email = document.getElementById('em').value.trim();
+  const password = document.getElementById('pw').value;
+  const name = signupMode ? (document.getElementById('nm')?.value || '') : '';
+  const errEl = document.getElementById('email-err');
+  const btn = document.getElementById('email-btn');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Enter your email and password.'; return; }
+  btn.disabled = true;
+  try {
+    const r = await api(signupMode ? 'api/auth/email-signup' : 'api/auth/email-signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (r.ok) { render(); return; }
+    // Point Google-account emails at the right button; everything else shows
+    // the edge fn's message verbatim.
+    errEl.textContent = r.error === 'use_google_signin'
+      ? 'This email signs in with Google — use "Continue with Google" below.'
+      : (r.message || r.error || 'Sign-in failed.');
+  } catch (e) {
+    errEl.textContent = 'Could not reach the add-on: ' + e.message;
+  }
+  btn.disabled = false;
 }
 
 async function startLink() {
   const link = await api('api/auth/start-link', { method: 'POST' });
   if (link.error) { alert(link.message || link.error); return; }
-  $(`<div class="card"><b>Approve this sign-in</b>
-     <p>Open the link below on any device and enter the code:</p>
-     <div class="code">${link.user_code}</div>
-     <p style="text-align:center"><a href="${link.verification_url}" target="_blank" rel="noopener">${link.verification_url}</a></p>
-     <p class="muted">Waiting for approval… this page updates automatically.</p>
+  // Same-browser flow: open the (pre-filled, Chickadee-branded) approval page
+  // in a new tab — Google blocks OAuth inside iframes, so it can't run in the
+  // Ingress panel itself. The code below is only the popup-blocker fallback.
+  const opened = window.open(link.verification_url, '_blank', 'noopener');
+  $(`<div class="card"><b>Finish signing in with Google</b>
+     ${opened ? '<p>A sign-in tab has opened — complete the Google sign-in there, then come back. This page updates automatically.</p>'
+              : '<p>Your browser blocked the sign-in tab. Open this link to continue:</p>'}
+     <p style="text-align:center"><a href="${link.verification_url}" target="_blank" rel="noopener">${esc(link.verification_url)}</a></p>
+     <p class="muted">Signing in from another device instead? Open that link there and enter code <b>${esc(link.user_code)}</b>.</p>
+     <p class="muted">Waiting for approval…</p>
      <button class="ghost" onclick="render()">Cancel</button></div>`);
   pollTimer = setInterval(async () => {
     const p = await api('api/auth/poll-link', { method: 'POST' });
@@ -68,6 +140,7 @@ async function startLink() {
 
 async function signOut() {
   await api('api/auth/sign-out', { method: 'POST' });
+  signupMode = false;
   render();
 }
 

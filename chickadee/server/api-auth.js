@@ -7,11 +7,32 @@
 'use strict';
 
 const auth = require('./auth');
-const { CLOUD_ENV } = require('./config');
+const { CLOUD, CLOUD_ENV } = require('./config');
 const { readOptions } = require('./options');
 
 // One active link attempt per add-on instance.
 let pendingLink = null;   // { device_code, user_code, verification_url, expires_at, interval }
+
+/**
+ * Best-effort credit balance for the signed-in account (RLS-scoped read with
+ * the stored JWT). null = unknown/not signed in — the panel treats null as
+ * "don't show the line", never as zero.
+ */
+async function fetchCreditBalance(stored) {
+    if (!stored?.jwt) return null;
+    try {
+        const resp = await fetch(`${CLOUD.url}/rest/v1/user_credits?select=balance`, {
+            headers: { apikey: CLOUD.anonKey, Authorization: `Bearer ${stored.jwt}` },
+            signal: AbortSignal.timeout(2500),
+        });
+        if (!resp.ok) return null;
+        const rows = await resp.json();
+        // No row yet = account has never been granted credits → balance 0.
+        return Array.isArray(rows) ? (rows.length ? Number(rows[0].balance) : 0) : null;
+    } catch {
+        return null;
+    }
+}
 
 async function handleAuthStatus(req, res, sendJson) {
     const stored = auth.readStoredJwt();
@@ -20,6 +41,7 @@ async function handleAuthStatus(req, res, sendJson) {
         authenticated: !!stored,
         user_email: stored?.userEmail || null,
         user_name: stored?.userName || null,
+        credit_balance: await fetchCreditBalance(stored),
         cloud_env: CLOUD_ENV,
         engines: {
             llm: opts.llm_url ? `${opts.llm_model || '?'} @ ${opts.llm_url}` : (stored ? 'Chickadee Cloud' : 'not configured'),
@@ -69,4 +91,35 @@ async function handleSignOut(req, res, sendJson) {
     sendJson(res, 200, { ok: true });
 }
 
-module.exports = { handleAuthStatus, handleStartLink, handlePollLink, handleSignOut };
+// ── Email/password (direct form in the Ingress panel — no second tab) ──────
+
+function parseEmailBody(raw) {
+    let body;
+    try { body = JSON.parse(raw || '{}'); } catch { return null; }
+    const email = typeof body.email === 'string' ? body.email.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '';
+    if (!email || !password) return null;
+    return { email, password, name };
+}
+
+async function handleEmailSignIn(req, res, sendJson, readBody) {
+    const creds = parseEmailBody(await readBody(req));
+    if (!creds) { sendJson(res, 400, { ok: false, error: 'bad_request', message: 'Email and password are required.' }); return; }
+    sendJson(res, 200, await auth.emailSignIn(creds));
+}
+
+async function handleEmailSignUp(req, res, sendJson, readBody) {
+    const creds = parseEmailBody(await readBody(req));
+    if (!creds) { sendJson(res, 400, { ok: false, error: 'bad_request', message: 'Email and password are required.' }); return; }
+    sendJson(res, 200, await auth.emailSignUp(creds));
+}
+
+module.exports = {
+    handleAuthStatus,
+    handleStartLink,
+    handlePollLink,
+    handleSignOut,
+    handleEmailSignIn,
+    handleEmailSignUp,
+};
