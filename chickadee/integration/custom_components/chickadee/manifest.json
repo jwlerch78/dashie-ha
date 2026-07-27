@@ -12,10 +12,10 @@
     "stt",
     "tts"
   ],
-  "documentation": "https://github.com/jwlerch78/chickadee",
+  "documentation": "https://github.com/jwlerch78/chickadee-integration",
   "integration_type": "service",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/jwlerch78/chickadee/issues",
+  "issue_tracker": "https://github.com/jwlerch78/chickadee-integration/issues",
   "requirements": [],
-  "version": "0.4.0"
+  "version": "0.4.1"
 }

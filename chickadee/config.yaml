@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.8.0"
+version: "0.8.1"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
