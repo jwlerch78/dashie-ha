@@ -231,7 +231,7 @@ const VoiceAiOptions = {
         // Chickadee names the actual suppliers (open-core transparency); Dashie keeps its brand label.
         { id: 'dashie_cloud',
           label: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
-              ? 'Cloud STT (Deepgram / Whisper)' : `${BRAND.cloudName} STT`,
+              ? 'Cloud STT (Deepgram)' : `${BRAND.cloudName} STT`,
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
           description: 'Streaming, premium accuracy.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
