@@ -10,11 +10,11 @@ Usage:
   entry_flow.py delete-pipeline <name>   # delete a pipeline by exact name
 
 Built for the auto-create-pipeline verify: delete + re-add the entry without the
-UI, then check the pipeline appeared. Auth from ~/.ha_token via ha.dashieapp.com.
+UI, then check the pipeline appeared. Auth from ~/.ha_token via your HA host (CHICKADEE_HA_HOST).
 """
 import asyncio, json, os, sys, urllib.request
 
-HA = "ha.dashieapp.com"
+HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
 HDRS = {
     "Authorization": f"Bearer {TOKEN}",

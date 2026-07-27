@@ -12,7 +12,7 @@ import asyncio, json, os, sys, wave
 
 import websockets
 
-HA = "ha.dashieapp.com"
+HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
 PIPELINE_NAME = sys.argv[2] if len(sys.argv) > 2 else "Chickadee (full)"
 ALLOW_CREATE = len(sys.argv) <= 2
