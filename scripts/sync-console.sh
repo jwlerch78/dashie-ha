@@ -99,6 +99,30 @@ try {
     if (fav) fav.href = BRAND.icon;
 } catch (_) { /* non-browser */ }
 
+// Chickadee theme: brand navy accent (#131B28, the dark wordmark's background)
+// replaces Dashie orange. The console is fully accent-var driven, so four
+// variable overrides re-skin everything (preset outlines/checkmarks, toggles,
+// tabs, active nav, primary buttons); the one exception is the active
+// nav-icon tint, which is a CSS filter (filters can't read vars) — overridden
+// with a navy-producing chain. Injected AFTER the stylesheets (brand.js is the
+// first <script>, below the <link>s) so equal-specificity rules win by order;
+// the vendored CSS stays byte-identical to upstream.
+try {
+    const theme = document.createElement('style');
+    theme.textContent = [
+        ':root {',
+        '  --accent: #131B28;',
+        '  --accent-hover: #24354E;',
+        '  --accent-bg: rgba(19, 27, 40, 0.07);',
+        '  --accent-bg-hover: rgba(19, 27, 40, 0.13);',
+        '}',
+        '.sidebar-nav-item.active .nav-icon img {',
+        '  filter: brightness(0) saturate(100%) invert(9%) sepia(22%) saturate(1400%) hue-rotate(192deg) brightness(96%) contrast(96%);',
+        '}',
+    ].join('\n');
+    document.head.appendChild(theme);
+} catch (_) { /* non-browser */ }
+
 window.BRAND = BRAND;
 EOF
 
