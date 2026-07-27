@@ -38,6 +38,8 @@ const AccountPage = {
      *  a Subscribe banner up top and a Subscribe button in the Subscription
      *  Status card; a third in the header would just be noise. */
     topBarActions() {
+        // Chickadee: no Dashie subscription to manage — credits are the meter.
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild()) return '';
         const expired = typeof SubscribeGate !== 'undefined' && SubscribeGate.isRequired(this._data);
         if (expired) return '';
         return `
@@ -141,7 +143,10 @@ const AccountPage = {
         const user = DashieAuth.user;
         const d = this._data || {};
 
-        const expired = typeof SubscribeGate !== 'undefined' && SubscribeGate.isRequired(d);
+        // Chickadee: identity + danger zone only — plan/trial/subscribe are
+        // Dashie-product surfaces (credits live on the Credits page).
+        const chickadee = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
+        const expired = !chickadee && typeof SubscribeGate !== 'undefined' && SubscribeGate.isRequired(d);
         const isCancel = d.subscription_status === 'canceled';
         const bannerCopy = isCancel
             ? `Your subscription has ended. Subscribe to keep using ${BRAND.productName}’s calendar, photos, family sharing, and more.`
@@ -168,9 +173,10 @@ const AccountPage = {
                     ${user.email} · Signed in via Google
                 </div>
 
+                ${chickadee ? '' : `
                 <div class="stat-cards">
                     ${this._renderPlanBox(d)}
-                </div>
+                </div>`}
 
                 <div class="section-header" style="color: var(--status-error, #c00); margin-top: 32px;">Danger Zone</div>
                 <div class="card" style="border-color: var(--status-error, #c00);">

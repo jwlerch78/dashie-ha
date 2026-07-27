@@ -105,6 +105,8 @@ const Sidebar = {
      * fires App.renderPage().
      */
     _renderTrialPill() {
+        // Chickadee: credits-metered voice only — no Dashie plan/trial surface.
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild()) return '';
         if (typeof SubscriptionStatus === 'undefined') return '';
         const chip = SubscriptionStatus.chip();
         if (!chip) return '';

@@ -52,6 +52,9 @@ const SubscribeGate = {
      * Non-blocking — caller doesn't need to await.
      */
     async checkAndShow() {
+        // Chickadee build: no Dashie plan/trial — never prompt, never push
+        // entitlement state (credits are enforced server-side per call).
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild()) return;
         if (this._shownThisSession || this._checking) return;
         if (typeof DashieAuth === 'undefined' || !DashieAuth.isAuthenticated || !DashieAuth.user?.id) return;
 

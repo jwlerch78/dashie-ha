@@ -59,6 +59,9 @@ const FeatureGate = {
     CHICKADEE_HIDDEN_PAGES: new Set([
         'devices', 'family', 'calendar', 'chores', 'rewards',
         'locations', 'photos', 'video-feeds',
+        // Preferences duplicates what HA already knows (language/time/units) —
+        // the Chickadee stack derives from HA config instead (John, 2026-07-27).
+        'preferences',
     ]),
 
     /**
@@ -268,7 +271,14 @@ const FeatureGate = {
 
     /** True if the given page route should be visible in the current env. */
     isPageEnabled(page) {
-        if (this.isChickadeeBuild() && this.CHICKADEE_HIDDEN_PAGES.has(page)) return false;
+        if (this.isChickadeeBuild()) {
+            if (this.CHICKADEE_HIDDEN_PAGES.has(page)) return false;
+            const key = this.PAGE_FEATURE[page];
+            // Dashie plan/trial entitlement gating doesn't exist in the open
+            // build — visibility is the feature rules only; credits are
+            // enforced server-side per metered call.
+            return !(key && !this.shouldShow(key));
+        }
         const key = this.PAGE_FEATURE[page];
         if (key && !this.shouldShow(key)) return false;
         if (this.isHaOnly() && this.HA_ONLY_HIDDEN_PAGES.has(page)) return false;

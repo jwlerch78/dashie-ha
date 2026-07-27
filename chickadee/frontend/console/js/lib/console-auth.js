@@ -534,9 +534,17 @@ const DashieAuth = {
             if (user?.name || user?.email) {
                 // Preserve a previously stored Google avatar — this path (add-on
                 // JWT) has no picture of its own and used to clobber it.
+                // Preserve a previously stored Google avatar ONLY for the SAME
+                // account — this path (add-on JWT) has no picture of its own,
+                // and blindly reusing it showed the PREVIOUS user's avatar
+                // after an account switch (jwlerch wearing floridalerches'
+                // photo, 2026-07-27).
                 let prevPicture = '';
                 try {
-                    prevPicture = JSON.parse(localStorage.getItem('dashie-user-data') || '{}').picture || '';
+                    const prev = JSON.parse(localStorage.getItem('dashie-user-data') || '{}');
+                    if (prev.email && user?.email && prev.email === user.email) {
+                        prevPicture = prev.picture || '';
+                    }
                 } catch (e) {}
                 localStorage.setItem('dashie-user-data', JSON.stringify({
                     name: user?.name || '',
