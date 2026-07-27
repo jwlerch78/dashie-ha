@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 — 2026-07-27
+
+### Added
+- **The Chickadee Console** — the panel is now a full console (replacing the
+  minimal sign-in page): Voice & AI (pipeline presets, engine pickers with
+  live probe/preview, personalities), API Keys (on-box BYO provider keys,
+  never synced), Local Engines (network scan for Ollama / Kokoro / Piper /
+  Whisper on your LAN), Preferences, Credits, and Account.
+- Console API surface: `/api/runtime`, `/api/auth/*` (device flow + the 0.4.0
+  email/password endpoints), `/api/voice/engines|probe|preview|discover|
+  converse-local|local-status`, `/api/keys/*`, `/api/settings/*`.
+- Engine detection over the HA WebSocket API (`homeassistant_api` permission
+  added) — the console lists your HA's real STT/TTS engines and voices.
+- `backup_exclude` for on-box secrets (`api-keys.json`, the account-config
+  replay cache).
+
+### Changed
+- The server is now Express with npm dependencies (`express`, `ws`) — no
+  longer dependency-free. The **bridge surface is unchanged**: `/api/ping` +
+  `/api/voice/converse|stt|tts|voices` keep their paths, auth, and shapes.
+- Signed-out consoles show the sign-in screen; engine URLs remain
+  configurable from the add-on Configuration tab either way.
+
 ## 0.4.0 — 2026-07-26
 
 ### Added
