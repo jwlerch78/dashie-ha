@@ -30,7 +30,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, haWs;
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haWs;
 try {
     path = require('path');
     fs = require('fs');
@@ -45,6 +45,7 @@ try {
     voiceConsoleRouter = require('./api/voice-console');
     keysRouter = require('./api/keys');
     settingsRouter = require('./api/settings');
+    internalRouter = require('./api/internal');
     haWs = require('./ha-ws');
 } catch (err) {
     console.error('[fatal] Failed to load modules:', err?.stack || err);
@@ -148,6 +149,8 @@ app.use('/api/auth', consoleAuthRouter);
 app.use('/api/voice', voiceConsoleRouter);   // engines/probe/preview/discover/… (bridge routes matched above)
 app.use('/api/keys', keysRouter);
 app.use('/api/settings', settingsRouter);
+// Bridge-secret gated (LAN-sharing lane for the integration's /api/dashie/voice/* views).
+app.use('/api/internal', internalRouter);
 
 // ── Frontend: the vendored Chickadee console ──────────────────────────────────
 
