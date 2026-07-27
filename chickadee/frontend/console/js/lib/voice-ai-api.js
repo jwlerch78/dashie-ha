@@ -92,7 +92,11 @@ const VoiceAiApi = {
         'ai.defaultVoiceKey': '',
         // Every APK bundles hey_dashie (WakeWordModel.HEY_DASHIE), so it is always a safe
         // household default — no device can report it unavailable via the model-gap rule.
-        'ai.defaultWakeWord': 'hey_dashie',
+        // Chickadee build: the brand's own wake word (bundled since the 07-26 APK; an
+        // older APK without it falls back per the model-gap rule).
+        'ai.defaultWakeWord':
+            (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
+                ? 'chickadee' : 'hey_dashie',
         // '' = preset not chosen yet — the page derives one from the granular
         // keys (display-only) and persists on the user's first preset click.
         'voice.pipelinePreset': '',
