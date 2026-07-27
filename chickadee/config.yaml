@@ -3,7 +3,7 @@ version: "0.8.1"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
-description: The Chickadee brain runtime — conversation brain + engine routing for the Chickadee integration. Point it at any OpenAI-compatible model server (Ollama, llama.cpp, vLLM, or a provider's compat endpoint with your own key).
+description: Voice & AI for Home Assistant — plug and play. Gives your voice assistant a real brain — ask anything, control your home in plain language, and hear natural voices back. Bring your own AI (local or your API key) or use Chickadee Cloud. Sets up the Chickadee integration and a ready-to-use voice assistant for you.
 url: https://github.com/jwlerch78/chickadee
 arch:
   - aarch64
