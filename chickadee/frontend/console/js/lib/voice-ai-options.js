@@ -88,6 +88,8 @@ const VoiceAiOptions = {
      */
     WAKE_WORDS: [
         { id: 'hey_dashie',      label: 'Hey Dashie' },
+        // Chickadee v0 dual-engine model (open-core brand; standalone keyword).
+        { id: 'chickadee',       label: 'Chickadee' },
         { id: 'mww_okay_nabu',   label: 'Okay Nabu' },
         { id: 'mww_hey_jarvis',  label: 'Hey Jarvis' },
         { id: 'mww_hey_mycroft', label: 'Hey Mycroft' },
