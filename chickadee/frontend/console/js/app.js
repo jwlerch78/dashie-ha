@@ -297,18 +297,29 @@ const App = {
     _renderIntegrationRestartBanner() {
         const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
         if (!info || info.integration_pending_restart !== true) return;
-        const el = document.getElementById('global-banner');
-        if (!el) return;
-        el.innerHTML = `
-            <div id="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border-bottom: 2px solid var(--accent, #2C6ECE); font-size:14px;">
-                <span>✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" card under Settings → Devices &amp; Services.</span>
-                <button class="btn btn-primary btn-sm" id="integration-restart-btn" onclick="App._restartCoreFromBanner()">Restart Home Assistant</button>
+        const html = `
+            <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
+                <span style="flex:1; min-width:220px;">✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" card under Settings → Devices &amp; Services.</span>
+                <button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this)">Restart Home Assistant</button>
             </div>`;
+        // Authed chrome: the strip above the content area.
+        const el = document.getElementById('global-banner');
+        if (el) el.innerHTML = html;
+        // Login screen: the overlay is position:absolute inset:0 and COVERS
+        // #global-banner (the funnel's restart step is usually reached
+        // pre-login, which is exactly when it must be visible) — so also
+        // render a copy at the top of the login card.
+        const card = document.getElementById('login-card');
+        if (card && !card.querySelector('.integration-restart-banner')) {
+            card.insertAdjacentHTML('afterbegin', html + '<div style="height:14px"></div>');
+        }
     },
 
-    async _restartCoreFromBanner() {
-        const btn = document.getElementById('integration-restart-btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Restarting… (about a minute)'; }
+    async _restartCoreFromBanner(btn) {
+        document.querySelectorAll('.integration-restart-banner button').forEach(b => {
+            b.disabled = true; b.textContent = 'Restarting… (about a minute)';
+        });
+        if (btn) { btn.disabled = true; }
         try {
             await fetch(DashieAuth._addonUrl('/api/system/restart-core'), { method: 'POST' });
         } catch (e) { /* the restart drops connections — expected */ }
@@ -358,8 +369,11 @@ const App = {
             : purchaseIntent
             ? 'Sign in to the Google account you wish to purchase a license for.'
             : 'Manage your devices, household, and account from any browser.';
+        const chickadeeBuild = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
         const googleDesc = purchaseIntent
             ? "The account you'll buy the license for"
+            : chickadeeBuild
+            ? `Sign in — or create your ${BRAND.productName} account`
             : `Use your ${BRAND.productName} account`;
 
         // Email/password path — live only when the add-on's runtime advertises
@@ -420,6 +434,9 @@ const App = {
         `;
         this._populateLoginVersion();
         document.getElementById('sidebar').style.display = 'none';
+        // The overlay just replaced #content — re-inject the restart banner
+        // into the fresh login card (see _renderIntegrationRestartBanner).
+        this._renderIntegrationRestartBanner();
     },
 
     async _populateLoginVersion() {
