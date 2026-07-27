@@ -144,7 +144,10 @@ app.get('/api/runtime', async (req, res) => {
     // live check — the installer status alone goes stale across core restarts.
     const instStatus = installer.getStatus();
     let pending = false;
-    if (instStatus === 'installed' || instStatus === 'updated') {
+    // 'current' matters too: if the ADD-ON restarted (e.g. an update) before
+    // the user ever restarted core, the files read as current while the
+    // integration still isn't loaded — the banner must persist until it is.
+    if (instStatus === 'installed' || instStatus === 'updated' || instStatus === 'current') {
         const loaded = await supervisor.isIntegrationLoaded();
         pending = loaded === false;
     }
