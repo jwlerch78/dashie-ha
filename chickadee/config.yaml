@@ -4,7 +4,7 @@ version: "0.8.0"
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
 description: The Chickadee brain runtime — conversation brain + engine routing for the Chickadee integration. Point it at any OpenAI-compatible model server (Ollama, llama.cpp, vLLM, or a provider's compat endpoint with your own key).
-url: https://github.com/jwlerch78/chickadee-addons
+url: https://github.com/jwlerch78/chickadee
 arch:
   - aarch64
   - amd64

@@ -6,7 +6,7 @@ the open voice pipeline that gives your Assist pipeline a real brain.
 ## Installation
 
 1. Settings → Add-ons → Add-on Store → **⋮ → Repositories**
-2. Add `https://github.com/jwlerch78/chickadee-addons`
+2. Add `https://github.com/jwlerch78/chickadee`
 3. Install **Chickadee** and configure your engines (see the add-on's
    Documentation tab)
 4. Install the [Chickadee integration](https://github.com/jwlerch78/chickadee)

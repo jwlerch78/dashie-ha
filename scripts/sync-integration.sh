@@ -9,7 +9,7 @@
 set -euo pipefail
 
 BRANCH="${1:-main}"
-REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/chickadee}"
+REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/chickadee-integration}"
 ADDON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="$ADDON_ROOT/chickadee/integration"
 
