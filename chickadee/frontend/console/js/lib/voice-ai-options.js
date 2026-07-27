@@ -228,7 +228,11 @@ const VoiceAiOptions = {
     // engine-direct row (ha_engine, labeled "Whisper (Home Assistant)") is
     // injected by sttOptions() when /api/voice/engines finds a Whisper engine.
     STT: [
-        { id: 'dashie_cloud', label: `${BRAND.cloudName} STT`, locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
+        // Chickadee names the actual suppliers (open-core transparency); Dashie keeps its brand label.
+        { id: 'dashie_cloud',
+          label: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
+              ? 'Cloud STT (Deepgram / Whisper)' : `${BRAND.cloudName} STT`,
+          locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
           description: 'Streaming, premium accuracy.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
           description: 'Whisper server on your own box (OpenAI-compatible, LAN, direct).',
@@ -249,7 +253,11 @@ const VoiceAiOptions = {
         // the server's margined rate card. Two engines behind one row: the
         // default Dashie voice runs on Inworld (~4× cheaper per character);
         // personality voices are premium ElevenLabs.
-        { id: 'dashie_cloud', label: `${BRAND.cloudName} TTS`, locality: 'cloud', cost: '$0.09–0.33/1k chars · ~0.5–1.9¢/reply',
+        // Chickadee names the actual suppliers (open-core transparency); Dashie keeps its brand label.
+        { id: 'dashie_cloud',
+          label: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
+              ? 'Cloud TTS (Inworld / ElevenLabs)' : `${BRAND.cloudName} TTS`,
+          locality: 'cloud', cost: '$0.09–0.33/1k chars · ~0.5–1.9¢/reply',
           description: `The default ${BRAND.assistantName} voice is the most economical; personality voices are premium.` },
         { id: 'local_url', label: 'Local TTS (your box)', locality: 'local', cost: 'Free',
           description: 'Kokoro / OpenAI-compatible TTS on your own box (LAN, direct).',
