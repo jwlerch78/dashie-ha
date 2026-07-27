@@ -26,9 +26,15 @@
    ============================================================ */
 
 const VoiceAiOptions = {
-    // Strong swatch (tags, legend) + light row-background tint.
-    COLOR: { cloud: '#f97316', local: '#16a34a' },
-    BG: { cloud: 'rgba(249, 115, 22, 0.08)', local: 'rgba(22, 163, 74, 0.10)' },
+    // Strong swatch (tags, legend) + light row-background tint. Chickadee build:
+    // cloud locality rides the brand wing-blue instead of Dashie orange (matches
+    // the accent-var theme the generated brand.js injects).
+    COLOR: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
+        ? { cloud: '#2C6ECE', local: '#16a34a' }
+        : { cloud: '#f97316', local: '#16a34a' },
+    BG: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
+        ? { cloud: 'rgba(44, 110, 206, 0.08)', local: 'rgba(22, 163, 74, 0.10)' }
+        : { cloud: 'rgba(249, 115, 22, 0.08)', local: 'rgba(22, 163, 74, 0.10)' },
     LABEL: { cloud: 'Cloud', local: 'Local' },
 
     // ── pipeline presets (Open Brain plan §6) ─────────────────
