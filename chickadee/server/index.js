@@ -1,111 +1,61 @@
-// Chickadee add-on — HTTP surface + bridge auth.
+// Chickadee add-on — Express server: bridge surface + Chickadee console.
 //
-// Implements the integration↔add-on bridge contract (chickadee CONTRACTS.md):
-//   - writes the bridge secret to the addon_config + HA-config mounts at startup
-//   - GET  /api/ping            → liveness for discovery/config-flow probes
-//   - POST /api/voice/converse  → one brain turn (converse.js → shared brain core)
+// Two audiences on one port (8099, ports:{} — hassio network + Ingress only):
 //
-// Auth is ENFORCED from birth (no observe-mode debt): the integration always
-// sends X-Chickadee-Bridge-Secret — it refuses to call us without a secret.
+//   BRIDGE (the integration; X-Chickadee-Bridge-Secret enforced from birth):
+//     GET  /api/ping             liveness for discovery/config-flow probes
+//     POST /api/voice/converse   one brain turn (converse.js)
+//     POST /api/voice/stt|tts    engine routing (engines.js)
+//     *    /api/voice/voices     TTS voice catalog (engines.js)
+//   These handlers predate Express and read their own raw bodies — no global
+//   body parser may run before them (STT posts binary audio).
+//
+//   CONSOLE (HA Ingress authenticates the user; no bridge secret):
+//     GET  /api/runtime          add-on detection for the SPA (+ email_auth)
+//     /api/auth/*                sign-in state, device flow, email/password
+//     /api/voice/engines|probe|preview|discover|local-status|converse-local
+//     /api/keys/*                on-box BYO provider keys
+//     /api/settings/*            add-on-local settings
+//     /                          the vendored Chickadee console SPA
 
 'use strict';
 
-const crypto = require('crypto');
-const fs = require('fs');
-const http = require('http');
-const path = require('path');
+process.on('uncaughtException', (err) => {
+    console.error('[fatal] Uncaught exception:', err?.stack || err);
+    process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+    console.error('[fatal] Unhandled rejection:', err?.stack || err);
+    process.exit(1);
+});
 
-const { handleAuthStatus, handleStartLink, handlePollLink, handleSignOut, handleEmailSignIn, handleEmailSignUp } = require('./api-auth');
-const { converse } = require('./converse');
-const { publishWithRetry } = require('./discovery');
-const { handleStt, handleTts, handleVoices } = require('./engines');
-const brainMeta = require('./brain/voice-brain.bundle.meta.json');
-
-const VERSION = '0.4.0';  // keep in step with config.yaml version
-const PORT = 8099;
-const DATA_DIR = '/data';
-const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
-// Where to surface the secret for the integration. HA Core does NOT see
-// /addon_configs on HAOS (verified 2026-07-25), so the addon_config copy alone
-// is unreadable by the integration — we ALSO drop it inside the HA config dir
-// (homeassistant_config:rw mount) at .chickadee/bridge_secret. INTERIM channel:
-// any add-on with a config mount can read it; replace with Supervisor discovery.
-const ADDON_CONFIG_CANDIDATES = ['/addon_config', '/config'];
-const HA_CONFIG_CANDIDATES = ['/homeassistant'];
-const HA_CONFIG_SUBDIR = '.chickadee';
-const BRIDGE_HEADER = 'x-chickadee-bridge-secret';
-
-// ── Bridge secret ─────────────────────────────────────────────────────────────
-
-let _secret = null;
-
-function loadOrCreateSecret() {
-    if (_secret) return _secret;
-    try {
-        if (fs.existsSync(SECRET_FILE)) {
-            const s = fs.readFileSync(SECRET_FILE, 'utf8').trim();
-            if (s) { _secret = s; return _secret; }
-        }
-    } catch (e) {
-        console.error('[bridge] failed to read secret:', e.message);
-    }
-    _secret = crypto.randomBytes(32).toString('hex');
-    try {
-        const tmp = SECRET_FILE + '.tmp';
-        fs.writeFileSync(tmp, _secret, { mode: 0o600 });
-        fs.renameSync(tmp, SECRET_FILE);
-        console.log('[bridge] generated a new bridge secret');
-    } catch (e) {
-        console.error('[bridge] failed to persist secret:', e.message);
-    }
-    return _secret;
+let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, haWs;
+try {
+    path = require('path');
+    fs = require('fs');
+    express = require('express');
+    config = require('./config');
+    bridgeAuth = require('./bridge-auth');
+    converseMod = require('./converse');
+    enginesMod = require('./engines');
+    discovery = require('./discovery');
+    brainMeta = require('./brain/voice-brain.bundle.meta.json');
+    consoleAuthRouter = require('./api/console-auth');
+    voiceConsoleRouter = require('./api/voice-console');
+    keysRouter = require('./api/keys');
+    settingsRouter = require('./api/settings');
+    haWs = require('./ha-ws');
+} catch (err) {
+    console.error('[fatal] Failed to load modules:', err?.stack || err);
+    console.error('[fatal] Node version:', process.version);
+    process.exit(1);
 }
 
-/** Mirror the secret where the integration can read it. */
-function provisionSecret() {
-    const secret = loadOrCreateSecret();
-    let wrote = 0;
-    const targets = [];
-    for (const dir of ADDON_CONFIG_CANDIDATES) {
-        targets.push(path.join(dir, 'bridge_secret'));
-    }
-    for (const dir of HA_CONFIG_CANDIDATES) {
-        targets.push(path.join(dir, HA_CONFIG_SUBDIR, 'bridge_secret'));
-    }
-    for (const dst of targets) {
-        try {
-            const dir = path.dirname(dst);
-            const mountRoot = dst.split(path.sep).slice(0, 2).join(path.sep) || path.sep;
-            if (!fs.existsSync(mountRoot) || !fs.statSync(mountRoot).isDirectory()) continue;
-            fs.mkdirSync(dir, { recursive: true });
-            const tmp = dst + '.tmp';
-            fs.writeFileSync(tmp, secret, { mode: 0o600 });
-            fs.renameSync(tmp, dst);
-            console.log(`[bridge] secret provisioned to ${dst}`);
-            wrote++;
-        } catch (e) {
-            console.warn(`[bridge] could not write ${dst}: ${e.message}`);
-        }
-    }
-    if (!wrote) {
-        console.error('[bridge] DROP: no writable secret target found — the integration cannot ' +
-            'read the bridge secret and every converse call will fail. Check config.yaml map entries.');
-    }
-}
+const { PORT, FRONTEND_DIR, DATA_DIR, CLOUD_ENV, CLOUD, VERSION } = config;
+const app = express();
 
-function checkAuth(req, res) {
-    const provided = String(req.headers[BRIDGE_HEADER] || '').trim();
-    const secret = loadOrCreateSecret();
-    const ok = provided.length > 0 &&
-        provided.length === secret.length &&
-        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
-    if (ok) return true;
-    console.warn(`[bridge] DROP: rejected converse call (${provided ? 'bad_secret' : 'missing_secret'})`);
-    sendJson(res, 401, { error: 'bridge_unauthorized' });
-    return false;
-}
-
-// ── HTTP surface ──────────────────────────────────────────────────────────────
+// ── Plumbing shared with the pre-Express bridge handlers ──────────────────────
 
 function sendJson(res, status, body) {
     const payload = JSON.stringify(body);
@@ -127,88 +77,118 @@ function readBody(req) {
     });
 }
 
-async function handleConverse(req, res) {
-    if (!checkAuth(req, res)) return;
-    let payload;
-    try {
-        payload = JSON.parse((await readBody(req)) || '{}');
-    } catch (e) {
-        console.warn('[converse] DROP: unparseable converse body:', e.message);
-        sendJson(res, 400, { error: 'bad_json' });
-        return;
-    }
-    const { status, body } = await converse(payload);
-    sendJson(res, status, body);
-}
-
-// /api/auth/* + the Ingress page: reachable only on the hassio container
-// network + HA Ingress (ports:{} — no LAN exposure); the Ingress page cannot
-// know the bridge secret, so these are deliberately not secret-gated.
-const AUTH_ROUTES = {
-    'GET /api/auth/status': handleAuthStatus,
-    'POST /api/auth/start-link': handleStartLink,
-    'POST /api/auth/poll-link': handlePollLink,
-    'POST /api/auth/sign-out': handleSignOut,
-    'POST /api/auth/email-signin': handleEmailSignIn,
-    'POST /api/auth/email-signup': handleEmailSignUp,
-};
-
-const server = http.createServer((req, res) => {
-    const url = (req.url || '').split('?')[0];
-    if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
-        try {
-            const page = fs.readFileSync(path.join(__dirname, 'ui.html'));
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end(page);
-        } catch (e) {
-            sendJson(res, 500, { error: 'ui_unavailable', message: e.message });
-        }
-        return;
-    }
-    const authHandler = AUTH_ROUTES[`${req.method} ${url}`];
-    if (authHandler) {
-        authHandler(req, res, sendJson, readBody).catch((e) => {
-            console.error('[auth] DROP: handler crashed:', e.message);
-            sendJson(res, 500, { error: 'internal' });
-        });
-        return;
-    }
-    if (req.method === 'GET' && url === '/api/ping') {
-        sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
-        return;
-    }
-    if (req.method === 'POST' && url === '/api/voice/converse') {
-        handleConverse(req, res).catch((e) => {
-            console.error('[converse] DROP: converse handler crashed:', e.message);
-            sendJson(res, 500, { error: 'internal' });
-        });
-        return;
-    }
-    if (url === '/api/voice/voices') {
-        if (!checkAuth(req, res)) return;
-        handleVoices(req, res, sendJson).catch((e) => {
-            console.error('[engines] DROP: voices handler crashed:', e.message);
-            sendJson(res, 500, { error: 'internal' });
-        });
-        return;
-    }
-    if (req.method === 'POST' && (url === '/api/voice/stt' || url === '/api/voice/tts')) {
-        if (!checkAuth(req, res)) return;
-        const handler = url === '/api/voice/stt' ? handleStt : handleTts;
-        handler(req, res, sendJson).catch((e) => {
-            console.error(`[engines] DROP: ${url} handler crashed:`, e.message);
-            sendJson(res, 500, { error: 'internal' });
-        });
-        return;
-    }
-    console.warn(`[http] DROP: unhandled route ${req.method} ${url}`);
-    sendJson(res, 404, { error: 'not_found' });
+// Normalize leading double-slashes. HA Ingress can route paths like //api/runtime
+// (ingress_entry + relative-URL interaction); Express route matching is strict
+// about a single leading slash.
+app.use((req, res, next) => {
+    if (req.url.startsWith('//')) req.url = req.url.replace(/^\/+/, '/');
+    next();
 });
 
-provisionSecret();
+// ── Bridge surface (secret-gated; raw bodies; BEFORE any parser) ──────────────
+
+app.get('/api/ping', (req, res) => {
+    sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
+});
+
+app.post('/api/voice/converse', (req, res) => {
+    if (!bridgeAuth.checkAuth(req, res, sendJson)) return;
+    (async () => {
+        let payload;
+        try {
+            payload = JSON.parse((await readBody(req)) || '{}');
+        } catch (e) {
+            console.warn('[converse] DROP: unparseable converse body:', e.message);
+            sendJson(res, 400, { error: 'bad_json' });
+            return;
+        }
+        const { status, body } = await converseMod.converse(payload);
+        sendJson(res, status, body);
+    })().catch((e) => {
+        console.error('[converse] DROP: converse handler crashed:', e.message);
+        sendJson(res, 500, { error: 'internal' });
+    });
+});
+
+app.all('/api/voice/voices', (req, res) => {
+    if (!bridgeAuth.checkAuth(req, res, sendJson)) return;
+    enginesMod.handleVoices(req, res, sendJson).catch((e) => {
+        console.error('[engines] DROP: voices handler crashed:', e.message);
+        sendJson(res, 500, { error: 'internal' });
+    });
+});
+
+for (const [route, handler] of [['/api/voice/stt', enginesMod.handleStt], ['/api/voice/tts', enginesMod.handleTts]]) {
+    app.post(route, (req, res) => {
+        if (!bridgeAuth.checkAuth(req, res, sendJson)) return;
+        handler(req, res, sendJson).catch((e) => {
+            console.error(`[engines] DROP: ${route} handler crashed:`, e.message);
+            sendJson(res, 500, { error: 'internal' });
+        });
+    });
+}
+
+// ── Console surface (Ingress-trusted) ─────────────────────────────────────────
+
+// Add-on detection for the SPA (console-auth.js _probeAddonMode). email_auth
+// advertises the email/password endpoints so the login screen lights them up.
+const STARTED_AT = new Date().toISOString();
+app.get('/api/runtime', (req, res) => {
+    res.json({
+        addon: true,
+        chickadee: true,
+        version: VERSION,
+        supabase_env: CLOUD_ENV,
+        email_auth: true,
+        started_at: STARTED_AT,
+    });
+});
+
+app.use('/api/auth', consoleAuthRouter);
+app.use('/api/voice', voiceConsoleRouter);   // engines/probe/preview/discover/… (bridge routes matched above)
+app.use('/api/keys', keysRouter);
+app.use('/api/settings', settingsRouter);
+
+// ── Frontend: the vendored Chickadee console ──────────────────────────────────
+
+app.use('/', express.static(FRONTEND_DIR));
+
+// SPA fallback — non-API, extension-less paths get index.html.
+app.get('*', (req, res, next) => {
+    const normalizedPath = req.path.replace(/^\/+/, '/');
+    if (normalizedPath.startsWith('/api/')) {
+        console.warn(`[http] DROP: unhandled route ${req.method} ${normalizedPath}`);
+        return res.status(404).json({ error: 'not_found' });
+    }
+    if (req.path.includes('.')) return next();
+    res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
+});
+
+app.use((err, req, res, next) => {
+    console.error('[server error]', err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: 'server_error', message: err.message });
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+console.log('='.repeat(60));
+console.log(`Chickadee add-on v${VERSION}`);
+console.log(`Node: ${process.version} · data: ${DATA_DIR} · cloud: ${CLOUD_ENV} (${CLOUD.url})`);
+console.log(`Console: ${FRONTEND_DIR} (${fs.existsSync(FRONTEND_DIR) ? 'present' : 'MISSING'})`);
+console.log(`Brain: @ ${brainMeta.shortSha || '?'}`);
+console.log('='.repeat(60));
+
+bridgeAuth.provisionSecret();
 // Primary secret channel: Supervisor discovery → integration async_step_hassio.
-// The file copies provisioned above remain for older integrations.
-publishWithRetry(loadOrCreateSecret());
-server.listen(PORT, () => {
-    console.log(`[chickadee] brain runtime listening on :${PORT} (/api/ping, /api/voice/converse) — brain @ ${brainMeta.shortSha || '?'}`);
+discovery.publishWithRetry(bridgeAuth.loadOrCreateSecret());
+// HA WebSocket (engine detection / LAN discovery) — no-op without a token.
+haWs.start();
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[chickadee] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);
+});
+server.on('error', (err) => {
+    console.error('[fatal] Server error:', err?.stack || err);
+    process.exit(1);
 });

@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.4.0"
+version: "0.5.0"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -13,12 +13,21 @@ arch:
 # Minimum HA version (any recent HA is fine).
 homeassistant: "2024.1.0"
 
-# Supervisor API access (SUPERVISOR_TOKEN) — used ONLY to publish the bridge
-# secret via Supervisor discovery (the same credential channel the MQTT broker
-# and Wyoming add-ons use). `discovery` declares the service we publish.
+# Supervisor API access (SUPERVISOR_TOKEN) — publishes the bridge secret via
+# Supervisor discovery (the same credential channel the MQTT broker and Wyoming
+# add-ons use) and lists add-ons for engine detection. `discovery` declares the
+# service we publish. homeassistant_api lets the console's engine detection
+# talk to HA's WebSocket API (tts/engine/list & co — WS-only surface).
 hassio_api: true
+homeassistant_api: true
 discovery:
   - chickadee
+
+# BYO provider keys + the account-config replay cache live in /data and carry
+# secrets — keep them out of HA backups (same posture as the Dashie add-on).
+backup_exclude:
+  - api-keys.json
+  - account-config.cache.json
 
 # Ingress panel: the Chickadee sign-in/status page (open-console seed), served
 # by the same server on 8099. HA proxies frontend traffic in; nothing is

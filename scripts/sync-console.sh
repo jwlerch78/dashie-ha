@@ -46,6 +46,10 @@ git -C "$CONSOLE_PATH" archive "origin/$BRANCH" | tar -x -C "$TARGET"
 echo "==> Applying Chickadee brand (js/lib/brand.js + assets)" >&2
 cp "$ADDON_ROOT/chickadee/logo.png" "$TARGET/assets/chickadee-logo.png"
 cp "$ADDON_ROOT/chickadee/icon.png" "$TARGET/assets/chickadee-icon.png"
+# Static fallbacks brand.js only fixes after load — avoid the Dashie flash.
+sed -i.bak -e 's|<title>Dashie Console</title>|<title>Chickadee Console</title>|' \
+    -e 's|href="assets/dashie-icon.png"|href="assets/chickadee-icon.png"|' "$TARGET/index.html"
+rm -f "$TARGET/index.html.bak"
 
 cat > "$TARGET/js/lib/brand.js" <<EOF
 /* ============================================================

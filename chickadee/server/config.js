@@ -37,9 +37,18 @@ try {
     if (opts.cloud_env === 'production') envName = 'production';
 } catch { /* defaults */ }
 
+// Add-on version — single source is package.json (bumped by scripts/release.sh
+// together with config.yaml, so /api/ping can't go stale again).
+let version = '0.0.0';
+try { version = require('../package.json').version; } catch { /* dev tree */ }
+
 module.exports = {
     DATA_DIR,
     CLOUD_ENV: envName,
     CLOUD: ENVIRONMENTS[envName],
     JWT_FILE: path.join(DATA_DIR, 'chickadee_auth.json'),
+    // The vendored Chickadee console SPA (scripts/sync-console.sh).
+    FRONTEND_DIR: path.resolve(__dirname, '..', 'frontend', 'console'),
+    PORT: parseInt(process.env.INGRESS_PORT || process.env.PORT || '8099', 10),
+    VERSION: version,
 };
