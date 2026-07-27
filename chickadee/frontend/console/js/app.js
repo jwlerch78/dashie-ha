@@ -66,6 +66,12 @@ const App = {
         try {
             const result = await DashieAuth.init();
 
+            // Add-on funnel banner: the add-on installed/updated its HA
+            // integration and core needs a restart to load it. Only renders
+            // when the runtime advertises the flag (the Chickadee add-on
+            // does) — absent field = no-op for every other build.
+            this._renderIntegrationRestartBanner();
+
             // If init returned a promise (OAuth callback), it handled the redirect
             if (result === true) {
                 // OAuth callback was handled — JWT is now set.
@@ -280,6 +286,45 @@ const App = {
         } catch (e) {
             console.warn('[App] SettingsSync wiring failed (non-fatal)', e && e.message);
         }
+    },
+
+    /**
+     * "Restart Home Assistant to activate the integration" banner + one-click
+     * restart (POST api/system/restart-core). Shown pre- and post-login (the
+     * #global-banner div lives outside #content). After the restart is issued,
+     * polls api/runtime until the pending flag clears, then reloads.
+     */
+    _renderIntegrationRestartBanner() {
+        const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
+        if (!info || info.integration_pending_restart !== true) return;
+        const el = document.getElementById('global-banner');
+        if (!el) return;
+        el.innerHTML = `
+            <div id="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border-bottom: 2px solid var(--accent, #2C6ECE); font-size:14px;">
+                <span>✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" card under Settings → Devices &amp; Services.</span>
+                <button class="btn btn-primary btn-sm" id="integration-restart-btn" onclick="App._restartCoreFromBanner()">Restart Home Assistant</button>
+            </div>`;
+    },
+
+    async _restartCoreFromBanner() {
+        const btn = document.getElementById('integration-restart-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Restarting… (about a minute)'; }
+        try {
+            await fetch(DashieAuth._addonUrl('/api/system/restart-core'), { method: 'POST' });
+        } catch (e) { /* the restart drops connections — expected */ }
+        // Poll until HA is back with the integration loaded, then reload.
+        const poll = setInterval(async () => {
+            try {
+                const r = await fetch(DashieAuth._addonUrl('/api/runtime'), { cache: 'no-store' });
+                if (r.ok) {
+                    const j = await r.json();
+                    if (j.integration_pending_restart === false) {
+                        clearInterval(poll);
+                        window.location.reload();
+                    }
+                }
+            } catch (e) { /* still restarting */ }
+        }, 5000);
     },
 
     _showLogin() {
