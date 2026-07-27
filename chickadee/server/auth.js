@@ -51,7 +51,7 @@ function readStoredJwt() {
 }
 
 /** Write JWT atomically; identity fields inherit from previous storage / claims. */
-function writeStoredJwt({ jwt, userId, userEmail, userName }) {
+function writeStoredJwt({ jwt, userId, userEmail, userName, userPicture }) {
     let expiry = null;
     let payload = {};
     try {
@@ -65,8 +65,16 @@ function writeStoredJwt({ jwt, userId, userEmail, userName }) {
     userId = userId ?? prev.userId ?? payload.sub ?? null;
     userEmail = userEmail ?? prev.userEmail ?? payload.email ?? meta.email ?? null;
     userName = userName ?? prev.userName ?? payload.name ?? meta.name ?? meta.full_name ?? null;
+    // Picture (Google profile photo → console top-bar avatar). Inherit the
+    // stored one ONLY for the same account — a refresh passes just {jwt}, but
+    // a sign-in over a different account must never wear the previous user's
+    // photo (same leak the console fixed client-side in 90bac93).
+    const sameAccount = !!(prev.userId && userId && prev.userId === userId);
+    userPicture = userPicture
+        ?? (sameAccount ? prev.userPicture : null)
+        ?? meta.picture ?? meta.avatar_url ?? null;
 
-    const data = { jwt, expiry, userId, userEmail, userName, savedAt: Date.now() };
+    const data = { jwt, expiry, userId, userEmail, userName, userPicture, savedAt: Date.now() };
     const tmp = JWT_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, JWT_FILE);
@@ -149,6 +157,7 @@ async function pollDeviceCode(deviceCode) {
             userId: result.user?.id,
             userEmail: result.user?.email,
             userName: result.user?.name,
+            userPicture: result.user?.picture,
         });
         console.log(`[auth] signed in as ${stored.userEmail} (${CLOUD_ENV})`);
         return { status: 'authorized', jwtStored: stored };
@@ -178,6 +187,7 @@ async function emailAuth(operation, { email, password, name }) {
             userId: body.user?.id,
             userEmail: body.user?.email,
             userName: body.user?.name,
+            userPicture: body.user?.picture,
         });
         console.log(`[auth] ${operation}: signed in as ${stored.userEmail} (${CLOUD_ENV})`);
         return { ok: true, user: body.user };
