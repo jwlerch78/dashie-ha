@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Same microphone silhouette Dashie uses elsewhere (webapp volume slider,
+       Android ic_mic_on), drawn in THIS set's style: stroked, not filled, so it
+       sits with icon-ear / icon-voice / icon-ai-brain on the Voice & AI cards. -->
+  <!-- Capsule -->
+  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+  <!-- Pickup arc -->
+  <path d="M19 11a7 7 0 0 1-14 0"/>
+  <!-- Stand -->
+  <path d="M12 18v3"/>
+</svg>

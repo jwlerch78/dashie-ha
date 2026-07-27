@@ -1,0 +1,179 @@
+/* ============================================================
+   Dashie Console — Responsive Breakpoints
+   ============================================================ */
+
+/* Tablet: collapse sidebar to icons */
+@media (max-width: 1024px) {
+    :root {
+        --content-padding: 24px;
+    }
+
+    .sidebar {
+        width: var(--sidebar-collapsed);
+        min-width: var(--sidebar-collapsed);
+    }
+
+    .sidebar-logo-full,
+    .sidebar-logo-text,
+    .sidebar-section-label,
+    .sidebar-nav-item .nav-label,
+    .sidebar-credits-label,
+    .sidebar-version {
+        display: none;
+    }
+
+    .sidebar-logo-icon {
+        display: block;
+    }
+
+    .sidebar-logo {
+        justify-content: center;
+        padding: 16px 0 8px;
+    }
+
+    .sidebar-nav-item {
+        justify-content: center;
+        padding: 0;
+        border-left: none;
+        border-right: 3px solid transparent;
+    }
+
+    .sidebar-nav-item.active {
+        border-left: none;
+        border-right-color: var(--accent);
+    }
+
+    .sidebar-nav-item .nav-icon {
+        width: var(--sidebar-collapsed);
+        justify-content: center;
+    }
+
+    .sidebar-credits {
+        justify-content: center;
+        padding: 8px 4px;
+    }
+
+    .sidebar-footer {
+        align-items: center;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Mobile: hide sidebar, show hamburger */
+@media (max-width: 768px) {
+    :root {
+        --content-padding: 16px;
+    }
+
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 100;
+        width: var(--sidebar-width);
+        min-width: var(--sidebar-width);
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: none;
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Restore full labels + logo on mobile when sidebar is open */
+    .sidebar.open .sidebar-logo-full,
+    .sidebar.open .sidebar-logo-text,
+    .sidebar.open .sidebar-section-label,
+    .sidebar.open .sidebar-nav-item .nav-label,
+    .sidebar.open .sidebar-credits-label,
+    .sidebar.open .sidebar-version {
+        display: unset;
+    }
+
+    .sidebar.open .sidebar-logo {
+        justify-content: flex-start;
+        padding: 14px 16px 6px;
+    }
+
+    .sidebar.open .sidebar-logo-icon {
+        display: none;
+    }
+
+    .sidebar.open .sidebar-nav-item {
+        justify-content: flex-start;
+        padding: 0 16px;
+        border-left: 3px solid transparent;
+        border-right: none;
+    }
+
+    .sidebar.open .sidebar-nav-item.active {
+        border-left-color: var(--accent);
+        border-right: none;
+    }
+
+    .sidebar.open .sidebar-nav-item .nav-icon {
+        width: 20px;
+    }
+
+    .sidebar.open .sidebar-credits {
+        justify-content: flex-start;
+        padding: 8px;
+    }
+
+    .hamburger-btn {
+        display: block;
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.2);
+        z-index: 99;
+    }
+
+    .sidebar-overlay.visible {
+        display: block;
+    }
+
+    .card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .usage-service { width: 120px; }
+    .usage-count { width: 80px; }
+}
+
+/* ── Credit Usage tab (build-plan 20260714_TABLET_AUTOREFILL_UX §P3) ──────────
+   The tablet's Add-Credits QR sends people to this tab on a PHONE, so it has to
+   survive a ~390px viewport. Two things broke: a hardcoded 2-col stat grid, and
+   full-width usage tables. The grid's columns are set inline, so !important is
+   required to override it. */
+
+/* Tables scroll inside their card rather than blowing out the page width.
+   Safe at every breakpoint — on desktop there's nothing to scroll. */
+.table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+    /* Balance card (with the auto-replenish control) stacks above the period card,
+       instead of being squeezed into a half-width column. */
+    .credits-stat-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
