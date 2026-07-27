@@ -12,15 +12,16 @@
 
 ---
 
-Chickadee gives your Home Assistant voice assistant a real brain. Ask it
-anything, tell it to do things around the house in plain language — "turn off
-everything downstairs except the porch light" — and it understands, acts, and
-answers back in a natural voice.
+Great voice AI for Home Assistant usually means hours of wiring up models,
+speech engines, tools, and prompts. Chickadee ships it tuned and working:
+install one add-on and every Assist device in your house gets an assistant
+that actually understands — "turn off everything downstairs except the porch
+light" — and answers back in a natural voice.
 
-It works with the voice hardware you already have (Home Assistant Voice
-Preview Edition, ESPHome satellites, tablets, wall dashboards), and it runs on
-**your** terms: bring your own AI key, run everything on your own hardware, or
-use Chickadee Cloud and skip the setup entirely.
+It works with the voice hardware you already have (HA Voice Preview Edition,
+ESPHome satellites, tablets, wall dashboards), and it runs on **your** terms:
+use Chickadee Cloud and skip the setup entirely, bring your own AI key, or
+run everything on your own hardware.
 
 ## Install
 
@@ -38,7 +39,9 @@ It sets everything else up for you — including the Chickadee integration.
 **Configure** on the discovered Chickadee card. Done — you now have a
 "Chickadee" voice assistant available to every Assist device.
 
-Then open the Chickadee panel to choose how it thinks and speaks:
+## Pick how it thinks
+
+Choose in the Chickadee panel, switch any time:
 
 | | |
 |---|---|
@@ -46,19 +49,20 @@ Then open the Chickadee panel to choose how it thinks and speaks:
 | **Hybrid** | Cloud AI with free, private voice engines on your own hardware. |
 | **Local** | Your own AI model and voice engines. Nothing leaves your network. Free. |
 
-## What it can do
+Going local? A language model needs somewhere real to run — a GPU or
+Apple-silicon box on your network answers in seconds, a small CPU-only HA box
+takes minutes. Cloud and Hybrid exist for exactly that case.
 
-- Real smart-home control through your Assist-exposed devices — including
-  multi-step commands, in one breath.
-- Questions, timers, conversation — answered in a natural voice, not a beep.
-- Works with any AI you point it at: local (Ollama, llama.cpp, vLLM,
-  LM Studio) or your own key for Gemini, OpenAI, OpenRouter, and friends.
-- Local speech engines supported out of the box: Whisper for ears,
+## What you get
+
+- **Real smart-home control** — multi-step commands, in one breath, across
+  your Assist-exposed devices.
+- **Answers, timers, conversation** — in a natural voice, not a beep.
+- **Smart context** — Chickadee sends the AI what your question needs, not
+  your whole house. Faster, cheaper, more accurate.
+- **Any AI, any engines** — local models (Ollama, llama.cpp, and friends) or
+  your own key for Gemini, OpenAI, OpenRouter; Whisper for ears,
   Kokoro/Piper for voice.
-
-**Honest hardware note:** a language model needs somewhere real to run. A GPU
-or Apple-silicon box on your network answers in seconds; a small CPU-only HA
-box will take minutes per reply. Cloud and Hybrid exist for exactly that case.
 
 ## Works with your gear
 
@@ -68,20 +72,10 @@ box will take minutes per reply. Cloud and Hybrid exist for exactly that case.
 | **[Dashie](https://dashieapp.com) tablets / TV** | ✅ | ✅ on-device | ✅ |
 | **Fully Kiosk / browser dashboards** | ✅ via satellite cards | ⚠️ card-dependent | ❌ |
 
-Wake word is your satellite's job — Chickadee begins where the wake word ends.
-Realtime speech-to-speech (interrupt it mid-sentence, keep talking) can't ride
-HA's standard pipeline on any satellite; today the Dashie app is the one
+Wake word is your satellite's job — Chickadee begins where the wake word
+ends. Realtime speech-to-speech (interrupt it mid-sentence, keep talking)
+needs more than HA's standard pipeline; today the Dashie app is the one
 satellite we know of that supports it.
-
-## How it works, in one paragraph
-
-The add-on you just installed is the brain runtime: it receives the
-speech-to-text, understanding, and text-to-speech stages from the Chickadee
-integration (which it installs and keeps updated for you) and routes each one
-to the engine you chose — local box, your API key, or Chickadee Cloud. The
-deeper technical story, option reference, and engine recipes live in the
-[add-on documentation](chickadee/DOCS.md) and the
-[integration repository](https://github.com/jwlerch78/chickadee-integration).
 
 ## Free, open, and how the lights stay on
 
@@ -95,10 +89,11 @@ Chickadee is built and operated by the makers of
 
 ## For developers
 
+- [Add-on internals &amp; option reference](chickadee/DOCS.md) — the deeper
+  technical story, engine recipes, and every config option
 - [Integration source](https://github.com/jwlerch78/chickadee-integration)
   (HACS / manual install for people who'd rather manage it themselves —
   the add-on's auto-installer never touches a HACS-managed copy)
-- [Add-on internals & option reference](chickadee/DOCS.md)
 - [`tools/`](tools/) — maintainers' headless dev rig (set `CHICKADEE_HA_HOST`)
 
 ## License
