@@ -130,7 +130,7 @@ const App = {
 
     _renderGlobalBanner() {
         const el = document.getElementById('global-banner');
-        if (el) el.innerHTML = this._deletionBannerHtml();
+        if (el) el.innerHTML = this._deletionBannerHtml() || this._integrationRestartBannerHtml();
     },
 
     _deletionBannerHtml() {
@@ -294,15 +294,23 @@ const App = {
      * #global-banner div lives outside #content). After the restart is issued,
      * polls api/runtime until the pending flag clears, then reloads.
      */
-    _renderIntegrationRestartBanner() {
+    /** '' unless the add-on says its integration awaits a core restart. */
+    _integrationRestartBannerHtml() {
         const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
-        if (!info || info.integration_pending_restart !== true) return;
-        const html = `
+        if (!info || info.integration_pending_restart !== true) return '';
+        return `
             <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
                 <span style="flex:1; min-width:220px;">✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" card under Settings → Devices &amp; Services.</span>
                 <button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this)">Restart Home Assistant</button>
             </div>`;
-        // Authed chrome: the strip above the content area.
+    },
+
+    _renderIntegrationRestartBanner() {
+        const html = this._integrationRestartBannerHtml();
+        if (!html) return;
+        // Authed chrome: the strip above the content area. NOTE renderPage()
+        // also rewrites #global-banner — its slot composition includes this
+        // banner, so the two writers agree.
         const el = document.getElementById('global-banner');
         if (el) el.innerHTML = html;
         // Login screen: the overlay is position:absolute inset:0 and COVERS
@@ -698,7 +706,7 @@ const App = {
         // persistent "trial/subscription ended — Subscribe" banner for expired
         // users who still have console value (Devices/HA management stays usable).
         const _gb = document.getElementById('global-banner');
-        if (_gb) _gb.innerHTML = this._deletionBannerHtml() || this._expiredBannerHtml();
+        if (_gb) _gb.innerHTML = this._deletionBannerHtml() || this._integrationRestartBannerHtml() || this._expiredBannerHtml();
         // No scroll reset here — `renderPage` is also called for in-place
         // state updates (e.g. toggling hide on a calendar row), and resetting
         // scroll mid-page is jarring. Navigation paths handle scroll reset
@@ -755,7 +763,7 @@ const App = {
     _dismissExpiredBanner() {
         this._expiredBannerDismissed = true;
         const gb = document.getElementById('global-banner');
-        if (gb) gb.innerHTML = this._deletionBannerHtml() || '';
+        if (gb) gb.innerHTML = this._deletionBannerHtml() || this._integrationRestartBannerHtml() || '';
     },
 
     /** Full-content purchase landing for expired users with no console value.
