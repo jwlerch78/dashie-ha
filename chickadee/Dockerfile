@@ -9,6 +9,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server/ ./server/
 COPY frontend/ ./frontend/
+# Vendored HA integration — installed into /config by integration-installer.js.
+COPY integration/ ./integration/
 
 COPY run.sh /
 RUN chmod a+x /run.sh

@@ -1,5 +1,5 @@
 name: Chickadee
-version: "0.6.0"
+version: "0.7.0"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
 slug: chickadee
@@ -68,9 +68,13 @@ ports: {}
 #          Kokoro-FastAPI, the Piper shim, or a provider endpoint.
 # cloud_env: which Chickadee Cloud environment a signed-in account uses
 # (development = dev.dashieapp.com auth; production = app.dashieapp.com).
+# install_integration: the add-on installs/updates the bundled Chickadee
+# integration into /config/custom_components (never touches a HACS/manual
+# install; see server/integration-installer.js). Off = manage it yourself.
 options:
   log_level: info
   cloud_env: development
+  install_integration: true
   llm_url: ""
   llm_model: ""
   llm_api_key: ""
@@ -83,6 +87,7 @@ options:
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
   cloud_env: list(development|production)
+  install_integration: bool?
   llm_url: str?
   llm_model: str?
   llm_api_key: password?

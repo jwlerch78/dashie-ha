@@ -42,6 +42,9 @@ fi
 echo "==> Vendoring dashie-console main → chickadee/frontend/console"
 CONSOLE_SHA="$("$ADDON_ROOT/scripts/sync-console.sh" main)"
 
+echo "==> Vendoring chickadee integration main → chickadee/integration"
+INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main)"
+
 echo "==> Bumping version → $NEW_VERSION"
 sed -i.bak -E "s/^version: \"[^\"]+\"/version: \"$NEW_VERSION\"/" "$DIR/config.yaml"; rm -f "$DIR/config.yaml.bak"
 sed -i.bak -E "s/(\"version\": *\")[^\"]+(\")/\1$NEW_VERSION\2/" "$DIR/package.json"; rm -f "$DIR/package.json.bak"
@@ -51,17 +54,17 @@ grep -q "\"$NEW_VERSION\"" "$DIR/package.json" || { echo "package.json bump fail
 #  the 0.2.0 stale-const bug can't recur.)
 
 echo "==> Staging"
-# -A captures files the console removed (sync does rm -rf + re-extract).
-git add -A "$DIR/config.yaml" "$DIR/package.json" "$DIR/server" "$DIR/frontend/console"
+# -A captures files the syncs removed (rm -rf + re-extract).
+git add -A "$DIR/config.yaml" "$DIR/package.json" "$DIR/server" "$DIR/frontend/console" "$DIR/integration"
 
 if git diff --cached --quiet; then
-  echo "==> Nothing to commit (already at $NEW_VERSION with console @ $CONSOLE_SHA)"
+  echo "==> Nothing to commit (already at $NEW_VERSION with console @ $CONSOLE_SHA, integration @ $INTEGRATION_SHA)"
   exit 0
 fi
 
 echo "==> Committing"
-git commit -m "Release $NEW_VERSION (console main @ $CONSOLE_SHA)" \
-  -- "$DIR/config.yaml" "$DIR/package.json" "$DIR/server" "$DIR/frontend/console"
+git commit -m "Release $NEW_VERSION (console main @ $CONSOLE_SHA, integration main @ $INTEGRATION_SHA)" \
+  -- "$DIR/config.yaml" "$DIR/package.json" "$DIR/server" "$DIR/frontend/console" "$DIR/integration"
 
 if [[ $DO_PUSH -eq 1 ]]; then
   echo "==> Pushing origin main"

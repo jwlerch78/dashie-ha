@@ -187,6 +187,9 @@ bridgeAuth.provisionSecret();
 discovery.publishWithRetry(bridgeAuth.loadOrCreateSecret());
 // HA WebSocket (engine detection / LAN discovery) — no-op without a token.
 haWs.start();
+// "All at once" onboarding: install/update the vendored integration into
+// /config/custom_components (option-gated; HACS installs never touched).
+require('./integration-installer').ensureIntegration();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[chickadee] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);
