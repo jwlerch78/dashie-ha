@@ -14,8 +14,10 @@
     <div id="app">
         <aside id="sidebar" class="sidebar"></aside>
         <main id="main">
-            <header id="top-bar" class="top-bar"></header>
+            <!-- Global banner slot ABOVE the top bar (deletion / integration-
+                 restart / expired share it — see App._renderGlobalBanner). -->
             <div id="global-banner"></div>
+            <header id="top-bar" class="top-bar"></header>
             <div id="content" class="content"></div>
         </main>
     </div>
