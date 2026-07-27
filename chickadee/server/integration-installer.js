@@ -137,4 +137,14 @@ async function ensureIntegration() {
     }
 }
 
-module.exports = { ensureIntegration };
+let _lastResult = null;
+
+/** The most recent ensureIntegration outcome ('installed'|'updated'|'current'|…). */
+function getStatus() { return _lastResult; }
+
+async function ensureIntegrationTracked() {
+    _lastResult = await ensureIntegration();
+    return _lastResult;
+}
+
+module.exports = { ensureIntegration: ensureIntegrationTracked, getStatus };

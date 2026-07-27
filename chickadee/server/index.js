@@ -30,7 +30,8 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haWs;
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haWs,
+    supervisor, installer;
 try {
     path = require('path');
     fs = require('fs');
@@ -47,6 +48,8 @@ try {
     settingsRouter = require('./api/settings');
     internalRouter = require('./api/internal');
     haWs = require('./ha-ws');
+    supervisor = require('./supervisor');
+    installer = require('./integration-installer');
 } catch (err) {
     console.error('[fatal] Failed to load modules:', err?.stack || err);
     console.error('[fatal] Node version:', process.version);
@@ -134,15 +137,35 @@ for (const [route, handler] of [['/api/voice/stt', enginesMod.handleStt], ['/api
 // Add-on detection for the SPA (console-auth.js _probeAddonMode). email_auth
 // advertises the email/password endpoints so the login screen lights them up.
 const STARTED_AT = new Date().toISOString();
-app.get('/api/runtime', (req, res) => {
+app.get('/api/runtime', async (req, res) => {
+    // integration_pending_restart drives the console's "restart HA to
+    // activate" banner: the installer put files down this add-on run AND the
+    // running core hasn't loaded the component. isIntegrationLoaded is the
+    // live check — the installer status alone goes stale across core restarts.
+    const instStatus = installer.getStatus();
+    let pending = false;
+    if (instStatus === 'installed' || instStatus === 'updated') {
+        const loaded = await supervisor.isIntegrationLoaded();
+        pending = loaded === false;
+    }
     res.json({
         addon: true,
         chickadee: true,
         version: VERSION,
         supabase_env: CLOUD_ENV,
         email_auth: true,
+        integration: instStatus,
+        integration_pending_restart: pending,
         started_at: STARTED_AT,
     });
+});
+
+// Behind the console banner's "Restart Home Assistant" button (Ingress-
+// trusted; requires hassio_role: manager in config.yaml).
+app.post('/api/system/restart-core', async (req, res) => {
+    console.log('[system] core restart requested from the console');
+    const ok = await supervisor.restartCore();
+    res.status(ok ? 200 : 502).json({ ok });
 });
 
 app.use('/api/auth', consoleAuthRouter);
@@ -189,7 +212,9 @@ discovery.publishWithRetry(bridgeAuth.loadOrCreateSecret());
 haWs.start();
 // "All at once" onboarding: install/update the vendored integration into
 // /config/custom_components (option-gated; HACS installs never touched).
-require('./integration-installer').ensureIntegration();
+installer.ensureIntegration();
+// Put the Chickadee panel in the HA sidebar without hunting for the toggle.
+supervisor.ensureSidebarPanel();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[chickadee] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);

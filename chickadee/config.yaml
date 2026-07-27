@@ -20,6 +20,9 @@ homeassistant: "2024.1.0"
 # talk to HA's WebSocket API (tts/engine/list & co — WS-only surface).
 hassio_api: true
 homeassistant_api: true
+# manager role: the console's "Restart Home Assistant" button (the integration
+# installer needs a core restart to activate; the banner offers it one-click).
+hassio_role: manager
 discovery:
   - chickadee
 
