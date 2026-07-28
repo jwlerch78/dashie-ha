@@ -10,6 +10,8 @@
 
 'use strict';
 
+const os = require('os');
+
 const SUPERVISOR = 'http://supervisor';
 const SERVICE = 'chickadee';
 const RETRY_MS = [2000, 10000, 30000];
@@ -23,9 +25,14 @@ async function publish(secret, log = console.log) {
     const body = JSON.stringify({
         service: SERVICE,
         config: {
-            // Container DNS name on the hassio network; the integration still
-            // falls back to its own candidates/Supervisor lookup if unreachable.
-            host: 'local-chickadee',
+            // Our OWN container hostname on the hassio network — correct for
+            // ANY channel (prod `62f754e2-chickadee`, dev `62f754e2-chickadee-dev`,
+            // local `local-chickadee`). Was hardcoded 'local-chickadee', which
+            // is unreachable from the dev slug → the integration reported
+            // addon_unreachable and kiosks never picked up the shared account.
+            // The integration still falls back to its Supervisor lookup / static
+            // candidates if this is somehow unreachable.
+            host: os.hostname(),
             port: 8099,
             secret,
         },
