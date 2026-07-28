@@ -1,0 +1,21 @@
+{
+  "domain": "chickadee",
+  "name": "Chickadee",
+  "codeowners": [
+    "@jwlerch78"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http",
+    "assist_pipeline",
+    "conversation",
+    "stt",
+    "tts"
+  ],
+  "documentation": "https://github.com/jwlerch78/chickadee-integration",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/jwlerch78/chickadee-integration/issues",
+  "requirements": [],
+  "version": "0.5.0"
+}

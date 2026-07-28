@@ -1,0 +1,386 @@
+/* ============================================================
+   Dashie Console — Core Layout (Immich-style, Light Theme)
+   ============================================================ */
+
+:root {
+    /* Colors — Light Theme */
+    --bg-primary: #ffffff;
+    --bg-sidebar: #f6f6f8;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f9f9fb;
+    --bg-input: #f3f4f6;
+    --border-card: #e5e7eb;
+    --border-subtle: #edeef0;
+    --accent: #f97316;
+    --accent-hover: #ea6c10;
+    --accent-bg: rgba(249, 115, 22, 0.08);
+    --accent-bg-hover: rgba(249, 115, 22, 0.14);
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --status-online: #22c55e;
+    --status-offline: #d1d5db;
+    --status-warning: #eab308;
+    --status-error: #ef4444;
+
+    /* Spacing */
+    --sidebar-width: 220px;
+    --sidebar-collapsed: 64px;
+    --top-bar-height: 56px;
+    --content-padding: 32px;
+    --card-radius: 8px;
+    --input-radius: 6px;
+    --gap: 16px;
+
+    /* Typography */
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-size-xs: 11px;
+    --font-size-sm: 13px;
+    --font-size-base: 14px;
+    --font-size-lg: 16px;
+    --font-size-xl: 20px;
+    --font-size-2xl: 24px;
+}
+
+/* Reset */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: var(--font-family);
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* App Layout */
+#app {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.sidebar-logo {
+    padding: 14px 16px 6px;
+    display: flex;
+    align-items: center;
+}
+
+.sidebar-logo-full {
+    height: 50px;
+    width: auto;
+}
+
+.sidebar-logo-icon {
+    display: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+}
+
+.sidebar-section {
+    padding: 8px 0;
+}
+
+.sidebar-section-label {
+    padding: 12px 16px 6px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 38px;
+    padding: 0 16px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    border-left: 3px solid transparent;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.sidebar-nav-item:hover {
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.sidebar-nav-item.active {
+    color: var(--accent);
+    background: var(--accent-bg);
+    border-left-color: var(--accent);
+    font-weight: 600;
+}
+
+.sidebar-nav-item .nav-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sidebar-nav-item .nav-icon img {
+    width: 18px;
+    height: 18px;
+    opacity: 0.5;
+    transition: opacity 0.15s ease;
+}
+
+.sidebar-nav-item:hover .nav-icon img {
+    opacity: 0.7;
+}
+
+.sidebar-nav-item.active .nav-icon img {
+    opacity: 1;
+    filter: brightness(0) saturate(100%) invert(52%) sepia(98%) saturate(1567%) hue-rotate(349deg) brightness(97%) contrast(97%);
+}
+
+.sidebar-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 16px;
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 12px 16px 16px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.sidebar-credits {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: var(--input-radius);
+    transition: background 0.15s ease;
+}
+
+.sidebar-credits:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.sidebar-credits-amount {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sidebar-credits-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+
+.sidebar-version {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    padding: 4px 8px 0;
+}
+
+/* Main Area */
+#main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+    background: #fafafa;
+}
+
+/* Top Bar */
+.top-bar {
+    height: var(--top-bar-height);
+    min-height: var(--top-bar-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--content-padding);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+}
+
+.top-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.top-bar-title {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.top-bar-subtitle {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+/* Per-page data refresh icon, sits just right of the title. */
+.top-bar-refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 4px;
+    margin-left: -8px;   /* tighten toward the title (offsets .top-bar-left gap) */
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 0;
+    opacity: 0.7;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+.top-bar-refresh:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--bg-hover, rgba(0,0,0,0.05));
+}
+.top-bar-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+.top-bar-refresh-icon {
+    width: 15px;
+    height: 15px;
+}
+.top-bar-refresh-icon.spinning {
+    animation: top-bar-refresh-spin 0.8s linear infinite;
+}
+@keyframes top-bar-refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.top-bar-user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: var(--input-radius);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.top-bar-user:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.top-bar-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: white;
+}
+
+.top-bar-username {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.hamburger-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 20px;
+}
+
+/* Content Area */
+.content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--content-padding);
+}
+
+/* Scrollbar styling */
+.content::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.content::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb {
+    background: var(--border-card);
+    border-radius: 3px;
+}
+
+.content::-webkit-scrollbar-thumb:hover,
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ============================================================
+   Dashie icons — mask-image based so SVG sources render in
+   currentColor regardless of how their fill/stroke was authored.
+   Use: <span class="dashie-icon" style="--icon: url('...'); --icon-size: 16px"></span>
+   ============================================================ */
+.dashie-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    width: var(--icon-size, 16px);
+    height: var(--icon-size, 16px);
+    background-color: currentColor;
+    mask: var(--icon) center / contain no-repeat;
+    -webkit-mask: var(--icon) center / contain no-repeat;
+    vertical-align: middle;
+}
+
+/* Devices page: matches default card-grid; aliased so we have a hook
+   if we want to tune later without touching every other page. */
+.devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--gap);
+}

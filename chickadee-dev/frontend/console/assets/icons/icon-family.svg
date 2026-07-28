@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Parent 1 (left) -->
+  <circle cx="7" cy="6" r="2.5" fill="#000000"/>
+  <path d="M7 9C5 9 3.5 10.5 3.5 12.5V15H10.5V12.5C10.5 10.5 9 9 7 9Z" fill="#000000"/>
+  <!-- Parent 2 (right) -->
+  <circle cx="17" cy="6" r="2.5" fill="#000000"/>
+  <path d="M17 9C15 9 13.5 10.5 13.5 12.5V15H20.5V12.5C20.5 10.5 19 9 17 9Z" fill="#000000"/>
+  <!-- Child (center, lower) -->
+  <circle cx="12" cy="14" r="2" fill="#000000"/>
+  <path d="M12 16.5C10.5 16.5 9 17.5 9 19V21H15V19C15 17.5 13.5 16.5 12 16.5Z" fill="#000000"/>
+</svg>
