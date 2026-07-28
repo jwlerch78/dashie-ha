@@ -69,14 +69,17 @@ ports: {}
 #          whisper.cpp server, faster-whisper/speaches, or a provider endpoint.
 # tts_url: an OpenAI-compatible speech server (we append /v1/audio/speech) —
 #          Kokoro-FastAPI, the Piper shim, or a provider endpoint.
-# cloud_env: which Chickadee Cloud environment a signed-in account uses
-# (development = dev.dashieapp.com auth; production = app.dashieapp.com).
+# cloud_env: which Chickadee Cloud environment a signed-in account uses.
+# During the beta, Chickadee Cloud accounts run on the `beta` environment
+# (dev.dashieapp.com auth) — disclosed in DOCS.md; `stable`
+# (app.dashieapp.com) is where accounts move when the beta ends.
+# `development`/`production` are accepted as legacy aliases.
 # install_integration: the add-on installs/updates the bundled Chickadee
 # integration into /config/custom_components (never touches a HACS/manual
 # install; see server/integration-installer.js). Off = manage it yourself.
 options:
   log_level: info
-  cloud_env: development
+  cloud_env: beta
   install_integration: true
   llm_url: ""
   llm_model: ""
@@ -89,7 +92,7 @@ options:
   tts_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
-  cloud_env: list(development|production)
+  cloud_env: list(beta|stable|development|production)
   install_integration: bool?
   llm_url: str?
   llm_model: str?

@@ -86,6 +86,10 @@ subscription. That's the whole business model, in the open.
 
 Chickadee is built and operated by the makers of
 [Dashie](https://dashieapp.com), the family dashboard for Home Assistant.
+The full relationship — who develops what, why some wire values say
+`dashie`, how the money works — is written down in
+[PROVENANCE.md](PROVENANCE.md), and exactly what data leaves your box in
+each mode (local: nothing) is in [PRIVACY.md](PRIVACY.md).
 
 ## For developers
 

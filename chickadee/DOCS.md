@@ -1,13 +1,15 @@
 # Chickadee add-on
 
 The Chickadee brain runtime. Pairs with the
-[Chickadee integration](https://github.com/jwlerch78/chickadee) to give your
-Assist pipeline a real brain: this add-on receives each pipeline stage from the
-integration over an authenticated same-box bridge and routes it to the engines
-**you** configure — any OpenAI-compatible endpoint, local or cloud.
+[Chickadee integration](https://github.com/jwlerch78/chickadee-integration)
+to give your Assist pipeline a real brain: this add-on receives each pipeline
+stage from the integration over an authenticated same-box bridge and routes it
+to the engines **you** configure — any OpenAI-compatible endpoint, local or
+cloud.
 
 Nothing talks to this add-on except the integration on the same box. No host
-ports are published.
+ports are published. (Privacy details per mode: [PRIVACY.md](https://github.com/jwlerch78/chickadee/blob/main/PRIVACY.md);
+who builds this and how it's funded: [PROVENANCE.md](https://github.com/jwlerch78/chickadee/blob/main/PROVENANCE.md).)
 
 ## Setup in one minute
 
@@ -15,9 +17,11 @@ ports are published.
    sidebar — hosted Chickadee Cloud engines, metered) or configure your own
    engine URLs below. Anything you leave blank uses Chickadee Cloud when signed
    in.
-2. Install the Chickadee **integration** (HACS custom repo
-   `https://github.com/jwlerch78/chickadee`) and add it in
-   Settings → Devices & Services — the add-on is discovered automatically.
+2. The add-on **installs the Chickadee integration for you** (see
+   `install_integration` below) — restart HA when the banner asks, then
+   Configure the discovered card in Settings → Devices & Services. Prefer to
+   manage it yourself? Set `install_integration: false` and install via HACS
+   custom repo `https://github.com/jwlerch78/chickadee-integration`.
 3. A ready-to-use Assist pipeline wired to the Chickadee conversation / STT /
    TTS entities is created for you (edit or mix with Whisper/Piper/HA Cloud
    freely in Settings → Voice assistants).
@@ -64,7 +68,8 @@ models are reliable.
 | Option | Meaning |
 |---|---|
 | `log_level` | Add-on log verbosity. `debug` shows per-turn engine routing. |
-| `cloud_env` | Which Chickadee Cloud environment a signed-in account uses (`development` / `production`). |
+| `cloud_env` | Which Chickadee Cloud environment a signed-in account uses. **During the beta this defaults to `beta`** — Chickadee Cloud accounts run on our staging environment until the beta ends (stated here so it's not a surprise); `stable` is the production environment accounts will move to. `development`/`production` are accepted as legacy aliases. |
+| `install_integration` | On (default): the add-on installs/updates the bundled Chickadee integration into `/config/custom_components/chickadee`. See **Permissions** below for exactly what this touches. Off: manage the integration yourself (HACS/manual). |
 
 ## Chickadee Cloud (hosted engines)
 
@@ -85,6 +90,29 @@ a few seconds; a CPU-only 4-core HA box can take **minutes per turn** on prompt
 prefill alone. If your HA box is modest, run the model server on a faster machine
 on your LAN and point `llm_url` / `stt_url` / `tts_url` at it — mixing is fine
 (e.g. local Whisper + cloud LLM).
+
+## Permissions & what this add-on touches
+
+Add-ons declare their privileges up front — here's what each of ours is for,
+so you can audit rather than trust:
+
+| Declaration | Why |
+|---|---|
+| `ports: {}` | Nothing is published on your LAN. The integration reaches the add-on over Home Assistant's internal docker network only. |
+| `ingress` | Serves the Chickadee panel in your sidebar. HA proxies and authenticates all of it — the console is only reachable by logged-in HA users. |
+| `hassio_api` + `discovery` | Publishes the bridge secret to the integration via Supervisor discovery (the same credential channel the MQTT broker uses) and lists add-ons for engine detection. |
+| `homeassistant_api` | The console's engine detection talks to HA's WebSocket API (`tts/engine/list` etc.) to show your real STT/TTS engines and voices. |
+| `hassio_role: manager` | One thing: the panel's **Restart Home Assistant** button (the integration needs a Core restart to activate; the banner offers it one-click). The restart only ever happens when you click it. |
+| `homeassistant_config:rw` | Two writes: (1) the integration installer (below); (2) a fallback copy of the bridge secret at `<config>/.chickadee/bridge_secret` for older integration versions — Supervisor discovery is the primary channel. |
+| `backup_exclude` | Keeps your on-box secrets (`api-keys.json`, the account cache) **out of HA backups**. |
+
+**The integration installer** (`install_integration: true`, default): on
+start, the add-on copies its bundled integration to
+`/config/custom_components/chickadee` and marks the copy with a
+`.installed_by_chickadee_addon` file. It only ever updates copies carrying
+that marker — a HACS or manual install is **never touched**. It never
+restarts Core on its own; it posts a notification and the panel banner, and
+you click Restart. Turn it off to manage the integration yourself.
 
 ## How the bridge auth works
 

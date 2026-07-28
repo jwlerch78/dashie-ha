@@ -488,7 +488,7 @@ const DashieAuth = {
                 this._addonSupabaseConfig = {
                     url: status.supabase_url,
                     anonKey: status.supabase_anon_key,
-                    googleClientId: this._configs[status.supabase_env === 'production' ? 'production' : 'development'].googleClientId,
+                    googleClientId: this._configs[['production', 'stable'].includes(status.supabase_env) ? 'production' : 'development'].googleClientId,
                 };
                 console.log('[DashieAuth] Using Supabase from add-on:', status.supabase_env, status.supabase_url);
             }

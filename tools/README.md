@@ -1,6 +1,6 @@
 # Dev rig — remote HA-box test tools
 
-Drive John's HA box from the Mac without LAN/Tailscale (everything rides
+Drive a dev HA box from a workstation without LAN/Tailscale (everything rides
 $CHICKADEE_HA_HOST; auth from `~/.ha_token`). Python deps: `websockets`.
 
 | Tool | What it does |

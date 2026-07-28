@@ -1,9 +1,10 @@
 // config.js — runtime configuration: data paths + Chickadee Cloud environment.
 //
-// ONE account system (by design — see the open-core plan): Chickadee Cloud IS
-// the same Supabase backend Dashie uses; a Chickadee-cloud account is a sparse
-// Dashie account (profile + credits, no family rows). The anon keys below are
-// public-by-design (browser-shipped).
+// Chickadee Cloud accounts are hosted on the same backend that powers Dashie
+// (one shared account system, by design — the relationship is documented in
+// PROVENANCE.md and disclosed on the console's sign-in footer). The anon keys
+// below are public-by-design (the browser-shipped Supabase anon role; RLS and
+// edge-function auth enforce access, not key secrecy).
 
 'use strict';
 
@@ -15,26 +16,32 @@ const DATA_DIR = fs.existsSync('/data') && fs.statSync('/data').isDirectory()
     : path.resolve(__dirname, '..', 'data');
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 
+// `beta` is the environment Chickadee Cloud beta accounts run on (disclosed in
+// DOCS.md); `stable` is the production backend, which Chickadee accounts will
+// move to when the beta ends. `development`/`production` are accepted as
+// legacy aliases from pre-0.9 installs.
 const ENVIRONMENTS = {
-    development: {
+    beta: {
         url: 'https://cwglbtosingboqepsmjk.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3Z2xidG9zaW5nYm9xZXBzbWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDY4NjYsImV4cCI6MjA3MzIyMjg2Nn0.VCP5DSfAwwZMjtPl33bhsixSiu_lHsM6n42FMJRP3YA',
         verificationBase: 'https://dev.dashieapp.com',
     },
-    production: {
+    stable: {
         url: 'https://cseaywxcvnxcsypaqaid.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzZWF5d3hjdm54Y3N5cGFxYWlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDIxOTEsImV4cCI6MjA3MzE3ODE5MX0.Wnd7XELrtPIDKeTcHVw7dl3awn3BlI0z9ADKPgSfHhA',
         verificationBase: 'https://app.dashieapp.com',
     },
 };
+const ENV_ALIASES = { development: 'beta', production: 'stable' };
 
 // Environment comes from the add-on option (Configuration tab), read once at
 // process start — changing it requires an add-on restart, which is the natural
 // moment anyway (credentials are per-environment).
-let envName = 'development';
+let envName = 'beta';
 try {
     const opts = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'options.json'), 'utf8'));
-    if (opts.cloud_env === 'production') envName = 'production';
+    const requested = ENV_ALIASES[opts.cloud_env] || opts.cloud_env;
+    if (ENVIRONMENTS[requested]) envName = requested;
 } catch { /* defaults */ }
 
 // Add-on version — single source is package.json (bumped by scripts/release.sh

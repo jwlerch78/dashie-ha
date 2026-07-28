@@ -11,9 +11,10 @@
 //      which is correct, because the engines live where the tablets live.
 //
 //   2. scanSubnet() — TCP-probe the known engine ports across .1–.254 (bounded concurrency),
-//      then GET-fingerprint only the ports that answered. Fingerprints are ALWAYS benign,
-//      unauthenticated GETs — never POST, never /api/ on an unidentified host (HaDiscovery.kt
-//      learned that hitting HA's /api/ blind trips its IP-ban; we don't repeat it).
+//      then identify only the ports that answered, via a read-only unauthenticated GET of
+//      each engine's version/id endpoint — never POST, never /api/ on an unidentified host
+//      (HaDiscovery.kt learned that hitting HA's /api/ blind trips its IP-ban; we don't
+//      repeat it). Results render in the console and are never sent off-box.
 //
 // User-initiated only (a button), private ranges only (a scanner must never point at a public
 // subnet), and nothing leaves the network.
@@ -100,7 +101,7 @@ async function getJson(url) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), FINGERPRINT_TIMEOUT_MS);
     try {
-        const r = await fetch(url, { signal: ctl.signal });   // GET, no auth — always benign
+        const r = await fetch(url, { signal: ctl.signal });   // read-only GET of a version/id endpoint
         if (!r.ok) return null;
         return await r.json().catch(() => ({}));   // reachable but non-JSON still counts as "up"
     } catch { return null; } finally { clearTimeout(timer); }
