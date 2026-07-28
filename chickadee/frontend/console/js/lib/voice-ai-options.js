@@ -281,6 +281,8 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's text-to-speech." },
+        { id: 'sherpa_piper', label: 'On-Device (Piper-Amy)', locality: 'local', cost: 'Free',
+          description: 'Bundled offline voice — natural, no cloud, no Google. Works on Amazon Fire / Echo.' },
         { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
           description: 'Built-in device text-to-speech.' },
     ],
@@ -369,7 +371,7 @@ const VoiceAiOptions = {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
-        const out = [base.dashie_cloud, base.android_voice, this._piperOption(detection),
+        const out = [base.dashie_cloud, base.sherpa_piper, base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
         return this.withSavedEngines('tts', out.filter(Boolean), 'local_url');
     },
