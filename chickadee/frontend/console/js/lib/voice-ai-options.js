@@ -378,7 +378,10 @@ const VoiceAiOptions = {
     sttOptions(detection) {
         const base = Object.fromEntries(this.STT.map(o => [o.id, o]));
         const out = [base.dashie_cloud, this._whisperOption(detection), base.local_stt_url,
-                     base.va_default, base.android_voice];
+                     base.va_default, base.android_voice,
+                     // Bundled on-device sherpa-onnx (Amazon/de-Googled reach). Undefined on an
+                     // older console that lacks these STT rows → filter(Boolean) drops them.
+                     base.sherpa_moonshine_tiny, base.sherpa_moonshine_base];
         return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
     },
 
