@@ -249,6 +249,14 @@ const VoiceAiOptions = {
           description: "Your Home Assistant voice pipeline's speech-to-text." },
         { id: 'android_voice', label: 'Android voice', locality: 'local', cost: 'Free',
           description: 'Built-in Android / browser speech recognition.' },
+        // Bundled on-device STT (sherpa-onnx) — runs offline on the tablet itself, no Google
+        // services, no cloud. The reach for Amazon Fire / Echo / de-Googled devices that have
+        // no Android SpeechRecognizer. Falls back to the pipeline chain if the app build has
+        // no engine bundled (same stance as android_voice on a device without it).
+        { id: 'sherpa_moonshine_tiny', label: 'On-Device (fast)', locality: 'local', cost: 'Free',
+          description: 'Offline speech recognition on the device — no cloud, no Google. Lower memory.' },
+        { id: 'sherpa_moonshine_base', label: 'On-Device (accurate)', locality: 'local', cost: 'Free',
+          description: 'Offline speech recognition on the device — higher accuracy, more memory.' },
     ],
 
     // Base TTS rows that always exist. The detected engine-direct row (ha_engine,
