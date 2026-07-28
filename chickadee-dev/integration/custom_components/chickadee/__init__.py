@@ -10,6 +10,8 @@ UI. They meet at the bridge (addon_bridge.py; contract in CONTRACTS.md).
 from __future__ import annotations
 
 import logging
+import os
+import re
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -65,6 +67,33 @@ def _schedule_voice_views(hass: HomeAssistant) -> None:
     async_at_started(hass, _decide)
 
 
+def _record_loaded_hash_sync(hass: HomeAssistant) -> None:
+    """Echo the add-on install marker's content-hash to a file the add-on reads,
+    so the console can tell when an installed integration UPDATE hasn't been
+    applied yet (add-on re-copied newer files, but this loaded code predates the
+    restart → "restart to apply"). Written HERE, at setup, so it always reflects
+    what core actually loaded; it self-clears on the next restart (this re-runs
+    and stamps the current marker). Best-effort, and only meaningful for an
+    add-on-managed install — a HACS/manual install has no marker, so nothing is
+    written and the add-on shows no update nudge.
+    """
+    try:
+        marker = os.path.join(os.path.dirname(__file__), ".installed_by_chickadee_addon")
+        with open(marker, encoding="utf-8") as fh:
+            match = re.search(r"content-hash:\s*([0-9a-f]{64})", fh.read(), re.I)
+    except OSError:
+        return
+    if not match:
+        return
+    try:
+        out_dir = hass.config.path(".chickadee")
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "loaded_hash"), "w", encoding="utf-8") as fh:
+            fh.write(match.group(1) + "\n")
+    except OSError as err:  # noqa: BLE001 — the nudge is cosmetic; never block setup
+        _LOGGER.debug("could not record loaded integration hash: %s", err)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Bridge credentials from Supervisor discovery (primary channel; empty on
     # pre-discovery installs → file-read fallback stays in charge). Discovery
@@ -80,6 +109,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_ensure_pipeline(hass, entry)
     # LAN-sharing gateway for Dashie kiosk satellites (ownership-guarded).
     _schedule_voice_views(hass)
+    # Record the content-hash we loaded so the add-on can nudge "restart to
+    # apply" after a future files-only update. Off the event loop, best-effort.
+    await hass.async_add_executor_job(_record_loaded_hash_sync, hass)
     # Options-flow edits (assistant rename) apply via reload.
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True

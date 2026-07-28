@@ -1,6 +1,6 @@
 {
   "name": "chickadee-addon",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "description": "Chickadee — brain runtime + console for the Chickadee Home Assistant integration.",
   "main": "server/index.js",
   "private": true,
