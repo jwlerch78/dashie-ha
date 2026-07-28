@@ -623,7 +623,8 @@ const VoiceAiPage = {
             // (sherpa STT / built-in device TTS), not HA Whisper/Piper (John 2026-07-28). The
             // device's provider chain falls back to HA/cloud where the engine isn't bundled.
             if (stageKey === 'tts') {
-                this._selectProvider('tts', has('android_voice') ? 'android_voice' : 'dashie_cloud');
+                this._selectProvider('tts', has('sherpa_piper') ? 'sherpa_piper'
+                    : has('android_voice') ? 'android_voice' : 'dashie_cloud');
             } else {
                 this._selectProvider('stt', has('sherpa_moonshine_tiny') ? 'sherpa_moonshine_tiny' : 'dashie_cloud');
             }
