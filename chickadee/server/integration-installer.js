@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const { readOptions } = require('./options');
 
@@ -40,15 +41,49 @@ function readManifestVersion(dir) {
     }
 }
 
-/** a newer than b? Numeric per-part compare ("0.10.0" > "0.9.1"). */
-function isNewer(a, b) {
-    const pa = String(a).split('.').map(Number);
-    const pb = String(b).split('.').map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-        const x = pa[i] || 0, y = pb[i] || 0;
-        if (x !== y) return x > y;
+/**
+ * Deterministic content hash of an integration package tree. The update
+ * decision keys on THIS, not the manifest version: gating on version silently
+ * skipped code-only changes (a fix that didn't bump manifest.json → stale on
+ * disk, forever "current"). Hashing the actual files means ANY change ships,
+ * with zero version bookkeeping. Sorted paths → order-stable; __pycache__/.pyc
+ * excluded (runtime-generated, would make an otherwise-identical tree differ).
+ */
+function hashDir(dir) {
+    const h = crypto.createHash('sha256');
+    const walk = (d, rel) => {
+        let entries;
+        try {
+            entries = fs.readdirSync(d, { withFileTypes: true });
+        } catch { return; }
+        entries
+            .filter((e) => e.name !== '__pycache__' && !e.name.endsWith('.pyc'))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach((e) => {
+                const abs = path.join(d, e.name);
+                const r = rel ? `${rel}/${e.name}` : e.name;
+                if (e.isDirectory()) {
+                    h.update(`D:${r}\n`);
+                    walk(abs, r);
+                } else {
+                    h.update(`F:${r}\n`);
+                    h.update(fs.readFileSync(abs));
+                }
+            });
+    };
+    walk(dir, '');
+    return h.digest('hex');
+}
+
+/** The content-hash line we stamp into the marker at install time, or null. */
+function readInstalledHash(dir) {
+    try {
+        const txt = fs.readFileSync(path.join(dir, MARKER), 'utf8');
+        const m = txt.match(/content-hash:\s*([0-9a-f]{64})/i);
+        return m ? m[1] : null;
+    } catch (e) {
+        return null;
     }
-    return false;
 }
 
 async function notifyRestart(message) {
@@ -72,14 +107,18 @@ async function notifyRestart(message) {
     }
 }
 
-function installCopy() {
+function installCopy(contentHash) {
     // Stage next to the target so the final rename is same-filesystem.
     const tmp = TARGET_DIR + '.staging';
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.cpSync(BUNDLED_DIR, tmp, { recursive: true });
+    // The marker carries BOTH the ownership signal (safe to update) and the
+    // content-hash stamp the next run compares against. Hash is of BUNDLED_DIR,
+    // which has no marker — so it stays stable regardless of what we write here.
     fs.writeFileSync(path.join(tmp, MARKER),
-        'Installed by the Chickadee add-on — updated on add-on updates.\n' +
-        'Delete this file to manage the integration yourself (HACS/manual).\n');
+        'Installed by the Chickadee add-on — re-copied whenever the bundled integration changes.\n' +
+        'Delete this file to manage the integration yourself (HACS/manual).\n' +
+        `content-hash: ${contentHash}\n`);
     fs.rmSync(TARGET_DIR, { recursive: true, force: true });
     fs.renameSync(tmp, TARGET_DIR);
 }
@@ -99,6 +138,7 @@ async function ensureIntegration() {
             console.warn('[installer] DROP: no bundled integration in this image (sync-integration.sh not run?)');
             return 'error';
         }
+        const bundledHash = hashDir(BUNDLED_DIR);
         if (!fs.existsSync(path.join(HA_CONFIG_ROOT, 'custom_components')) &&
             !fs.existsSync(HA_CONFIG_ROOT)) {
             console.warn('[installer] DROP: HA config mount missing — cannot install the integration');
@@ -108,7 +148,7 @@ async function ensureIntegration() {
         const installed = readManifestVersion(TARGET_DIR);
         if (installed === null) {
             fs.mkdirSync(path.dirname(TARGET_DIR), { recursive: true });
-            installCopy();
+            installCopy(bundledHash);
             console.log(`[installer] ✅ integration v${bundled} INSTALLED to ${TARGET_DIR}`);
             await notifyRestart(
                 `The Chickadee integration (v${bundled}) was installed. ` +
@@ -122,15 +162,21 @@ async function ensureIntegration() {
             console.log(`[installer] integration v${installed} present but not add-on-managed (HACS/manual) — leaving it alone (bundled: v${bundled})`);
             return 'unmanaged';
         }
-        if (isNewer(bundled, installed)) {
-            installCopy();
-            console.log(`[installer] ✅ integration UPDATED v${installed} → v${bundled}`);
+        // Content-hash gate (NOT version): re-copy whenever the bundled files
+        // differ from what we last installed, so code-only changes ship without
+        // a manifest bump. An old marker with no hash line reads as null → the
+        // first run under this installer re-copies once to establish the stamp.
+        const installedHash = readInstalledHash(TARGET_DIR);
+        if (installedHash !== bundledHash) {
+            installCopy(bundledHash);
+            const how = installedHash ? 'content changed' : 'establishing content stamp';
+            console.log(`[installer] ✅ integration RE-COPIED (${how}) — installed v${installed}, bundled v${bundled}`);
             await notifyRestart(
-                `The Chickadee integration was updated to v${bundled}. ` +
+                `The Chickadee integration was updated (bundled v${bundled}). ` +
                 '**Restart Home Assistant** to apply.');
             return 'updated';
         }
-        console.log(`[installer] integration v${installed} is current`);
+        console.log(`[installer] integration v${installed} matches bundled content — current`);
         return 'current';
     } catch (e) {
         console.error('[installer] DROP: integration install failed:', e?.stack || e);
