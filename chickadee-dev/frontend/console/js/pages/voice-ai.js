@@ -1134,9 +1134,9 @@ const VoiceAiPage = {
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
             ${P.renderCustomizeRow(customPipeline, true)}
+            ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines))), sttSelectedId) : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
-            ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}
-            ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines))), sttSelectedId) : ''}` : `
+            ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${P.renderCustomizeRow(customPipeline, true)}
             ${card('AI Model', 'model', this._markKeyed(this._applyProbed(this._modelOptions(preset))), this._selectedModelId(agentMode))}
             ${D.renderWakeWordCard({
@@ -1150,9 +1150,9 @@ const VoiceAiPage = {
             })}
             ${isLive ? this._renderLiveVoiceRow(d) : ''}
             ${showPipeline ? this._renderEngineDetectionRow() : ''}
+            ${showStt ? card(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines)) : filtered('stt', O.sttOptions(this._engines))), sttSelectedId) + (isLive ? this._renderLiveSttNote() : '') : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}
-            ${showStt ? card(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines)) : filtered('stt', O.sttOptions(this._engines))), sttSelectedId) + (isLive ? this._renderLiveSttNote() : '') : ''}
             ${showPipeline ? card('Web search source', 'search', this._markKeyed(searchOptions), searchSelected) : ''}
             ${showEntities ? this._renderEntitySourceCard() : ''}`;
             // Sports source card hidden for now (John, 2026-07-11) — ESPN is the

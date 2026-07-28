@@ -247,16 +247,15 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's speech-to-text." },
-        { id: 'android_voice', label: 'Android voice', locality: 'local', cost: 'Free',
-          description: 'Built-in Android / browser speech recognition.' },
-        // Bundled on-device STT (sherpa-onnx) — runs offline on the tablet itself, no Google
-        // services, no cloud. The reach for Amazon Fire / Echo / de-Googled devices that have
-        // no Android SpeechRecognizer. Falls back to the pipeline chain if the app build has
-        // no engine bundled (same stance as android_voice on a device without it).
-        { id: 'sherpa_moonshine_tiny', label: 'On-Device (fast)', locality: 'local', cost: 'Free',
-          description: 'Offline speech recognition on the device — no cloud, no Google. Lower memory.' },
-        { id: 'sherpa_moonshine_base', label: 'On-Device (accurate)', locality: 'local', cost: 'Free',
-          description: 'Offline speech recognition on the device — higher accuracy, more memory.' },
+        // "On-Device" family (grouped in the picker). Native = the OS SpeechRecognizer
+        // (Google-services devices only, plays a chime); Fast/Accurate = bundled sherpa-onnx,
+        // fully offline, no chime, works on Amazon Fire / Echo / de-Googled devices too.
+        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
+          description: 'Built-in device speech recognizer.' },
+        { id: 'sherpa_moonshine_tiny', label: 'On-Device (Fast)', locality: 'local', cost: 'Free',
+          description: 'Bundled offline STT — faster & lighter.' },
+        { id: 'sherpa_moonshine_base', label: 'On-Device (Accurate)', locality: 'local', cost: 'Free',
+          description: 'Bundled offline STT — higher accuracy.' },
     ],
 
     // Base TTS rows that always exist. The detected engine-direct row (ha_engine,
@@ -282,8 +281,8 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's text-to-speech." },
-        { id: 'android_voice', label: 'Android voice', locality: 'local', cost: 'Free',
-          description: 'Built-in Android text-to-speech.' },
+        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
+          description: 'Built-in device text-to-speech.' },
     ],
 
     // ── detection-gated option builders ──────────────────────
@@ -368,8 +367,10 @@ const VoiceAiOptions = {
      *  pipeline, Android. */
     ttsOptions(detection) {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
-        const out = [base.dashie_cloud, this._piperOption(detection), this._localUrlOption(base.local_url, detection),
-                     base.va_default, base.android_voice];
+        // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
+        // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
+        const out = [base.dashie_cloud, base.android_voice, this._piperOption(detection),
+                     base.va_default, this._localUrlOption(base.local_url, detection)];
         return this.withSavedEngines('tts', out.filter(Boolean), 'local_url');
     },
 
@@ -377,11 +378,12 @@ const VoiceAiOptions = {
      *  HA pipeline, Android. */
     sttOptions(detection) {
         const base = Object.fromEntries(this.STT.map(o => [o.id, o]));
-        const out = [base.dashie_cloud, this._whisperOption(detection), base.local_stt_url,
-                     base.va_default, base.android_voice,
-                     // Bundled on-device sherpa-onnx (Amazon/de-Googled reach). Undefined on an
-                     // older console that lacks these STT rows → filter(Boolean) drops them.
-                     base.sherpa_moonshine_tiny, base.sherpa_moonshine_base];
+        // Order: cloud → On-Device family (Fast/Accurate/Native) → HA → +Add local (bottom).
+        // local_stt_url is the inline "+ Add local speech-to-text" row (withSavedEngines swaps
+        // it in place), so putting it last lands the Add row at the bottom.
+        const out = [base.dashie_cloud,
+                     base.sherpa_moonshine_tiny, base.sherpa_moonshine_base, base.android_voice,
+                     this._whisperOption(detection), base.va_default, base.local_stt_url];
         return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
     },
 
