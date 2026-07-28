@@ -24,10 +24,12 @@ const BRAND = {
     cloudName: 'Chickadee Cloud',    // display label for the `dashie_cloud` engine
     teamName: 'the Chickadee team',
 
-    // Web presence — accounts/billing ride the Dashie backend (footer
-    // honesty: the Dashie connection is documented, not hidden).
-    domain: 'dashieapp.com',
-    supportEmail: 'support@dashieapp.com',
+    // Web presence — first-party Chickadee surfaces now live on
+    // getchickadee.org (landing + legal). Accounts/billing still ride the
+    // Dashie backend; the footerNote below keeps that disclosure in plain
+    // sight (the Dashie connection is documented, not hidden).
+    domain: 'getchickadee.org',
+    supportEmail: 'support@getchickadee.org',
     // Rendered under the legal links on the login card — the plain-sight
     // disclosure that the account system is shared with Dashie.
     footerNote: 'Accounts &amp; billing are provided by Dashie (dashieapp.com), the makers of Chickadee.',
@@ -36,10 +38,10 @@ const BRAND = {
     logo: 'assets/chickadee-logo.png',
     icon: 'assets/chickadee-icon.png',
 
-    // Docs / legal
+    // Docs / legal — Chickadee's own policies on getchickadee.org
     urls: {
-        privacy: 'https://dashieapp.com/privacy-policy.html',
-        terms: 'https://dashieapp.com/terms-of-service.html',
+        privacy: 'https://getchickadee.org/privacy',
+        terms: 'https://getchickadee.org/terms',
     },
 };
 
