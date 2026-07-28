@@ -135,6 +135,10 @@ async function createDeviceCode() {
     // Chickadee skin on the approval pages (brand-config.js there; unknown
     // param = no-op on older deploys, so this is safe to send unconditionally).
     verification_url += '&brand=chickadee';
+    // Single-origin env selection: getchickadee.org's auth-config reads ?env=
+    // (beta→staging, stable→prod) since one origin can't sniff env by host.
+    // Ignored by the legacy dashieapp.com pages, so safe to send always.
+    verification_url += '&env=' + CLOUD_ENV;
     return {
         device_code: result.device_code,
         user_code: result.user_code,

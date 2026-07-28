@@ -22,15 +22,20 @@ try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 // move to when the beta ends. `development`/`production` are accepted as
 // legacy aliases from pre-0.9 installs.
 const ENVIRONMENTS = {
+    // verificationBase is now Chickadee's own first-party origin for BOTH
+    // channels (single origin per the getchickadee site plan). The auth pages
+    // there select their Supabase env from ?env= on the URL — auth.js appends
+    // `&env=${CLOUD_ENV}` (beta→staging, stable→prod), so one origin serves
+    // both channels. Old add-ons still point at dashieapp.com and keep working.
     beta: {
         url: 'https://cwglbtosingboqepsmjk.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3Z2xidG9zaW5nYm9xZXBzbWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDY4NjYsImV4cCI6MjA3MzIyMjg2Nn0.VCP5DSfAwwZMjtPl33bhsixSiu_lHsM6n42FMJRP3YA',
-        verificationBase: 'https://dev.dashieapp.com',
+        verificationBase: 'https://getchickadee.org',
     },
     stable: {
         url: 'https://cseaywxcvnxcsypaqaid.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzZWF5d3hjdm54Y3N5cGFxYWlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDIxOTEsImV4cCI6MjA3MzE3ODE5MX0.Wnd7XELrtPIDKeTcHVw7dl3awn3BlI0z9ADKPgSfHhA',
-        verificationBase: 'https://app.dashieapp.com',
+        verificationBase: 'https://getchickadee.org',
     },
 };
 const ENV_ALIASES = { development: 'beta', production: 'stable' };
