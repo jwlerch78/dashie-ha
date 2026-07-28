@@ -104,64 +104,19 @@ const Sidebar = {
      * Re-renders with the sidebar whenever FeatureGate.setSubscriptionState
      * fires App.renderPage().
      */
+    /** Trial/subscription pill (delta — Dashie builds only; open-core no-ops). */
     _renderTrialPill() {
-        // Chickadee: credits-metered voice only — no Dashie plan/trial surface.
-        if (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild()) return '';
-        if (typeof SubscriptionStatus === 'undefined') return '';
-        const chip = SubscriptionStatus.chip();
-        if (!chip) return '';
-
-        const warn = chip.tone === 'warn';
-        const color = warn ? 'var(--status-warning, #b45309)' : 'var(--text-secondary, #555)';
-        const bg = warn ? 'rgba(180,83,9,0.10)' : 'var(--bg-subtle, #f1f3f5)';
-        const ctaStyle = 'display:block; width:100%; margin-top:6px; background: var(--accent, #ffaa00);'
-            + ' color:#fff; border:none; border-radius:6px; padding:5px 10px; font-size:12px;'
-            + ' font-weight:700; cursor:pointer;';
-        let cta = '';
-        if (chip.showSubscribe) {
-            cta = `<button onclick="AccountPage.subscribe && AccountPage.subscribe()" style="${ctaStyle}">Subscribe</button>`;
-        } else if (chip.showManage) {
-            cta = `<button onclick="AccountPage.openBillingPortal && AccountPage.openBillingPortal()" style="${ctaStyle}">Fix payment</button>`;
-        }
-        return `
-            <div class="sidebar-trial"
-                 style="margin-bottom:10px; padding:8px 10px; border-radius:8px; background:${bg};
-                        color:${color}; text-align:center;">
-                <div style="font-size:12px; font-weight:600;">${chip.label}</div>
-                ${cta}
-            </div>`;
+        return window.SubscriptionStatus?.renderSidebarPill?.() ?? '';
     },
 
-    /**
-     * "Start free trial" entry — the ha_only → dashboard opt-in (Phase 6 of the
-     * HA voice-only account model). For an ha_only account every other item in the
-     * Dashie Cloud section is gated off, so instead of collapsing to nothing the
-     * section shows the one thing that IS available: the unspent 30-day trial.
-     * Highlighted (accent) because it's a CTA, not navigation.
-     */
+    /** Trial-start CTA nav entry (delta — Dashie builds only; open-core no-ops). */
     _startTrialNavItem() {
-        if (typeof DashboardTrial === 'undefined' || !DashboardTrial.isAvailable()) return '';
-        return `
-            <div class="sidebar-nav-item" onclick="DashboardTrial.promptAndStart()"
-                 style="color: var(--accent, #ffaa00); font-weight: 600;"
-                 title="30 days of the full ${BRAND.productName} dashboard — free, no card">
-                <span class="nav-icon"><img src="assets/icons/icon-star.svg" alt="Start free trial"></span>
-                <span class="nav-label">Start free trial</span>
-            </div>
-        `;
+        return window.DashboardTrial?.renderStartTrialNavItem?.() ?? '';
     },
 
-    /** "Purchase License" entry in the Dashie Cloud section, shown only when the
-     *  trial/subscription has expired (no entitlement) — a direct sidebar path
-     *  to buy. Goes to subscribe.html via AccountPage.subscribe(). */
+    /** Post-expiry purchase nav entry (delta — Dashie builds only; open-core no-ops). */
     _purchaseNavItem() {
-        if (typeof FeatureGate === 'undefined' || FeatureGate.hasEntitlement()) return '';
-        return `
-            <div class="sidebar-nav-item" onclick="AccountPage.subscribe && AccountPage.subscribe()">
-                <span class="nav-icon"><img src="assets/icons/icon-star.svg" alt="Purchase License"></span>
-                <span class="nav-label">Purchase License</span>
-            </div>
-        `;
+        return window.SubscribeGate?.renderPurchaseNavItem?.() ?? '';
     },
 
     /** Renders a nav item only when FeatureGate allows the page. */

@@ -10,17 +10,23 @@ const App = {
     _deletionPollTimer: null,
 
     pages: {
-        devices:       { page: DevicesPage },
-        preferences:   { page: PreferencesPage },
+        // Delta pages (typeof-guarded): these modules exist only in the Dashie
+        // build — the open-core console ships without their files, the guard
+        // resolves to null, and renderPage/navigate treat a null page as
+        // unregistered. Core pages below keep bare references so a missing
+        // core file fails loudly at load.
+        devices:       { page: typeof DevicesPage       !== 'undefined' ? DevicesPage       : null },
+        preferences:   { page: typeof PreferencesPage   !== 'undefined' ? PreferencesPage   : null },
+        'video-feeds': { page: typeof VideoFeedsPage    !== 'undefined' ? VideoFeedsPage    : null },
+        family:        { page: typeof FamilyPage        !== 'undefined' ? FamilyPage        : null },
+        calendar:      { page: typeof CalendarPage      !== 'undefined' ? CalendarPage      : null },
+        chores:        { page: typeof ChoresPage        !== 'undefined' ? ChoresPage        : null },
+        rewards:       { page: typeof RewardsPage       !== 'undefined' ? RewardsPage       : null },
+        locations:     { page: typeof LocationsPage     !== 'undefined' ? LocationsPage     : null },
+        photos:        { page: typeof PhotosPage        !== 'undefined' ? PhotosPage        : null },
+        // Core pages (present in every build)
         'voice-ai':    { page: VoiceAiPage },
-        'video-feeds': { page: VideoFeedsPage },
-        family:        { page: FamilyPage },
-        calendar:      { page: CalendarPage },
-        chores:        { page: ChoresPage },
-        rewards:       { page: RewardsPage },
         'scheduled-actions': { page: ScheduledActionsPage },
-        locations:     { page: LocationsPage },
-        photos:        { page: PhotosPage },
         account:       { page: AccountPage },
         credits:       { page: CreditsPage },
         'api-keys':    { page: ApiKeysPage },
@@ -34,8 +40,9 @@ const App = {
         // the rest of init takes time.
         this._consumeDeletedParam();
 
-        // Stash any `?next=` return intent (from subscribe.html) before auth,
-        // so it survives the Google OAuth round-trip. Honored once authed.
+        // Stash any `?next=` return intent (external entry pages pass it —
+        // e.g. the Dashie build's checkout page) before auth, so it survives
+        // the Google OAuth round-trip. Honored once authed.
         this._captureNextParam();
 
         // Kick off the dropdown-options catalog fetch. Fire-and-forget —
@@ -225,10 +232,11 @@ const App = {
     },
 
     // ── Post-login return intent (`?next=`) ──────────────────────────
-    // subscribe.html bounces unauthenticated buyers here so they can sign in
-    // with Google, passing `?next=<path>` (the checkout URL). We stash it
-    // before auth and, once authenticated, redirect there instead of showing
-    // the console — so "click Purchase → sign in → buy" has no dead end.
+    // External entry pages bounce unauthenticated users here so they can
+    // sign in with Google, passing `?next=<path>` (the page to return to —
+    // the Dashie build's checkout flow uses this). We stash it before auth
+    // and, once authenticated, redirect there instead of showing the
+    // console, so the originating flow has no dead end.
 
     _NEXT_STORAGE_KEY: 'dashie-post-login-next',
 
@@ -360,26 +368,21 @@ const App = {
         const addonMode = DashieAuth.isAddonMode;
         const onClick = addonMode ? 'App._handleAddonSignIn()' : 'DashieAuth.signIn()';
 
-        // Purchase intent: the buyer was sent here from subscribe.html to sign
-        // in with the account they're buying a license for (see subscribe() +
-        // _captureNextParam). Tailor the copy so it's clear WHICH account to use.
-        let purchaseIntent = false;
-        try {
-            const n = sessionStorage.getItem(App._NEXT_STORAGE_KEY);
-            purchaseIntent = !!n && n.indexOf('subscribe.html') !== -1;
-        } catch (_) {}
+        // Purchase-intent login copy (delta): the Dashie checkout page sends
+        // buyers here to sign in first, and the delta tailors the login copy
+        // so it's clear which account to use. Absent module → null → defaults.
+        const purchase = window.SubscribeGate?.loginPurchaseCopy?.() || null;
 
         const title = addonMode ? `Sign in to ${BRAND.productName}`
-            : purchaseIntent ? `Purchase a ${BRAND.productName} license`
+            : purchase ? purchase.title
             : `Welcome to ${BRAND.consoleName}`;
         const subtitle = addonMode
             ? `Connect your Home Assistant to your ${BRAND.productName} account.`
-            : purchaseIntent
-            ? 'Sign in to the Google account you wish to purchase a license for.'
+            : purchase ? purchase.subtitle
             : 'Manage your devices, household, and account from any browser.';
         const chickadeeBuild = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
-        const googleDesc = purchaseIntent
-            ? "The account you'll buy the license for"
+        const googleDesc = purchase
+            ? purchase.googleDesc
             : chickadeeBuild
             ? `Sign in — or create your ${BRAND.productName} account`
             : `Use your ${BRAND.productName} account`;
@@ -562,7 +565,7 @@ const App = {
 
         // The 'devices' boot default may itself be hidden in this build
         // (Chickadee console) — resolve the real home before hash handling.
-        if (typeof FeatureGate !== 'undefined' && !FeatureGate.isPageEnabled(this._currentPage)) {
+        if (!this._isRoutable(this._currentPage)) {
             this._currentPage = this._homePage();
         }
 
@@ -570,7 +573,7 @@ const App = {
         // page that's hidden in this env, fall back to home and silently
         // rewrite the URL.
         const hash = window.location.hash.replace('#', '');
-        if (hash && this.pages[hash] && FeatureGate.isPageEnabled(hash)) {
+        if (hash && this._isRoutable(hash)) {
             this._currentPage = hash;
         } else if (hash) {
             // Quietly redirect — no toast, no error; user may have an old
@@ -591,7 +594,7 @@ const App = {
         window.addEventListener('hashchange', () => {
             const hash = window.location.hash.replace('#', '');
             if (hash && this.pages[hash] && hash !== this._currentPage) {
-                if (!FeatureGate.isPageEnabled(hash)) {
+                if (!this._isRoutable(hash)) {
                     window.location.hash = this._currentPage;
                     return;
                 }
@@ -618,26 +621,35 @@ const App = {
         return str[0].toUpperCase();
     },
 
+    /** A page is routable when it's registered in THIS build (delta pages
+     *  resolve to a null entry in open-core) AND the feature gate shows it. */
+    _isRoutable(slug) {
+        if (!this.pages[slug]?.page) return false;
+        return typeof FeatureGate === 'undefined' || FeatureGate.isPageEnabled(slug);
+    },
+
     /** The default landing page — 'devices' unless this build hides it (Chickadee). */
     _homePage() {
-        return (typeof FeatureGate === 'undefined' || FeatureGate.isPageEnabled('devices'))
-            ? 'devices' : 'voice-ai';
+        return this._isRoutable('devices') ? 'devices' : 'voice-ai';
     },
 
     navigate(page) {
         if (!this.pages[page]) return;
         // Silently redirect to home if the user (or a stale link) targets a
-        // beta-gated page that's hidden in this environment.
-        if (!FeatureGate.isPageEnabled(page)) {
+        // beta-gated page that's hidden in this environment (or a delta page
+        // this build doesn't ship).
+        if (!this._isRoutable(page)) {
             page = this._homePage();
         }
 
-        // Reset sub-page state when navigating away
-        if (this._currentPage === 'devices' && page !== 'devices') {
-            DevicesPage._detailDeviceId = null;
+        // Reset sub-page state when navigating away. Delta pages are reached
+        // through the registry (absent → null entry → no-op) so this carries
+        // no bare references to modules the open-core build doesn't ship.
+        if (this._currentPage === 'devices' && page !== 'devices' && this.pages.devices?.page) {
+            this.pages.devices.page._detailDeviceId = null;
         }
-        if (this._currentPage === 'family' && page !== 'family') {
-            FamilyPage._editingId = null;
+        if (this._currentPage === 'family' && page !== 'family' && this.pages.family?.page) {
+            this.pages.family.page._editingId = null;
         }
 
         this._currentPage = page;
@@ -673,7 +685,7 @@ const App = {
         if (this._expiredLockToPurchase()) { this._renderExpiredLanding(); return; }
 
         const entry = this.pages[this._currentPage];
-        if (!entry) return;
+        if (!entry || !entry.page) return;
 
         const pageObj = entry.page;
 
@@ -733,30 +745,16 @@ const App = {
         return !!st && st.has_console_value === false;
     },
 
-    /** Session-scoped dismiss flag for the expired banner (resets on reload —
-     *  the pill + Purchase License nav item keep the CTA available). */
+    /** Session-scoped dismiss flag for the expired banner (resets on reload;
+     *  the delta's persistent sidebar CTAs keep the path available). */
     _expiredBannerDismissed: false,
 
     /** Persistent "trial/subscription ended" banner for expired users who keep
-     *  console access (device/HA management). Dismissable for the session.
-     *  Empty otherwise. */
+     *  console access (device/HA management). Rendering lives in the
+     *  SubscribeGate delta module (subscription surfaces are Dashie-only);
+     *  open-core builds ship without it and this is always ''. */
     _expiredBannerHtml() {
-        if (typeof FeatureGate === 'undefined' || FeatureGate.hasEntitlement()) return '';
-        if (this._expiredBannerDismissed) return '';
-        const st = FeatureGate._subscriptionState || {};
-        const canceled = st.subscription_status === 'canceled';
-        const msg = canceled ? `Your ${BRAND.productName} subscription has ended.` : `Your ${BRAND.productName} trial has ended.`;
-        return `
-            <div style="background: var(--accent, #ffaa00); color:#fff; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-                <div style="font-size:14px; font-weight:500;">${msg} Subscribe to restore calendar, photos, family &amp; more.</div>
-                <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                    <button class="btn btn-sm" style="background:#fff; color:var(--accent,#ffaa00); font-weight:700; border:none;"
-                            onclick="SubscribeGate._goToSubscribe()">Subscribe</button>
-                    <button aria-label="Dismiss" title="Dismiss"
-                            style="background:none; border:none; color:#fff; font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; opacity:0.9;"
-                            onclick="App._dismissExpiredBanner()">&times;</button>
-                </div>
-            </div>`;
+        return window.SubscribeGate?.expiredBannerHtml?.() ?? '';
     },
 
     /** Hide the expired banner for the rest of this session. */
@@ -767,39 +765,10 @@ const App = {
     },
 
     /** Full-content purchase landing for expired users with no console value.
-     *  Reuses the login-overlay/card styling; keeps the top-bar so Sign out /
-     *  Delete account remain reachable. */
+     *  Rendering lives in the SubscribeGate delta module; open-core builds
+     *  never lock (see _expiredLockToPurchase) and never reach this. */
     _renderExpiredLanding() {
-        const sb = document.getElementById('sidebar');
-        if (sb) { sb.innerHTML = ''; sb.style.display = 'none'; }
-        const tb = document.getElementById('top-bar');
-        if (tb) tb.innerHTML = TopBar.render('Subscribe', '', false);
-        const _gb = document.getElementById('global-banner');
-        if (_gb) _gb.innerHTML = '';
-
-        const st = (typeof FeatureGate !== 'undefined' && FeatureGate._subscriptionState) || {};
-        const canceled = st.subscription_status === 'canceled';
-        const heading = canceled ? `Your ${BRAND.productName} subscription has ended` : `Your ${BRAND.productName} trial has ended`;
-        const content = document.getElementById('content');
-        if (!content) return;
-        content.innerHTML = `
-            <div class="dashie-login-overlay">
-                <div class="dashie-login-card" style="max-width: 460px;">
-                    <img src="${BRAND.logo}" alt="${BRAND.productName}" class="dashie-login-logo">
-                    <div class="dashie-login-title">${heading}</div>
-                    <div class="dashie-login-subtitle">Subscribe to unlock the full ${BRAND.productName} experience:</div>
-                    <ul style="text-align:left; color: var(--text-secondary, #555); font-size:14px; line-height:1.7; margin: 4px auto 20px; max-width: 320px;">
-                        <li>Calendar sync across Google, Apple, Microsoft</li>
-                        <li>Photo library + slideshows on every screen</li>
-                        <li>Chores, rewards, and family sharing</li>
-                        <li>All your registered ${BRAND.productName} devices</li>
-                    </ul>
-                    <div class="dashie-login-buttons">
-                        <button class="btn btn-primary" style="width:100%;" onclick="SubscribeGate._goToSubscribe()">Subscribe to ${BRAND.productName}</button>
-                        <button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="AccountPage.signOut()">Sign out</button>
-                    </div>
-                </div>
-            </div>`;
+        window.SubscribeGate?.renderExpiredLanding?.();
     },
 
     // Re-fetch the current page's data in place via its refresh() hook — keeps

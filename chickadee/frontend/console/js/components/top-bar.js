@@ -55,17 +55,9 @@ const TopBar = {
     },
 
     _renderMenu() {
-        // Show Subscribe entry when user has no current entitlement.
-        // FeatureGate.hasEntitlement() is optimistic-true until SubscribeGate
-        // populates state, so this only appears for confirmed-expired users.
-        const showSubscribe = typeof FeatureGate !== 'undefined' && !FeatureGate.hasEntitlement();
-        const subscribeRow = showSubscribe ? `
-                <button onclick="TopBar.closeMenu(); AccountPage.subscribe && AccountPage.subscribe()"
-                        style="width: 100%; text-align: left; padding: 10px 14px; background: none;
-                               border: none; cursor: pointer; font-size: 14px; color: var(--accent, #ffaa00); font-weight: 600;">
-                    Subscribe to ${BRAND.productName}
-                </button>
-                <div style="height: 1px; background: var(--border, #e5e7eb);"></div>` : '';
+        // Subscribe entry for confirmed-expired users (delta — Dashie builds
+        // only; open-core ships without SubscribeGate and this stays '').
+        const subscribeRow = window.SubscribeGate?.renderMenuSubscribeRow?.() ?? '';
         return `
             <div class="top-bar-user-menu" id="top-bar-user-menu"
                  onclick="event.stopPropagation()"

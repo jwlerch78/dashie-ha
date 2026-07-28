@@ -39,8 +39,13 @@ if ! git diff-index --quiet HEAD --; then
   exit 1
 fi
 
-echo "==> Vendoring dashie-console main → chickadee/frontend/console"
-CONSOLE_SHA="$("$ADDON_ROOT/scripts/sync-console.sh" main)"
+# Repo inversion (2026-07-27): the console is DEVELOPED HERE — no vendoring.
+# chickadee/frontend/console is canonical source; the Dashie build vendors
+# FROM this repo and overlays its private delta. check-console-tree.sh gates
+# the tree instead.
+echo "==> Checking console tree (canonical here since the repo inversion)"
+"$ADDON_ROOT/scripts/check-console-tree.sh"
+CONSOLE_SHA="$(git rev-parse --short HEAD)"
 
 echo "==> Vendoring chickadee integration main → chickadee/integration"
 INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main)"
