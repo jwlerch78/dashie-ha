@@ -438,6 +438,7 @@ const App = {
                             <span class="dashie-legal-sep">&bull;</span>
                             <a href="${BRAND.urls.terms}" target="_blank" rel="noopener">Terms of Service</a>
                         </div>
+                        ${BRAND.footerNote ? `<div style="margin-top:6px; font-size:11px; color: var(--text-muted, #999);">${BRAND.footerNote}</div>` : ''}
                         <div class="dashie-login-version" id="dashie-login-version"></div>
                     </div>
                 </div>
@@ -525,6 +526,7 @@ const App = {
                     <span class="dashie-legal-sep">&bull;</span>
                     <a href="${BRAND.urls.terms}" target="_blank" rel="noopener">Terms of Service</a>
                 </div>
+                ${BRAND.footerNote ? `<div style="margin-top:6px; font-size:11px; color: var(--text-muted, #999);">${BRAND.footerNote}</div>` : ''}
                 <div class="dashie-login-version" id="dashie-login-version"></div>
             </div>
         `;
