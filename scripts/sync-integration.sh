@@ -11,7 +11,9 @@ set -euo pipefail
 BRANCH="${1:-main}"
 REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/chickadee-integration}"
 ADDON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET="$ADDON_ROOT/chickadee/integration"
+# 3rd arg = target dir (default prod add-on's integration/). The dev channel
+# passes chickadee-dev/integration so it vendors without touching prod's copy.
+TARGET="${3:-$ADDON_ROOT/chickadee/integration}"
 
 if [[ ! -d "$REPO_PATH/.git" ]]; then
     echo "Error: $REPO_PATH is not a git repository (pass the chickadee integration clone path)." >&2
