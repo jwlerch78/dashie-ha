@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Assist-exposed entity context, brain-shaped.
 
 Port of the Dashie integration's exposed-entities enricher (single source of the

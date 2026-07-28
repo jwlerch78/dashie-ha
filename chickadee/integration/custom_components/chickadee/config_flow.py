@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Config + options flows for Chickadee.
 
 Deliberately thin: engine configuration (cloud / BYOK / local, keys, fallbacks)

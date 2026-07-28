@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Chickadee speech-to-text entity — streams Assist audio to the add-on's STT engine.
 
 The add-on owns which engine actually transcribes (BYO OpenAI-compatible server

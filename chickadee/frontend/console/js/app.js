@@ -332,6 +332,17 @@ const App = {
     },
 
     async _restartCoreFromBanner(btn) {
+        // Explicit consent before touching Core — restarting HA interrupts
+        // every automation/dashboard for ~a minute.
+        const confirmed = typeof ConfirmModal !== 'undefined'
+            ? await ConfirmModal.confirm({
+                title: 'Restart Home Assistant?',
+                message: 'Home Assistant will restart to activate the integration. Automations and dashboards will be unavailable for about a minute.',
+                confirmLabel: 'Restart Home Assistant',
+                cancelLabel: 'Not now',
+            })
+            : window.confirm('Restart Home Assistant now? It will be unavailable for about a minute.');
+        if (!confirmed) return;
         document.querySelectorAll('.integration-restart-banner button').forEach(b => {
             b.disabled = true; b.textContent = 'Restarting… (about a minute)';
         });

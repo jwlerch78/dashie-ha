@@ -1,15 +1,19 @@
-"""Chickadee voice gateway — the /api/dashie/voice/* views for LAN devices.
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Chickadee voice gateway — the /api/chickadee/voice/* views for LAN devices.
 
-Ported from the Dashie integration's voice_view.py. A Dashie tablet in kiosk
-mode (and any LAN device holding an HA token) reaches household voice through
-these views; they proxy to the Chickadee add-on's /api/internal/* (account
-credential, sharing gate) and to the cloud brain on the account's behalf.
+Ported from the Dashie integration's voice_view.py. A satellite on the LAN
+(any device holding an HA token — Dashie tablets in kiosk mode today) reaches
+household voice through these views; they proxy to the Chickadee add-on's
+/api/internal/* (account credential, sharing gate) and to the cloud brain on
+the account's behalf.
 
-⚠️ WIRE PATHS KEEP THE `dashie` PREFIX. `/api/dashie/voice/status` & co are a
-contract with every shipped Dashie APK — a path is a wire value, not brand
-(same rule as the `dashie_cloud` engine id). Ownership: when the Chickadee
-integration is configured it registers these views and the Dashie integration
-cedes (its __init__ checks our config entries); see async_register_voice_views.
+Every view serves TWO paths: the canonical `/api/chickadee/...` and a
+`/api/dashie/...` legacy alias. The alias is a compatibility contract with
+shipped Dashie APKs (a path is a wire value — same rule as the `dashie_cloud`
+engine id) and must never be removed while those apps are in the field; both
+paths hit the same handler. Ownership: when the Chickadee integration is
+configured it registers these views and the Dashie integration cedes (its
+__init__ checks our config entries); see async_register_voice_views.
 
 The payload builder is a faithful copy of the Dashie gateway's pass-through
 design (allowlist rot postmortem: dashieapp_staging
@@ -29,6 +33,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from . import account_bridge
 from .account_bridge import (
     AddonUnavailable,
     SharingDisabled,
@@ -42,10 +47,22 @@ from .account_bridge import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# TODO(config): derive per-environment (the add-on knows cloud_env) instead of
-# hardcoding staging — same debt as the Dashie gateway's BRAIN_URL.
-BRAIN_URL = "https://cwglbtosingboqepsmjk.supabase.co/functions/v1/voice-conversation"
-ISSUE_STT_TOKEN_URL = "https://cwglbtosingboqepsmjk.supabase.co/functions/v1/issue-stt-token"
+# Cloud base URL comes from the add-on (which knows the configured cloud_env)
+# via account_bridge.cloud_url(), populated on the first sharing-status check.
+# The constant below is only the fallback for add-ons too old to report it.
+_FALLBACK_CLOUD_BASE = "https://cwglbtosingboqepsmjk.supabase.co"
+
+
+def _cloud_base() -> str:
+    return account_bridge.cloud_url() or _FALLBACK_CLOUD_BASE
+
+
+def _brain_url() -> str:
+    return f"{_cloud_base()}/functions/v1/voice-conversation"
+
+
+def _stt_token_url() -> str:
+    return f"{_cloud_base()}/functions/v1/issue-stt-token"
 
 #: VoiceRequest keys the GATEWAY computes; everything else passes through.
 GATEWAY_OWNED_KEYS = frozenset({"endpoint_id", "options", "client_fulfilled_tools"})
@@ -93,7 +110,7 @@ async def call_cloud_brain(hass: HomeAssistant, payload: dict, cred: str | None 
         "apikey": cred,
     }
     session = async_get_clientsession(hass)
-    async with session.post(BRAIN_URL, json=payload, headers=headers) as resp:
+    async with session.post(_brain_url(), json=payload, headers=headers) as resp:
         turn = await resp.json(content_type=None)
         return turn, (200 if resp.status < 400 else resp.status)
 
@@ -101,7 +118,8 @@ async def call_cloud_brain(hass: HomeAssistant, payload: dict, cred: str | None 
 class ChickadeeVoiceConverseView(HomeAssistantView):
     """Authed by the HA token; calls the brain on the account's behalf."""
 
-    url = "/api/dashie/voice/converse"
+    url = "/api/chickadee/voice/converse"
+    extra_urls = ["/api/dashie/voice/converse"]  # legacy alias (shipped Dashie APKs)
     name = "api:chickadee:voice:converse"
     requires_auth = True
 
@@ -122,7 +140,12 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         # Authoritative account route stamped on every response so a device with
         # a stale cached route self-corrects next turn (brain-route strand fix).
         authoritative_route = (await get_voice_config(hass)).get("route", "cloud")
-        route_header = {"X-Dashie-Brain-Route": authoritative_route}
+        # Both header names carry the same value: X-Chickadee-Brain-Route is
+        # canonical, X-Dashie-Brain-Route stays for shipped Dashie APKs.
+        route_header = {
+            "X-Chickadee-Brain-Route": authoritative_route,
+            "X-Dashie-Brain-Route": authoritative_route,
+        }
 
         if route is None:
             route = authoritative_route
@@ -164,7 +187,7 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         )
         prepared = False
         try:
-            async with session.post(BRAIN_URL, json=payload, headers=brain_headers) as resp:
+            async with session.post(_brain_url(), json=payload, headers=brain_headers) as resp:
                 if resp.status >= 400:
                     err_body = await resp.text()
                     return web.Response(status=resp.status, text=err_body, content_type="application/json", headers=route_header)
@@ -189,7 +212,8 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
 class ChickadeeVoiceStatusView(HomeAssistantView):
     """Capability probe — can this HA offer household cloud voice to LAN endpoints?"""
 
-    url = "/api/dashie/voice/status"
+    url = "/api/chickadee/voice/status"
+    extra_urls = ["/api/dashie/voice/status"]  # legacy alias (shipped Dashie APKs)
     name = "api:chickadee:voice:status"
     requires_auth = True
 
@@ -241,7 +265,8 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
 class ChickadeeVoiceSessionView(HomeAssistantView):
     """Vend a short-lived STT token bundle to a LAN endpoint (sharing-gated)."""
 
-    url = "/api/dashie/voice/session"
+    url = "/api/chickadee/voice/session"
+    extra_urls = ["/api/dashie/voice/session"]  # legacy alias (shipped Dashie APKs)
     name = "api:chickadee:voice:session"
     requires_auth = True
 
@@ -267,7 +292,7 @@ class ChickadeeVoiceSessionView(HomeAssistantView):
             mint_body["ttl_seconds"] = body["ttl_seconds"]
         try:
             async with session.post(
-                ISSUE_STT_TOKEN_URL,
+                _stt_token_url(),
                 json=mint_body,
                 headers={
                     "Content-Type": "application/json",
@@ -292,7 +317,8 @@ class ChickadeeAccountAuthorizeView(HomeAssistantView):
     No credential is returned — the tablet polls the cloud for its own session.
     """
 
-    url = "/api/dashie/account/authorize"
+    url = "/api/chickadee/account/authorize"
+    extra_urls = ["/api/dashie/account/authorize"]  # legacy alias (shipped Dashie APKs)
     name = "api:chickadee:account:authorize"
     requires_auth = True
 
@@ -328,7 +354,8 @@ class ChickadeeAccountAuthorizeView(HomeAssistantView):
 class ChickadeeVoiceLiveTokenView(HomeAssistantView):
     """Broker a Live-only Gemini ephemeral token from the box's stored key."""
 
-    url = "/api/dashie/voice/live-token"
+    url = "/api/chickadee/voice/live-token"
+    extra_urls = ["/api/dashie/voice/live-token"]  # legacy alias (shipped Dashie APKs)
     name = "api:chickadee:voice:live-token"
     requires_auth = True
 
@@ -356,4 +383,4 @@ def register_voice_views(hass: HomeAssistant) -> None:
     hass.http.register_view(ChickadeeVoiceSessionView())
     hass.http.register_view(ChickadeeAccountAuthorizeView())
     hass.http.register_view(ChickadeeVoiceLiveTokenView())
-    _LOGGER.info("Registered Chickadee voice gateway views (/api/dashie/voice/*)")
+    _LOGGER.info("Registered Chickadee voice gateway views (/api/chickadee/voice/* + legacy /api/dashie/voice/* aliases)")

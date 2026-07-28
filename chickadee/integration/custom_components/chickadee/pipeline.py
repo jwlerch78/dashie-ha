@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Auto-create the Chickadee Assist pipeline on config-entry setup.
 
 The plug-and-play promise: install the add-on, add the integration, and a

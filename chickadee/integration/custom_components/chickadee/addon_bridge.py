@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Bridge to the Chickadee add-on — discovery, auth, and the single brain POST site.
 
 Ported from the Dashie integration's addon_bridge (subset). The add-on owns engine

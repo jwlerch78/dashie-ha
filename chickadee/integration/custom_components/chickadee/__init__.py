@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Chickadee — an open voice pipeline for Home Assistant.
 
 The integration is the Assist-pipeline surface: conversation + STT + TTS

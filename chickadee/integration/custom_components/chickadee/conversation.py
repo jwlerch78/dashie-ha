@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Chickadee conversation entity — routes Assist utterances to the Chickadee brain.
 
 Port of the Dashie integration's conversation entity (device-verified there), with

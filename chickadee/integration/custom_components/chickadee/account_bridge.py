@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Account/sharing bridge — the LAN-sharing lane to the Chickadee add-on.
 
 Ported from the Dashie integration's addon_bridge account helpers. The add-on
@@ -45,17 +46,31 @@ class SharingDisabled(AddonUnavailable):
     """Add-on reachable + signed in, but household cloud sharing is off."""
 
 
+#: Cloud edge-function base URL as reported by the add-on (which knows the
+#: configured cloud_env). None until the add-on has answered once; consumers
+#: fall back to their own default (older add-ons don't report it).
+_cloud_url: str | None = None
+
+
+def cloud_url() -> str | None:
+    """The add-on-reported cloud base URL (e.g. https://…supabase.co), if known."""
+    return _cloud_url
+
+
 async def get_sharing_status(hass: HomeAssistant) -> dict:
-    """The add-on's `{available, signed_in, household_sharing, reason, account_email?}`.
+    """The add-on's `{available, signed_in, household_sharing, reason, account_email?, cloud_url?}`.
 
     Never raises — unreachable → `{available: False, reason: "addon_unreachable"}`.
     """
+    global _cloud_url
     try:
         status, body = await call_addon_json(hass, _SHARING_STATUS_PATH)
     except AddonUnavailable:
         return {"available": False, "reason": "addon_unreachable"}
     if status != 200:
         return {"available": False, "reason": "bad_response"}
+    if isinstance(body, dict) and isinstance(body.get("cloud_url"), str) and body["cloud_url"].startswith("https://"):
+        _cloud_url = body["cloud_url"].rstrip("/")
     return body or {"available": False, "reason": "bad_response"}
 
 

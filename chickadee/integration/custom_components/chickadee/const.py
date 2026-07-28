@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Constants for the Chickadee integration."""
 
 DOMAIN = "chickadee"

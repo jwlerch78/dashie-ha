@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Chickadee text-to-speech entity — asks the add-on's TTS engine for spoken audio.
 
 The add-on owns which engine synthesizes (BYO OpenAI-compatible server now;

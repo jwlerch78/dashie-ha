@@ -50,6 +50,9 @@ router.get('/sharing-status', async (req, res) => {
         signed_in: signedIn,
         household_sharing: sharing,
         reason: available ? 'ok' : (!signedIn ? 'add_on_not_signed_in' : 'sharing_disabled'),
+        // The configured cloud environment's base URL — the integration derives
+        // its brain/token edge-fn URLs from this instead of hardcoding an env.
+        cloud_url: CLOUD.url,
         ...(available && stored.userEmail ? { account_email: stored.userEmail } : {}),
     });
 });
