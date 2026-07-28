@@ -302,13 +302,26 @@ const App = {
      * #global-banner div lives outside #content). After the restart is issued,
      * polls api/runtime until the pending flag clears, then reloads.
      */
-    /** '' unless the add-on says its integration awaits a core restart. */
+    /** '' unless the add-on says its integration awaits activation. Two states:
+     *  (1) core hasn't restarted → "Restart Home Assistant"; (2) core restarted
+     *  and the discovery "Configure" card is parked unclicked → "Configure"
+     *  (the banner absorbs the click via /api/system/configure-integration, so
+     *  the user never has to find the card under Settings → Devices & Services).
+     *  integration_discovered_pending is absent on older add-ons → falls through
+     *  to the restart state (unchanged behavior). */
     _integrationRestartBannerHtml() {
         const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
         if (!info || info.integration_pending_restart !== true) return '';
+        if (info.integration_discovered_pending === true) {
+            return `
+            <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
+                <span style="flex:1; min-width:220px;">✅ ${BRAND.productName} is discovered in Home Assistant — <b>finish setup</b> to activate voice &amp; AI.</span>
+                <button class="btn btn-primary btn-sm" onclick="App._configureIntegrationFromBanner(this)">Configure ${BRAND.productName}</button>
+            </div>`;
+        }
         return `
             <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
-                <span style="flex:1; min-width:220px;">✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" card under Settings → Devices &amp; Services.</span>
+                <span style="flex:1; min-width:220px;">✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" button here.</span>
                 <button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this)">Restart Home Assistant</button>
             </div>`;
     },
@@ -350,19 +363,52 @@ const App = {
         try {
             await fetch(DashieAuth._addonUrl('/api/system/restart-core'), { method: 'POST' });
         } catch (e) { /* the restart drops connections — expected */ }
-        // Poll until HA is back with the integration loaded, then reload.
+        // Poll until HA is back, then reload — either the integration loaded
+        // outright, OR the discovery card is now parked (reload flips the
+        // banner to its one-click "Configure" state, so the restart doesn't
+        // dead-end waiting for a load that only a Configure click produces).
         const poll = setInterval(async () => {
             try {
                 const r = await fetch(DashieAuth._addonUrl('/api/runtime'), { cache: 'no-store' });
                 if (r.ok) {
                     const j = await r.json();
-                    if (j.integration_pending_restart === false) {
+                    if (j.integration_pending_restart === false || j.integration_discovered_pending === true) {
                         clearInterval(poll);
                         window.location.reload();
                     }
                 }
             } catch (e) { /* still restarting */ }
         }, 5000);
+    },
+
+    /** "Configure" — complete the parked discovery flow so the integration
+     *  loads, without the user hunting for the card under Settings → Devices
+     *  & Services. The add-on drives the flow via its Supervisor session. */
+    async _configureIntegrationFromBanner(btn) {
+        document.querySelectorAll('.integration-restart-banner button').forEach(b => {
+            b.disabled = true; b.textContent = 'Configuring…';
+        });
+        if (btn) { btn.disabled = true; }
+        try {
+            const resp = await fetch(DashieAuth._addonUrl('/api/system/configure-integration'), { method: 'POST' });
+            const j = await resp.json().catch(() => ({}));
+            if (resp.ok && j.ok) {
+                // Refresh the cached runtime so the banner clears, then reload
+                // into the now-configured console.
+                try {
+                    const r = await fetch(DashieAuth._addonUrl('/api/runtime'), { cache: 'no-store' });
+                    if (r.ok) DashieAuth._addonRuntimeInfo = await r.json();
+                } catch (_) {}
+                window.location.reload();
+                return;
+            }
+            throw new Error(j.error || `HTTP ${resp.status}`);
+        } catch (e) {
+            if (typeof Toast !== 'undefined') Toast.error('Could not finish setup: ' + (e?.message || e) + '. You can also complete it under Settings → Devices & Services.');
+            document.querySelectorAll('.integration-restart-banner button').forEach(b => {
+                b.disabled = false; b.textContent = `Configure ${BRAND.productName}`;
+            });
+        }
     },
 
     _showLogin() {

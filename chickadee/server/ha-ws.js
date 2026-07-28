@@ -148,6 +148,10 @@ function getTtsVoices(engineId, language) { return _send({ type: 'tts/engine/voi
 /** List STT engines (stt/engine/get doesn't exist on current HA). */
 function listSttEngines() { return _send({ type: 'stt/engine/list' }); }
 
+/** In-progress config-flow list (WS-only — no REST equivalent). Used to detect a
+ *  parked discovery flow (the "Configure" card) so the banner can absorb its click. */
+function listConfigFlowsInProgress() { return _send({ type: 'config_entries/flow/progress' }); }
+
 /** HA's own config → { language, country, internal_url, … }. */
 function getHaConfig() { return _send({ type: 'get_config' }); }
 
@@ -171,4 +175,4 @@ function stop() {
     connectionPromise = null;
 }
 
-module.exports = { isAvailable, start, stop, listTtsEngines, getTtsVoices, listSttEngines, getHaConfig, getStates };
+module.exports = { isAvailable, start, stop, listTtsEngines, getTtsVoices, listSttEngines, listConfigFlowsInProgress, getHaConfig, getStates };

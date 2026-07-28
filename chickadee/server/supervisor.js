@@ -11,6 +11,8 @@
 
 'use strict';
 
+const haWs = require('./ha-ws');
+
 const SUP = 'http://supervisor';
 const TOKEN = process.env.SUPERVISOR_TOKEN;
 
@@ -57,6 +59,58 @@ async function isIntegrationLoaded() {
     }
 }
 
+let _flowCache = { at: 0, val: null };
+
+/**
+ * flow_id of an in-progress `chickadee` config flow, or null. This is the
+ * discovery "Configure" card, parked at hassio_confirm after a core restart —
+ * core creates it but the user must complete it for the integration to load.
+ * Listing in-progress flows is WS-only (REST 405s), so this uses the core WS.
+ * 10s cache; best-effort (null on unavailable/error — never throws).
+ */
+async function getPendingIntegrationFlowId() {
+    const now = Date.now();
+    if (now - _flowCache.at < 10000) return _flowCache.val;
+    let val = null;
+    try {
+        if (haWs.isAvailable()) {
+            const flows = await haWs.listConfigFlowsInProgress();
+            const f = Array.isArray(flows) ? flows.find(x => x && x.handler === 'chickadee') : null;
+            val = f ? f.flow_id : null;
+        }
+    } catch (e) {
+        val = null;
+    }
+    _flowCache = { at: now, val };
+    return val;
+}
+
+/**
+ * Complete the parked discovery flow (POST {} — the hassio_confirm/user step
+ * only checks that user_input is present), creating + loading the entry. This
+ * is the "absorb the discovery click" the restart banner promises. Returns
+ * { ok, type }. Never throws.
+ */
+async function completeIntegrationFlow(flowId) {
+    if (!TOKEN || !flowId) return { ok: false };
+    try {
+        const resp = await fetch(`${SUP}/core/api/config/config_entries/flow/${flowId}`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({}),
+        });
+        const body = await resp.json().catch(() => ({}));
+        // create_entry = configured + loaded. A show_form/abort means the step
+        // wanted input we don't have (shouldn't happen for hassio_confirm).
+        const ok = resp.ok && body.type === 'create_entry';
+        _flowCache = { at: 0, val: null };   // invalidate both caches so the
+        _loadedCache = { at: 0, val: null };  // banner re-checks immediately.
+        if (!ok) console.warn(`[supervisor] configure-integration: unexpected flow result ${JSON.stringify(body).slice(0, 160)}`);
+        return { ok, type: body.type, title: body.title };
+    } catch (e) {
+        console.warn('[supervisor] configure-integration failed:', e.message);
+        return { ok: false };
+    }
+}
+
 /** Restart HA core (manager role). Returns true when accepted. */
 async function restartCore() {
     if (!TOKEN) return false;
@@ -71,4 +125,10 @@ async function restartCore() {
     }
 }
 
-module.exports = { ensureSidebarPanel, isIntegrationLoaded, restartCore };
+module.exports = {
+    ensureSidebarPanel,
+    isIntegrationLoaded,
+    getPendingIntegrationFlowId,
+    completeIntegrationFlow,
+    restartCore,
+};

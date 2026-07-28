@@ -152,6 +152,14 @@ app.get('/api/runtime', async (req, res) => {
         const loaded = await supervisor.isIntegrationLoaded();
         pending = loaded === false;
     }
+    // Once pending, distinguish "core hasn't restarted yet" (→ restart banner)
+    // from "core restarted, discovery card is parked unclicked" (→ the banner
+    // absorbs the click via /api/system/configure-integration). Only probed
+    // while pending, so steady-state adds no WS traffic.
+    let discoveredPending = false;
+    if (pending) {
+        discoveredPending = !!(await supervisor.getPendingIntegrationFlowId());
+    }
     res.json({
         addon: true,
         chickadee: true,
@@ -160,6 +168,7 @@ app.get('/api/runtime', async (req, res) => {
         email_auth: true,
         integration: instStatus,
         integration_pending_restart: pending,
+        integration_discovered_pending: discoveredPending,
         started_at: STARTED_AT,
     });
 });
@@ -170,6 +179,21 @@ app.post('/api/system/restart-core', async (req, res) => {
     console.log('[system] core restart requested from the console');
     const ok = await supervisor.restartCore();
     res.status(ok ? 200 : 502).json({ ok });
+});
+
+// Behind the banner's "Configure" button once core has restarted and the
+// discovery card is parked: complete the flow so the integration loads —
+// the "one-click Configure" the banner promises, no menu-diving (Ingress-
+// trusted).
+app.post('/api/system/configure-integration', async (req, res) => {
+    const flowId = await supervisor.getPendingIntegrationFlowId();
+    if (!flowId) {
+        console.warn('[system] configure-integration: no pending chickadee discovery flow');
+        return res.status(409).json({ ok: false, error: 'no_pending_flow' });
+    }
+    console.log(`[system] completing chickadee discovery flow ${flowId} from the console`);
+    const result = await supervisor.completeIntegrationFlow(flowId);
+    res.status(result.ok ? 200 : 502).json(result);
 });
 
 app.use('/api/auth', consoleAuthRouter);
