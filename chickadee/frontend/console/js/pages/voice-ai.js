@@ -619,12 +619,13 @@ const VoiceAiPage = {
         if (presetId === 'hybrid') {
             const currentIsLocal = currentValid && current !== 'dashie_cloud';
             if (currentIsLocal) return;   // deliberate local choice — keep it
+            // Hybrid = cloud AI + on-device voice: default to the BUNDLED on-device engines
+            // (sherpa STT / built-in device TTS), not HA Whisper/Piper (John 2026-07-28). The
+            // device's provider chain falls back to HA/cloud where the engine isn't bundled.
             if (stageKey === 'tts') {
-                this._selectProvider('tts', hasHaEngine ? 'ha_engine' : 'android_voice');
-            } else if (hasHaEngine) {
-                this._selectProvider('stt', 'ha_engine');
-            } else if (!currentValid) {
-                this._selectProvider('stt', 'dashie_cloud');
+                this._selectProvider('tts', has('android_voice') ? 'android_voice' : 'dashie_cloud');
+            } else {
+                this._selectProvider('stt', has('sherpa_moonshine_tiny') ? 'sherpa_moonshine_tiny' : 'dashie_cloud');
             }
             return;
         }
