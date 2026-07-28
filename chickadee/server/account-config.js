@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/account-config.js — read the account's voice/AI config from user_settings.
 //
 // Build plan §13.16/§13.17 (on-prem brain) + §16.7 (account-level config). The add-on is the

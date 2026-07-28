@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // api/voice-console.js — console-facing voice endpoints (Ingress-trusted).
 //
 // Ported from the dashie add-on's api/voice-local.js: the Voice & AI / Local

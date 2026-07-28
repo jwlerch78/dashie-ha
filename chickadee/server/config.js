@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // config.js — runtime configuration: data paths + Chickadee Cloud environment.
 //
 // Chickadee Cloud accounts are hosted on the same backend that powers Dashie

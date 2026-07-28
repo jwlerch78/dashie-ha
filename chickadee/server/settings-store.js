@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/settings-store.js
 // Persistent add-on-local settings (separate from auth/JWT storage).
 //

@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the report! If the problem is in the **integration** (entities
         missing, config flow, pipeline setup), please file it at
-        [chickadee](https://github.com/jwlerch78/chickadee/issues) instead.
+        [chickadee-integration](https://github.com/jwlerch78/chickadee-integration/issues) instead.
   - type: textarea
     id: what-happened
     attributes:

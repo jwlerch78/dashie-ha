@@ -141,4 +141,4 @@ the HA config directory as a fallback for older integration versions.
 
 Please include your HA version, add-on version, engine setup (URLs/models —
 **never keys**), and the `CHICKADEE-*` log lines:
-[chickadee-addons issues](https://github.com/jwlerch78/chickadee/issues).
+[chickadee issues](https://github.com/jwlerch78/chickadee/issues).

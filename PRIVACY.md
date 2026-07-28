@@ -48,6 +48,10 @@ engines under your account:
   you click it, probes private subnets only, uses read-only unauthenticated
   version-endpoint GETs to identify engines, and its results render in the
   console — they are never sent off-box
+- One caveat for completeness: the **console page in your browser** loads
+  three pinned open-source libraries (supabase-js, hls.js, heic2any) from
+  the jsDelivr CDN — a standard static fetch by your browser, no data sent
+  beyond the request itself. The voice pipeline never touches a CDN
 - The add-on ↔ integration bridge is same-box only (`ports: {}` — nothing
   is exposed on your LAN), authenticated with a random per-install secret
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/voice-engines.js — local voice engine detection for the Console picker.
 //
 // Answers "what local STT/TTS can the user's Home Assistant do, right now?" so

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // api/internal.js — endpoints for the trusted in-HA caller (the Chickadee
 // integration), reached over the hassio Docker network. Ported from the Dashie
 // add-on's api/internal.js — this is the LAN-sharing lane: a Dashie tablet in

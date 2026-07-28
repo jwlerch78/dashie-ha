@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // integration-installer.js — install/update the Chickadee INTEGRATION from the
 // add-on ("all at once" onboarding: add-on → integration → discovery → done).
 //

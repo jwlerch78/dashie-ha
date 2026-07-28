@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // converse.js — the /api/voice/converse turn handler: bridge contract in, brain Turn out.
 //
 // The integration POSTs a VoiceRequest (CONTRACTS.md: pass-through philosophy — unknown

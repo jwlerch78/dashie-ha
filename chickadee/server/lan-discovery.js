@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/lan-discovery.js — find self-hosted voice/AI engines on the household LAN.
 //
 // The Console's "Scan network" button (Local Engines page) calls POST /api/voice/discover,

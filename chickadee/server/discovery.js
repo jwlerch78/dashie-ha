@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // discovery.js — hand the bridge secret to the integration via Supervisor discovery.
 //
 // The PROPER credential channel (the same one the MQTT broker/Wyoming add-ons

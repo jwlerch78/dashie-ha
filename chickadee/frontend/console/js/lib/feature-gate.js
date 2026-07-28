@@ -1,7 +1,6 @@
 /* ============================================================
-   Feature Gate — beta visibility rules for the Dashie Console.
-
-   See .reference/FEATURE_GATING.md for the canonical model.
+   Feature Gate — per-build visibility rules for the console
+   (open-core Chickadee build and the Dashie delta build share it).
 
    Rules (composable, per-feature key):
 

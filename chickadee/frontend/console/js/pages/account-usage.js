@@ -1,9 +1,7 @@
 /* ============================================================
    Account → Token Usage tab
    ------------------------------------------------------------
-   Phase 1 of the credits/billing build (see Phase G in
-   /Users/johnlerch/projects/dashieapp_staging/.reference/build-plans/
-   20260415_DASHIE_HA_ADDON_W_TOKEN_MGMT.md).
+   Phase 1 of the credits/billing build.
 
    What this view does today:
      - Stat strip: current balance, today's spend, this-month's spend

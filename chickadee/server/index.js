@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // Chickadee add-on — Express server: bridge surface + Chickadee console.
 //
 // Two audiences on one port (8099, ports:{} — hassio network + Ingress only):

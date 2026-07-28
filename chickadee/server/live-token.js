@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/live-token.js
 // Mint a short-lived, Live-only Gemini ephemeral token from a raw AI-Studio key, for a
 // BYOK Live session (Option B: the box mints; the RAW KEY NEVER LEAVES THE BOX — only the

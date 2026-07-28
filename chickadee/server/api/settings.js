@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // api/settings.js — console-facing read/write for add-on-local settings.
 //
 // Ingress-protected (HA authenticates the user first); writes additionally

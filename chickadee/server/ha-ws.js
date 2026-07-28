@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // ha-ws.js — thin Home Assistant WebSocket client for engine detection.
 //
 // Slimmed port of the dashie add-on's ha-registry.js: just the WS core

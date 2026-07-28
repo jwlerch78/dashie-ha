@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // bridge-auth.js — the integration↔add-on bridge secret (chickadee CONTRACTS.md).
 //
 // Extracted from index.js when the server became Express (console port); the

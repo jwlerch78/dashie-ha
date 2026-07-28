@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // supervisor.js — small Supervisor-API helpers for funnel UX.
 //
 //   ensureSidebarPanel(): flip our own "Show in sidebar" on (ingress_panel) so

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/api/keys.js
 // Console-facing endpoints for add-on-local BYO API keys (Open Brain plan
 // 20260710_OPEN_BRAIN_BYOK_PRESETS_UI.md §4). Mirrors api/settings.js:

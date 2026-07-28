@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // auth.js — persistent JWT storage + Chickadee Cloud device-flow auth.
 // Ported from the Dashie add-on's auth.js (same account system, same jwt-auth
 // edge function; see 20260702 device-flow docs there).

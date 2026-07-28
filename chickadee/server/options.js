@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // Add-on options — HAOS writes the Configuration tab values to /data/options.json.
 // Read fresh on each use (cheap) so config changes only need an add-on restart,
 // never an image rebuild.

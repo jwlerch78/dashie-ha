@@ -39,6 +39,28 @@ for Dashie satellite devices, localStorage keys, and `dashie-*` CSS class
 names. These are compatibility contracts, not hidden branding — display
 identity is centralized in `js/lib/brand.js`.
 
+## Known Dashie residue (being generalized)
+
+Full candor about what's still Dashie-shaped in the current beta:
+
+- **The assistant's built-in help knowledge base** (`dashie_help` tool,
+  `server/brain/src/_shared/tools/dashie-kb.generated.ts`) currently covers
+  the Dashie app family — ask the assistant for product help and some
+  answers describe Dashie features. It's generated from the shared docs
+  pipeline and is on the list to generalize per-brand.
+- **Generated files** (headers say `AUTO-GENERATED`): several console lib
+  files and the brain bundle are built by the shared tooling in the private
+  Dashie monorepo. Their vendored output here is the readable source you
+  run; comments inside them may reference that private repo's paths and
+  internal docs (`.reference/…`, build plans). Those pointers are honest
+  breadcrumbs, not missing pieces of this codebase.
+- **Hermes** (the optional BYO-brain companion add-on offered in the
+  console) currently installs from the Dashie add-on repository
+  (`dashie-ha-app`) — dual-listing it in this repo is planned.
+- Cross-boundary contracts are registered in
+  [chickadee-integration/CONTRACTS.md](https://github.com/jwlerch78/chickadee-integration/blob/main/CONTRACTS.md)
+  (see this repo's `CONTRACTS.md` pointer).
+
 ## Development style
 
 This project moved fast on top of a mature codebase (Dashie's voice stack,

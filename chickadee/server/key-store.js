@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // server/key-store.js
 // Add-on-local BYO API keys (model-provider keys for the AI/brain).
 //

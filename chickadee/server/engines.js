@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // engines.js — STT/TTS engine routing for the integration's stt/tts entities.
 //
 // The integration streams Assist audio to POST /api/voice/stt (WAV body) and asks

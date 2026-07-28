@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // api/console-auth.js — auth endpoints for the Chickadee console SPA.
 //
 // Merge of the dashie add-on's api/auth.js (the SPA's add-on-mode contract:
