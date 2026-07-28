@@ -184,6 +184,26 @@ async function ensureIntegration() {
     }
 }
 
+/** Content-hash of the integration currently ON DISK (from the marker), or null. */
+function getInstalledHash() {
+    return readInstalledHash(TARGET_DIR);
+}
+
+/** Content-hash the LOADED integration stamped at its last setup (the integration
+ *  writes it to <config>/.chickadee/loaded_hash), or null. When this differs from
+ *  getInstalledHash() the add-on has re-copied newer files that a core restart
+ *  hasn't loaded yet → the console nudges "restart to apply". Self-clears: the
+ *  integration rewrites it on its next setup (i.e. after that restart). */
+function getLoadedHash() {
+    try {
+        const txt = fs.readFileSync(path.join(HA_CONFIG_ROOT, '.chickadee', 'loaded_hash'), 'utf8');
+        const m = txt.match(/([0-9a-f]{64})/i);
+        return m ? m[1] : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 let _lastResult = null;
 
 /** The most recent ensureIntegration outcome ('installed'|'updated'|'current'|…). */
@@ -194,4 +214,4 @@ async function ensureIntegrationTracked() {
     return _lastResult;
 }
 
-module.exports = { ensureIntegration: ensureIntegrationTracked, getStatus };
+module.exports = { ensureIntegration: ensureIntegrationTracked, getStatus, getInstalledHash, getLoadedHash };

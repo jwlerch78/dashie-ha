@@ -145,11 +145,12 @@ app.get('/api/runtime', async (req, res) => {
     // live check — the installer status alone goes stale across core restarts.
     const instStatus = installer.getStatus();
     let pending = false;
+    let loaded = null;
     // 'current' matters too: if the ADD-ON restarted (e.g. an update) before
     // the user ever restarted core, the files read as current while the
     // integration still isn't loaded — the banner must persist until it is.
     if (instStatus === 'installed' || instStatus === 'updated' || instStatus === 'current') {
-        const loaded = await supervisor.isIntegrationLoaded();
+        loaded = await supervisor.isIntegrationLoaded();
         pending = loaded === false;
     }
     // Once pending, distinguish "core hasn't restarted yet" (→ restart banner)
@@ -157,8 +158,18 @@ app.get('/api/runtime', async (req, res) => {
     // absorbs the click via /api/system/configure-integration). Only probed
     // while pending, so steady-state adds no WS traffic.
     let discoveredPending = false;
+    // The apply-gap: the integration is LOADED, but the add-on has since
+    // re-copied newer files (content-hash gate) that this loaded code predates
+    // — a restart is needed to apply them. installedHash (on disk) vs the hash
+    // the loaded integration stamped at its last setup; they converge on the
+    // next restart, so this self-clears. Only checked when loaded (cheap file reads).
+    let updatePending = false;
     if (pending) {
         discoveredPending = !!(await supervisor.getPendingIntegrationFlowId());
+    } else if (loaded === true) {
+        const onDisk = installer.getInstalledHash();
+        const loadedHash = installer.getLoadedHash();
+        updatePending = !!(onDisk && loadedHash && onDisk !== loadedHash);
     }
     res.json({
         addon: true,
@@ -169,6 +180,7 @@ app.get('/api/runtime', async (req, res) => {
         integration: instStatus,
         integration_pending_restart: pending,
         integration_discovered_pending: discoveredPending,
+        integration_update_pending_restart: updatePending,
         started_at: STARTED_AT,
     });
 });

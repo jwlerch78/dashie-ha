@@ -309,21 +309,39 @@ const App = {
      *  the user never has to find the card under Settings → Devices & Services).
      *  integration_discovered_pending is absent on older add-ons → falls through
      *  to the restart state (unchanged behavior). */
-    _integrationRestartBannerHtml() {
-        const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
-        if (!info || info.integration_pending_restart !== true) return '';
-        if (info.integration_discovered_pending === true) {
-            return `
-            <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
-                <span style="flex:1; min-width:220px;">✅ ${BRAND.productName} is discovered in Home Assistant — <b>finish setup</b> to activate voice &amp; AI.</span>
-                <button class="btn btn-primary btn-sm" onclick="App._configureIntegrationFromBanner(this)">Configure ${BRAND.productName}</button>
-            </div>`;
-        }
+    /** Shared banner shell so the three integration states look identical. */
+    _integrationBannerShell(spanHtml, buttonHtml) {
         return `
             <div class="integration-restart-banner" style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:10px 16px; background: var(--accent-bg, rgba(44,110,206,0.08)); border: 1px solid var(--accent, #2C6ECE); border-radius: 8px; font-size:14px; text-align:left;">
-                <span style="flex:1; min-width:220px;">✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" button here.</span>
-                <button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this)">Restart Home Assistant</button>
+                <span style="flex:1; min-width:220px;">${spanHtml}</span>
+                ${buttonHtml}
             </div>`;
+    },
+
+    _integrationRestartBannerHtml() {
+        const info = typeof DashieAuth !== 'undefined' && DashieAuth._addonRuntimeInfo;
+        if (!info) return '';
+        // State 1: integration installed but not loaded → activate. Sub-state:
+        // the discovery card is parked → absorb the click (one-click Configure).
+        if (info.integration_pending_restart === true) {
+            if (info.integration_discovered_pending === true) {
+                return this._integrationBannerShell(
+                    `✅ ${BRAND.productName} is discovered in Home Assistant — <b>finish setup</b> to activate voice &amp; AI.`,
+                    `<button class="btn btn-primary btn-sm" onclick="App._configureIntegrationFromBanner(this)">Configure ${BRAND.productName}</button>`);
+            }
+            return this._integrationBannerShell(
+                `✅ The ${BRAND.productName} integration is installed — <b>restart Home Assistant</b> to activate it. You'll then get a one-click "Configure" button here.`,
+                `<button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this)">Restart Home Assistant</button>`);
+        }
+        // State 2: integration loaded, but the add-on has re-copied a newer
+        // version that this loaded code predates → restart to apply. Self-clears
+        // once the restart reloads the integration. Absent on older add-ons.
+        if (info.integration_update_pending_restart === true) {
+            return this._integrationBannerShell(
+                `🔄 A ${BRAND.productName} integration update is ready — <b>restart Home Assistant</b> to apply it.`,
+                `<button class="btn btn-primary btn-sm" onclick="App._restartCoreFromBanner(this, true)">Restart Home Assistant</button>`);
+        }
+        return '';
     },
 
     _renderIntegrationRestartBanner() {
@@ -344,13 +362,15 @@ const App = {
         }
     },
 
-    async _restartCoreFromBanner(btn) {
+    async _restartCoreFromBanner(btn, updateMode = false) {
         // Explicit consent before touching Core — restarting HA interrupts
         // every automation/dashboard for ~a minute.
         const confirmed = typeof ConfirmModal !== 'undefined'
             ? await ConfirmModal.confirm({
                 title: 'Restart Home Assistant?',
-                message: 'Home Assistant will restart to activate the integration. Automations and dashboards will be unavailable for about a minute.',
+                message: updateMode
+                    ? 'Home Assistant will restart to apply the integration update. Automations and dashboards will be unavailable for about a minute.'
+                    : 'Home Assistant will restart to activate the integration. Automations and dashboards will be unavailable for about a minute.',
                 confirmLabel: 'Restart Home Assistant',
                 cancelLabel: 'Not now',
             })
@@ -363,16 +383,23 @@ const App = {
         try {
             await fetch(DashieAuth._addonUrl('/api/system/restart-core'), { method: 'POST' });
         } catch (e) { /* the restart drops connections — expected */ }
-        // Poll until HA is back, then reload — either the integration loaded
-        // outright, OR the discovery card is now parked (reload flips the
-        // banner to its one-click "Configure" state, so the restart doesn't
-        // dead-end waiting for a load that only a Configure click produces).
+        // Poll until HA is back, then reload. The "done" transition differs by
+        // flow: an update-apply restart clears integration_update_pending_restart;
+        // an activate restart clears pending_restart (or parks the discovery card,
+        // whose one-click Configure state the reload should surface).
         const poll = setInterval(async () => {
             try {
                 const r = await fetch(DashieAuth._addonUrl('/api/runtime'), { cache: 'no-store' });
                 if (r.ok) {
                     const j = await r.json();
-                    if (j.integration_pending_restart === false || j.integration_discovered_pending === true) {
+                    const done = updateMode
+                        // Wait for the integration to be LOADED again with the
+                        // new code — not the transient mid-restart window where
+                        // it's unloaded (pending true) and update_pending reads
+                        // false only because nothing is loaded to compare.
+                        ? (j.integration_pending_restart === false && j.integration_update_pending_restart === false)
+                        : (j.integration_pending_restart === false || j.integration_discovered_pending === true);
+                    if (done) {
                         clearInterval(poll);
                         window.location.reload();
                     }
