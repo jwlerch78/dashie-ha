@@ -240,6 +240,11 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
             "available": bool(status.get("available")),
             "reason": status.get("reason", "unknown"),
             "agent_mode": agent_mode,
+            # Which hub serves this household's voice gateway. The Dashie
+            # integration's copy of this view has no such field (absent =
+            # dashie), so shared devices can brand their "manage in ..."
+            # strings correctly. New nullable field — old APKs ignore it.
+            "hub": "chickadee",
         }
         account_email = status.get("account_email")
         if isinstance(account_email, str) and account_email:
