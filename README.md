@@ -96,6 +96,12 @@ The full relationship — who develops what, why some wire values say
 [PROVENANCE.md](PROVENANCE.md), and exactly what data leaves your box in
 each mode (local: nothing) is in [PRIVACY.md](PRIVACY.md).
 
+It's also **heavily AI-assisted, human-reviewed**, by one maintainer, on top
+of a voice stack that has been running in real households since 2025 — which
+is why the commit history is short and fast. Said here rather than only in
+[PROVENANCE.md](PROVENANCE.md), because you shouldn't have to find it. Judge
+the code; issues and corrections welcome.
+
 ## For developers
 
 - [Add-on internals &amp; option reference](chickadee/DOCS.md) — the deeper
