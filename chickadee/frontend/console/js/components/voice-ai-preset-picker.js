@@ -45,7 +45,16 @@ const VoiceAiPresetPicker = {
             ? `box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent);`
             : '';
         const disabledStyle = available ? '' : 'opacity: 0.55;';
-        const onclick = available ? `onclick="VoiceAiPage.selectPreset('${p.id}')"` : '';
+        // An unavailable Cloud/Hybrid card is CLICKABLE, not inert: the click tries the
+        // one-time starter grant, and only falls through to the Credits page if there is
+        // no grant to give (2026-07-29 — mirrors the tablet's blocked-preset tap). It is
+        // still not a silent no-op — every outcome either activates the preset with a
+        // disclosure or navigates somewhere useful, which is the rule this picker has
+        // always followed. The card keeps its dimmed styling: until the grant lands the
+        // preset genuinely isn't usable, and pretending otherwise would be the lie.
+        const onclick = available
+            ? `onclick="VoiceAiPage.selectPreset('${p.id}')"`
+            : `onclick="VoiceAiPage.tryStarterGrant('${p.id}')"`;
         const check = selected ? `<span style="color: var(--accent); font-weight: 700;">✓</span>` : '';
         // Unavailable Cloud/Hybrid: explicit prompt with working links — the
         // links stay clickable even though the card itself is inert. Both Cloud
@@ -59,7 +68,7 @@ const VoiceAiPresetPicker = {
         return `
             <div ${onclick}
                 class="card"
-                style="cursor: ${available ? 'pointer' : 'default'}; padding: 12px 14px; display: flex; flex-direction: column; ${ring} ${disabledStyle}">
+                style="cursor: pointer; padding: 12px 14px; display: flex; flex-direction: column; ${ring} ${disabledStyle}">
                 <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
                     <div style="font-weight: 700; font-size: 14px;">${this._esc(p.label)}</div>
                     ${check}
