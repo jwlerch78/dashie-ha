@@ -72,10 +72,15 @@ takes minutes. Cloud and Hybrid exist for exactly that case.
 | **[Dashie](https://dashieapp.com) tablets / TV** | ✅ | ✅ on-device | ✅ |
 | **Fully Kiosk / browser dashboards** | ✅ via satellite cards | ⚠️ card-dependent | ❌ |
 
-Wake word is your satellite's job — Chickadee begins where the wake word
-ends. Realtime speech-to-speech (interrupt it mid-sentence, keep talking)
-needs more than HA's standard pipeline; today the Dashie app is the one
-satellite we know of that supports it.
+Wake word runs wherever it makes sense for your hardware: on-device, or in
+the pipeline for satellites that can't do it locally (experimental — we're
+building it). Chickadee ships custom microWakeWord models (`chickadee`,
+`hey_dashie`) that run unmodified on the standard `wyoming-microwakeword`
+add-on, and supports the community ones (Okay Nabu, Hey Jarvis, Alexa)
+referenced by name from the official repo — use ours, use theirs, or bring
+your own. Realtime speech-to-speech (interrupt it mid-sentence, keep
+talking) needs more than HA's standard pipeline; today the Dashie app is the
+one satellite we know of that supports it.
 
 ## Free, open, and how the lights stay on
 

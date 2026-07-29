@@ -5,8 +5,8 @@ the Assist pipeline's wake stage.
 Our wake words (`hey_dashie`, `chickadee`) are custom microWakeWord models with
 the identical tensor signature to the community `okay_nabu` model, so they run
 unmodified on the official `rhasspy/wyoming-microwakeword` add-on — the box-side
-wake engine for non-Dashie satellites. See
-`wake-word-training/satellite-mww/README.md`.
+wake engine for satellites that don't do wake detection themselves. Model
+provenance and license: see `wake_models/README.md` next to the weights.
 
 Pattern parity: Chickadee never installs third-party add-ons (Piper/Whisper/
 Ollama/Hermes are all detect-and-guide). The one thing STT/TTS don't need is

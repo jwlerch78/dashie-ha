@@ -39,6 +39,17 @@ for Dashie satellite devices, localStorage keys, and `dashie-*` CSS class
 names. These are compatibility contracts, not hidden branding — display
 identity is centralized in `js/lib/brand.js`.
 
+One `dashie` name is deliberately **user-facing**, and it isn't a wire value:
+the **`hey_dashie` wake word**. Chickadee ships two custom microWakeWord
+models — `chickadee` and `hey_dashie` — and offers them in the same picker as
+the community words (Okay Nabu, Hey Jarvis, Alexa). Shipping a wake word
+named after a product is the ecosystem norm, not a funnel: openWakeWord ships
+`alexa` and `hey_mycroft`, microWakeWord ships `okay_nabu`. `hey_dashie` is
+there so Dashie satellites work out of the box; nothing selects it for you
+(the default on this build is `chickadee`), and picking it changes nothing
+about where your audio goes. Its manifest credits Dashie as the model's
+author because Dashie trained it — attribution, not advertising.
+
 ## Known Dashie residue (being generalized)
 
 Full candor about what's still Dashie-shaped in the current beta:

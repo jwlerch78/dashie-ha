@@ -114,6 +114,18 @@ that marker — a HACS or manual install is **never touched**. It never
 restarts Core on its own; it posts a notification and the panel banner, and
 you click Restart. Turn it off to manage the integration yourself.
 
+**Wake-word models → `/share/microwakeword`:** when you pick one of
+Chickadee's own wake words (`chickadee`, `hey_dashie`), the integration copies
+that model's `.json` + `.tflite` into `/share/microwakeword/` so the standard
+`wyoming-microwakeword` add-on can load it — mirroring the established
+`/share/openwakeword` convention. This is the integration writing (HA Core can
+write `/share` directly), not an add-on mount; `/share` is the one mount other
+add-ons can read, which is the point — the wake engine is a different add-on.
+Community wake words (Okay Nabu, Hey Jarvis, Alexa) are referenced by name
+from the official repo and deploy nothing. The two models we ship were trained
+in-house by Dashie; their weights are released under this repo's AGPL-3.0
+alongside everything else, and the training pipeline is not yet public.
+
 ## How the bridge auth works
 
 At startup the add-on generates a random bridge secret and publishes it to the
