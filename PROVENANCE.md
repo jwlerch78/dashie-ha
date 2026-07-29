@@ -57,8 +57,36 @@ Full candor about what's still Dashie-shaped in the current beta:
 - **The assistant's built-in help knowledge base** (`dashie_help` tool,
   `server/brain/src/_shared/tools/dashie-kb.generated.ts`) currently covers
   the Dashie app family — ask the assistant for product help and some
-  answers describe Dashie features. It's generated from the shared docs
-  pipeline and is on the list to generalize per-brand.
+  answers describe Dashie features. It's 67 chunks, including questions like
+  "How is Dashie different from Fully Kiosk Browser?" and "How do chores
+  work?". It's generated from the shared docs pipeline and is on the list to
+  generalize per-brand.
+- **The base system prompt is still Dashie-shaped, in every mode** —
+  including a fully local, account-less one. `server/brain/src/
+  voice-conversation/templates.ts` opens with "You are {{ASSISTANT_NAME}},
+  the voice assistant for a family dashboard — calendar, photos, weather,
+  chores, timers, and smart-home control" (the name is substituted, and is
+  "Chickadee" here), and instructs the model to suggest emailing
+  **support@dashieapp.com** when it can't answer. So a self-hosted user
+  running Ollama can be pointed at a commercial product's support address by
+  their own local model. Same root cause as the KB above — one shared prompt
+  core — and on the same list. Until then it's worth knowing the prompt you
+  are running; it's readable at that path, and in the shipped
+  `voice-brain.bundle.js`.
+- **The image-search tool** hardcodes a Dashie logo URL and a `photographer:
+  'Dashie'` attribution for its own-brand result
+  (`_shared/tools/image_search.ts`).
+- **`scripts/check-console-tree.sh`** (wired into `release.sh`) is a release
+  gate whose job is proving the Dashie delta hasn't leaked back into this
+  tree: it fails the release if any module on a hardcoded list of private
+  paths appears (28 of them today), or if
+  the tree contains paywall strings it greps for by phrase ("trial has
+  ended", "Subscribe to unlock", "Manage Subscription", …). It exists because
+  the console is shared source with a commercial build, and it is the
+  mechanism that keeps this repo free of that build's commerce. Named here
+  because a gate that scrubs subscription phrases out of an "open" tree
+  should be something you read about in the disclosure, not something you
+  find in `scripts/`.
 - **Generated files** (headers say `AUTO-GENERATED`): several console lib
   files and the brain bundle are built by the shared tooling in the private
   Dashie monorepo. Their vendored output here is the readable source you
