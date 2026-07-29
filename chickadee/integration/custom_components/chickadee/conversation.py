@@ -21,11 +21,51 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .addon_bridge import AddonUnavailable, call_addon_brain
 from .const import CONF_ASSISTANT_NAME, DEFAULT_ASSISTANT_NAME, UNIQUE_ID_CONVERSATION
-from .entity_context import device_area_name, gather_exposed_entities
+from .entity_context import device_area_name, gather_exposed_entities, is_exposed
 
 _LOGGER = logging.getLogger(__name__)
 
 _CONTROL_FEATURE = conversation.ConversationEntityFeature.CONTROL
+
+# Two-layer gate on what a brain response may execute. Model output is untrusted input:
+# it can be prompt-injected through a calendar title, a media title, or an entity's own
+# friendly_name, so "the brain wouldn't ask for that" is not a control.
+#
+#   Layer 1 (this list) — the floor. Domains a voice assistant plausibly controls. Its
+#     real job is excluding the escape hatches, which is why the exclusions matter more
+#     than the inclusions: shell_command, python_script, hassio, homeassistant (.stop /
+#     .restart), notify, persistent_notification, backup, recorder, and anything else
+#     not named here.
+#   Layer 2 (_exec_commands) — every target entity must be Assist-exposed.
+#
+# Layer 2 is the tighter gate; a user who exposes script.foo to Assist meant it to be
+# runnable. Layer 1 exists so an unexposed-but-dangerous domain can never be reached
+# even if the exposure predicate is wrong or a future HA renames something.
+ALLOWED_SERVICE_DOMAINS = frozenset({
+    "alarm_control_panel", "automation", "button", "climate", "cover", "fan",
+    "humidifier", "input_boolean", "input_button", "input_number", "input_select",
+    "lawn_mower", "light", "lock", "media_player", "number", "scene", "script",
+    "select", "siren", "switch", "todo", "vacuum", "valve", "water_heater",
+})
+
+
+def _target_entity_ids(data: dict[str, Any]) -> list[str]:
+    """Entity ids a service call targets. HA accepts a str, a comma-string, or a list.
+
+    Also reads `target.entity_id` — the brain doesn't emit that shape today (every
+    example in the prompt is flat `data.entity_id`), but HA accepts it, so reading only
+    the flat form would leave a shape that bypasses the exposure check.
+    """
+    raw: list[Any] = []
+    for src in (data, data.get("target") if isinstance(data.get("target"), dict) else None):
+        if not isinstance(src, dict):
+            continue
+        val = src.get("entity_id")
+        if isinstance(val, str):
+            raw.extend(val.split(","))
+        elif isinstance(val, (list, tuple)):
+            raw.extend(val)
+    return [e.strip() for e in raw if isinstance(e, str) and e.strip()]
 
 
 async def async_setup_entry(
@@ -160,6 +200,33 @@ class ChickadeeConversationEntity(conversation.ConversationEntity):
                     data = dict(cmd["data"])
                 else:
                     data = {k: v for k, v in cmd.items() if k not in ("domain", "service")}
+
+                # Layer 1 — domain floor.
+                if domain not in ALLOWED_SERVICE_DOMAINS:
+                    _LOGGER.warning(
+                        "DROP: HA %s.%s rejected — domain not in ALLOWED_SERVICE_DOMAINS", domain, service
+                    )
+                    continue
+
+                # Layer 2 — every target must be Assist-exposed. Untargeted calls are
+                # refused rather than allowed: the brain always emits entity_id (every
+                # example in its prompt does, and it has no area/device targeting), so a
+                # targetless call is either a new emitter shape or an injection — both
+                # want a look, not a silent service call against everything.
+                targets = _target_entity_ids(data)
+                if not targets:
+                    _LOGGER.warning(
+                        "DROP: HA %s.%s rejected — no target entity_id (data=%s)", domain, service, data
+                    )
+                    continue
+                unexposed = [e for e in targets if not is_exposed(hass, e)]
+                if unexposed:
+                    _LOGGER.warning(
+                        "DROP: HA %s.%s rejected — target(s) not Assist-exposed: %s",
+                        domain, service, ", ".join(unexposed),
+                    )
+                    continue
+
                 try:
                     await hass.services.async_call(domain, service, data, blocking=True)
                     _LOGGER.info("Chickadee executed HA %s.%s %s", domain, service, data)

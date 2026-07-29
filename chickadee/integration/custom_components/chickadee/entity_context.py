@@ -24,6 +24,24 @@ except ImportError:  # pragma: no cover — very old HA
     async_should_expose = None
 
 
+def is_exposed(hass: HomeAssistant, entity_id: str) -> bool:
+    """Is `entity_id` in the same Assist-exposed set gather_exposed_entities() sends?
+
+    The execution half of the exposure contract. gather_exposed_entities() decides what
+    the brain may SEE; this decides what it may TOUCH — same predicate, so the README's
+    "the brain sees your Assist-exposed entities (and only those)" holds for actions too,
+    not just for context. Callers treat False as "refuse", so an unavailable
+    async_should_expose (very old HA) must fail CLOSED, not open.
+    """
+    if async_should_expose is None:
+        return False
+    try:
+        return bool(async_should_expose(hass, "conversation", entity_id))
+    except Exception:  # noqa: BLE001 — a registry hiccup must not become "allowed"
+        _LOGGER.warning("DROP: exposure check failed for %s — treating as not exposed", entity_id)
+        return False
+
+
 def _area_name_for(entity_id: str, ent_reg, dev_reg, area_reg) -> str | None:
     reg = ent_reg.async_get(entity_id)
     if reg is None:
