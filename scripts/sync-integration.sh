@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Vendor the Chickadee INTEGRATION into the add-on image so the add-on can
 # install it into /config/custom_components ("all at once" onboarding — see
-# server/integration-installer.js). Same committed-tree rules as
-# sync-console.sh: git archive of origin/main, no working-tree contamination.
+# server/integration-installer.js). Committed-tree only: a git archive of the
+# requested ref, never the working tree.
 #
-# Usage: ./scripts/sync-integration.sh [branch] [integration-repo-path]
+# Usage: ./scripts/sync-integration.sh [ref] [integration-repo-path] [target-dir]
+#
+# `ref` is a BRANCH (resolved as origin/<ref>) or an exact COMMIT SHA. The SHA
+# form is what `release.sh --channel prod` uses to promote: prod re-vendors the
+# exact integration commit the dev channel was built from, rather than whatever
+# origin/main happens to be at prod-release time.
 
 set -euo pipefail
 
-BRANCH="${1:-main}"
+REF="${1:-main}"
 REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/chickadee-integration}"
 ADDON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # 3rd arg = target dir (default prod add-on's integration/). The dev channel
@@ -20,14 +25,28 @@ if [[ ! -d "$REPO_PATH/.git" ]]; then
     exit 1
 fi
 
-echo "==> Fetching chickadee origin/$BRANCH" >&2
-git -C "$REPO_PATH" fetch origin "$BRANCH" --quiet
-SHA="$(git -C "$REPO_PATH" rev-parse --short "origin/$BRANCH")"
+echo "==> Fetching chickadee integration" >&2
+git -C "$REPO_PATH" fetch origin --quiet --tags
 
-echo "==> Vendoring integration origin/$BRANCH ($SHA) → $TARGET" >&2
+# Branch first (origin/<ref>), then fall back to treating <ref> as a raw commit.
+# Branch-first matters: a branch named like a SHA prefix would otherwise resolve
+# to whichever the local object store happened to match.
+if git -C "$REPO_PATH" rev-parse --verify --quiet "origin/$REF^{commit}" >/dev/null; then
+    RESOLVED="origin/$REF"
+elif git -C "$REPO_PATH" rev-parse --verify --quiet "$REF^{commit}" >/dev/null; then
+    RESOLVED="$REF"
+else
+    echo "Error: '$REF' is neither a branch on origin nor a commit in $REPO_PATH." >&2
+    echo "       (Promoting a prod release? The dev release's integration SHA must be" >&2
+    echo "        pushed to the integration repo before prod can vendor it.)" >&2
+    exit 1
+fi
+SHA="$(git -C "$REPO_PATH" rev-parse --short "$RESOLVED^{commit}")"
+
+echo "==> Vendoring integration $RESOLVED ($SHA) → $TARGET" >&2
 rm -rf "$TARGET"
 mkdir -p "$TARGET"
-git -C "$REPO_PATH" archive "origin/$BRANCH" custom_components/chickadee | tar -x -C "$TARGET"
+git -C "$REPO_PATH" archive "$RESOLVED" custom_components/chickadee | tar -x -C "$TARGET"
 
 VERSION="$(python3 -c "import json;print(json.load(open('$TARGET/custom_components/chickadee/manifest.json'))['version'])")"
 echo "==> Vendored integration v$VERSION (chickadee @ $SHA)" >&2
