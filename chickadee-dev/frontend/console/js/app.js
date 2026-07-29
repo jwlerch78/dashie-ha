@@ -45,11 +45,12 @@ const App = {
         // the Google OAuth round-trip. Honored once authed.
         this._captureNextParam();
 
-        // Kick off the dropdown-options catalog fetch. Fire-and-forget —
-        // doesn't depend on auth (anon-key access), runs in parallel with
-        // everything else. Bundled fallback values are used until the
-        // network response lands. See js/lib/option-catalog.js.
-        if (typeof OptionCatalog !== 'undefined') OptionCatalog.init();
+        // NOTE: the dropdown-options catalog fetch deliberately does NOT run
+        // here. It is the only network call the console could make before
+        // sign-in, and PRIVACY.md promises no startup phone-home — so it is
+        // kicked off from _showApp(), i.e. only once auth is known good.
+        // Bundled fallback values cover the signed-out console entirely.
+        // See js/lib/option-catalog.js.
 
         // Wire up auth state change callback
         DashieAuth.onAuthStateChange = (isAuth) => {
@@ -624,6 +625,12 @@ const App = {
 
     _showApp() {
         document.getElementById('sidebar').style.display = '';
+
+        // Dropdown-options catalog. Gated on auth on purpose — this is the
+        // console's only pre-sign-in network call, and a signed-out phone-home
+        // would falsify PRIVACY.md. Fire-and-forget; bundled fallbacks render
+        // until it lands, and the signed-out console never fetches at all.
+        if (typeof OptionCatalog !== 'undefined') OptionCatalog.init();
 
         // Connect SettingsSync now that auth is known good. Pages register
         // their consumers on first render — the manager retains them, so

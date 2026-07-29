@@ -12,10 +12,16 @@
         change ~never and don't justify a DB roundtrip.
 
    Pattern:
-     OptionCatalog.init() is called from app.js after auth resolves.
-     It hits the edge fn, populates _live, triggers a re-render. Until
-     it completes, getters return the bundled fallback so the page
-     renders immediately on load.
+     OptionCatalog.init() is called from app.js `_showApp()` — i.e. only
+     once auth is known good. It hits the edge fn, populates _live, and
+     triggers a re-render. Until it completes, getters return the bundled
+     fallback so the page renders immediately on load.
+
+     init() refuses when signed out, and that is load-bearing, not a
+     nicety: this fetch is the console's only outbound call that could
+     fire before sign-in, and PRIVACY.md promises no startup phone-home.
+     The signed-out console must make zero network calls of its own.
+     Don't move the call site earlier — use the bundled fallback instead.
 
    To add a new dynamic entry:
      1. INSERT into option_catalog table (via a migration).
@@ -66,10 +72,18 @@ const OptionCatalog = {
     _live: null,   // populated by init() — same shape as _BUNDLED_FALLBACK
 
     /**
-     * Fetch the live catalog. Called from app.js after auth resolves.
-     * Idempotent — safe to call multiple times.
+     * Fetch the live catalog. Called from app.js `_showApp()`, after auth
+     * resolves. Idempotent — safe to call multiple times.
+     *
+     * Refuses while signed out so the console makes no network call before
+     * sign-in (see the header note). Not memoized in that case — the next
+     * call after sign-in proceeds normally.
      */
     async init() {
+        if (typeof DashieAuth === 'undefined' || !DashieAuth.isAuthenticated) {
+            console.warn('DROP: OptionCatalog.init() while signed out — using bundled fallback');
+            return;
+        }
         if (this._initPromise) return this._initPromise;
         this._initPromise = this._doInit();
         return this._initPromise;
