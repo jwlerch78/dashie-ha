@@ -47,6 +47,34 @@ from .account_bridge import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _actor(request: web.Request) -> str:
+    """Describe the HA user behind a request, for attribution in the log.
+
+    These views are `requires_auth = True` and nothing more, which in HA means
+    ANY user on the box — including a non-admin — can use household voice and
+    (while sharing is on) enroll a device into the household cloud account.
+
+    That is deliberate, and the alternative was considered and rejected: a
+    dedicated NON-admin HA user is the idiomatic way to run a kiosk/wall
+    tablet, and those tokens are exactly what KioskSessionProvisioner sends to
+    /account/authorize — so requiring `is_admin` would break enrollment for the
+    households following the recommended practice, to stop a household member
+    from using a household feature.
+
+    The real consent switch is the account's `voice.householdSharing`, which is
+    off by default and fails closed. What was missing is attribution: spending
+    and enrollment were logged without saying WHO, so an owner reviewing the
+    log couldn't tell. This makes every such event name its actor.
+
+    Documented for users in the add-on's DOCS.md ("Who on your HA box can use
+    the household account").
+    """
+    user = request.get("hass_user")
+    if user is None:
+        return "unknown"
+    return f"{user.name or user.id} ({'admin' if user.is_admin else 'non-admin'})"
+
 # Cloud base URL comes from the add-on (which knows the configured cloud_env)
 # via account_bridge.cloud_url(), populated on the first sharing-status check.
 # The constant below is only the fallback for add-ons too old to report it.
@@ -291,6 +319,11 @@ class ChickadeeVoiceSessionView(HomeAssistantView):
         except AddonUnavailable as err:
             return web.json_response({"ok": False, "error": f"addon_unavailable: {err}"}, status=503)
 
+        # Minting an STT token spends the household account's credits — say who.
+        _LOGGER.debug(
+            "Minting STT token for endpoint %s on behalf of HA user %s", endpoint_id, _actor(request)
+        )
+
         session = async_get_clientsession(hass)
         mint_body = {"endpoint_id": endpoint_id}
         if body.get("ttl_seconds") is not None:
@@ -338,14 +371,24 @@ class ChickadeeAccountAuthorizeView(HomeAssistantView):
         if not user_code:
             return web.json_response({"ok": False, "error": "missing_user_code"}, status=400)
 
+        actor = _actor(request)
         result, status = await authorize_device(hass, user_code)
         if status == 200 and result.get("success"):
-            _LOGGER.info("Kiosk device code authorized into the household account")
+            # Attribution matters here more than anywhere else in this file:
+            # this enrolls a device into the household's paid cloud account.
+            _LOGGER.info(
+                "Kiosk device code authorized into the household account by HA user %s", actor
+            )
             return web.json_response(
                 {"ok": True, "account_email": result.get("account_email")}, status=200
             )
 
-        _LOGGER.warning("Kiosk authorize refused (%s): %s", status, result.get("error", "unknown"))
+        _LOGGER.warning(
+            "Kiosk authorize refused (%s) for HA user %s: %s",
+            status,
+            actor,
+            result.get("error", "unknown"),
+        )
         return web.json_response(
             {
                 "ok": False,
