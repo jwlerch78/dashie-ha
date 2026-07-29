@@ -103,7 +103,7 @@ so you can audit rather than trust:
 | `hassio_api` + `discovery` | Publishes the bridge secret to the integration via Supervisor discovery (the same credential channel the MQTT broker uses) and lists add-ons for engine detection. |
 | `homeassistant_api` | The console's engine detection talks to HA's WebSocket API (`tts/engine/list` etc.) to show your real STT/TTS engines and voices. |
 | `hassio_role: manager` | One thing: the panel's **Restart Home Assistant** button (the integration needs a Core restart to activate; the banner offers it one-click). The restart only ever happens when you click it. |
-| `homeassistant_config:rw` | Two writes: (1) the integration installer (below); (2) a fallback copy of the bridge secret at `<config>/.chickadee/bridge_secret` for older integration versions — Supervisor discovery is the primary channel. |
+| `homeassistant_config:rw` | Two writes by the add-on: (1) the integration installer (below); (2) a fallback copy of the bridge secret at `<config>/.chickadee/bridge_secret` for older integration versions — Supervisor discovery is the primary channel. A third file, `<config>/.chickadee/loaded_hash`, appears in the same folder but is written by the *integration* running inside HA Core, not through this mount — see the installer note below. |
 | `addon_config:rw` | **Granted but effectively unused.** Our own `/addon_configs/<slug>/` folder — it was meant to carry the bridge secret, but HA Core can't read that path on HAOS (verified 2026-07-25), so the secret goes via Supervisor discovery instead. Kept only for a future discovery handoff; listed here rather than quietly left in the manifest. |
 | `backup_exclude` | Keeps your on-box API keys and account cache (`/data/api-keys.json`, `/data/account-config.cache.json`) **out of HA backups**. Note the scope: it covers those two `/data` files. The bridge secret's fallback copy at `<config>/.chickadee/bridge_secret` lives in your HA config directory, so it **is** included in HA backups — see "How the bridge auth works" below. |
 
@@ -114,6 +114,21 @@ start, the add-on copies its bundled integration to
 that marker — a HACS or manual install is **never touched**. It never
 restarts Core on its own; it posts a notification and the panel banner, and
 you click Restart. Turn it off to manage the integration yourself.
+
+Installing a new copy also **deletes** the old
+`<config>/custom_components/chickadee` — that is what "update" means here, and
+it is why the marker check matters: without the marker the folder is left
+alone entirely. The copy is staged at `…/chickadee.staging` first and swapped
+in, so an interrupted update can't leave you with half an integration.
+
+Because HA only loads a new integration version on restart, the integration
+records which version Core actually has running in
+`<config>/.chickadee/loaded_hash` (a 64-char hash, written by the integration
+itself once HA starts it). The panel compares that against the version the
+add-on installed, which is how it knows whether to show the "restart to apply"
+nudge. Cosmetic — if the write fails, you get no nudge and nothing else
+changes. Only add-on-managed installs write it; a HACS install has no marker,
+so nothing is recorded.
 
 **Wake-word models → `/share/microwakeword`:** when you pick one of
 Chickadee's own wake words (`chickadee`, `hey_dashie`), the integration copies

@@ -122,6 +122,15 @@ trap rollback_on_failure EXIT
 # the tree instead.
 echo "==> Checking console tree (canonical here since the repo inversion)"
 "$ADDON_ROOT/scripts/check-console-tree.sh"
+
+# The disclosure gate: DOCS.md still lists every non-/data write path, the
+# vendored integration still matches the SHA the last release recorded, and the
+# doc mirrors still point home. Runs BEFORE anything mutates a channel folder —
+# it validates the tree we are about to build from, and the vendored-tree check
+# is only meaningful against the PREVIOUS release's ledger entry (this run
+# writes a new one).
+echo "==> Checking disclosure (docs still describe the code)"
+"$ADDON_ROOT/scripts/check-disclosure.sh"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
