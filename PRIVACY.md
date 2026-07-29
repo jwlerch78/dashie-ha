@@ -11,6 +11,18 @@ you configured (your Ollama box, your Whisper server), the brain runs in
 the add-on, and no Chickadee service is contacted — there is no account,
 no telemetry, no version ping.
 
+One honest exception, and it isn't us: opening the **console panel** currently
+loads two JavaScript libraries (`hls.js`, `heic2any`) from the jsDelivr CDN, so
+your browser makes two third-party requests when you view that page. Neither is
+used by anything in this repo — they serve pages that only exist in the closed
+Dashie build which vendors this console as its core, and they are being moved to
+that build's delta. Everything else the console needs is served from the add-on
+itself (see `chickadee/frontend/console/vendor/`, where the Supabase SDK is
+vendored for exactly this reason — it used to be a third request, on the sign-in
+page). Voice, the brain, and your engines are unaffected either way: no audio,
+transcript, or account data is involved, and the add-on makes no such request —
+this is the panel's HTML in your browser.
+
 ## Bring-your-own-key
 
 Audio and text go to **the providers you configured** (e.g. Google, OpenAI,

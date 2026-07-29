@@ -22,8 +22,11 @@
         </main>
     </div>
 
-    <!-- Supabase JS SDK (for real-time broadcasts) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Supabase JS SDK (for real-time broadcasts). VENDORED, not CDN-loaded —
+         see vendor/README.md: an add-on panel must not phone a third party to
+         render, must work on an air-gapped box, and must run the code that is
+         actually in this repo. -->
+    <script src="vendor/supabase-js-2.111.0.min.js"></script>
     <!-- Pinned to HA frontend's exact version (see home-assistant/frontend
          package.json) so we run the same hls.js code HA's <ha-hls-player>
          uses. Version drift here was producing bufferAppendError on streams
