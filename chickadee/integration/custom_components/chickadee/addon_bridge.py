@@ -117,7 +117,11 @@ async def _discover_via_supervisor(session) -> list[str]:
     bases = []
     for addon in (data.get("data") or {}).get("addons") or []:
         slug = addon.get("slug") or ""
-        if slug.endswith("chickadee") and addon.get("state") == "started":
+        # Match every Chickadee channel, not just the prod slug: the dev add-on's
+        # slug is `<hash>_chickadee_dev`, which does NOT end with "chickadee" —
+        # so the old check skipped it and the integration could never reach the
+        # dev add-on (addon_unreachable; kiosks never picked up the account).
+        if "chickadee" in slug and addon.get("state") == "started":
             hostname = addon.get("hostname") or slug.replace("_", "-")
             bases.append(f"http://{hostname}:8099")
     return bases
