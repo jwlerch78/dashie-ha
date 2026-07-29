@@ -1,5 +1,5 @@
 name: Chickadee (Dev)
-version: "0.8.15"
+version: "0.8.16"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). This is the DEV channel — born `chickadee_dev`, separate
 # from prod's `chickadee` so it installs alongside with its own /data + login.

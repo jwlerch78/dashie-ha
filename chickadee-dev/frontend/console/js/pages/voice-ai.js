@@ -447,6 +447,73 @@ const VoiceAiPage = {
         return bal.balance > 0;
     },
 
+    /**
+     * An UNAVAILABLE Cloud/Hybrid card was clicked — try the one-time starter grant
+     * before sending the user off to buy credits.
+     *
+     * Mirrors the tablet's blocked-preset tap (Android SettingsCallbackWiring →
+     * StarterGrantClient). A household can activate voice from either surface, and the
+     * grant is keyed to the ACCOUNT server-side (`credit_grants.source_ref` unique
+     * index), so whichever surface gets there first wins and the other reports
+     * `already_claimed` — there is no double-grant to defend against here, and no local
+     * "claimed" flag to keep in sync between console and tablet.
+     *
+     * Falls back to today's behaviour — the Credits page — on anything but a fresh
+     * grant, INCLUDING a thrown request. A failure must never leave the click silent
+     * (the picker's standing rule) and must never assert credits we can't substantiate.
+     */
+    async tryStarterGrant(id) {
+        const O = window.VoiceAiOptions;
+        if (!O.PRESETS.some(p => p.id === id)) return;
+        let res = null;
+        try {
+            res = await DashieAuth.dbRequest('claim_starter_grant', {});
+        } catch (e) {
+            console.warn('[VoiceAiPage] starter-grant claim failed:', e.message);
+        }
+
+        if (res?.granted) {
+            // Refresh the balance BEFORE selectPreset — it re-checks _presetAvailable()
+            // against CreditsService's cache, so without this the preset we just funded
+            // would still read as unavailable and the click would no-op.
+            await window.CreditsService?.fetch({ force: true });
+            const amount = this._formatUsd(res.amount);
+            // Bare "credits", not BRAND.cloudName — every other console surface (sidebar,
+            // credits page, expiry notice, buy modal) says plain "credits", and cloudName
+            // resolves to "Dashie Cloud" in the delta build, which would have printed
+            // "Dashie Cloud credits" and contradicted the locked decision that the meter is
+            // Chickadee-branded everywhere. Not rebranding the console's credits noun as a
+            // side effect of this feature; if that noun should change, it changes on its own.
+            await ConfirmModal.confirm({
+                title: 'Cloud Voice & AI',
+                message:
+                    `Cloud voice & AI runs on credits, which are billed as you use them.` +
+                    `\n\nWe've added ${amount} to your account so you can try it out. ` +
+                    `You can add more any time, or set up local AI & voice engines instead.`,
+                confirmLabel: 'Start using voice',
+                hideCancel: true,
+            });
+            this.selectPreset(id);
+            return;
+        }
+
+        // Already claimed but funded → the picker was reading a stale balance; just let
+        // them through rather than sending a user who has money to the buy page.
+        if (res && typeof res.balance === 'number' && res.balance > 0) {
+            await window.CreditsService?.fetch({ force: true });
+            this.selectPreset(id);
+            return;
+        }
+
+        App.navigate('credits');
+    },
+
+    /** "$0.50", "$1", "$1.25" — a trailing ".00" reads like a price tag on a free thing. */
+    _formatUsd(v) {
+        const n = Number(v) || 0;
+        return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
+    },
+
     /** Preset card clicked. Persists voice.pipelinePreset, keeps the runtime's
      *  engine-domain key (voice.controlMethod) in sync for old APKs, and seeds
      *  any granular provider the new preset filters out — Customize can diverge
