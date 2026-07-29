@@ -19,7 +19,7 @@ from homeassistant.helpers.start import async_at_started
 from .account_bridge import get_voice_config
 from .addon_bridge import set_bridge_config
 from .const import CONF_BRIDGE_HOST, CONF_BRIDGE_PORT, CONF_BRIDGE_SECRET
-from .pipeline import async_ensure_pipeline
+from .pipeline import async_ensure_pipeline, async_wire_wake_when_ready
 from .satellite_wake import async_deploy_wake_model
 from .voice_view import register_voice_views
 
@@ -85,6 +85,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # After platform setup so the entities exist in the registry. Best-effort:
     # a failure DROP-warns inside, never blocks voice.
     await async_ensure_pipeline(hass, entry, wake_word_id=wake_word_id)
+    # If the wyoming-microwakeword add-on is installed AFTER us, self-heal the
+    # pipeline's wake stage when its entity appears (no reload needed).
+    await async_wire_wake_when_ready(hass, entry, wake_word_id)
     # LAN-sharing gateway for Dashie kiosk satellites (ownership-guarded).
     _schedule_voice_views(hass)
     # Options-flow edits (assistant rename) apply via reload.
