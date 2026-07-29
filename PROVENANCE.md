@@ -20,6 +20,84 @@ the open project is funded by an optional hosted convenience —
 **Chickadee Cloud**, metered credits, no subscription — plus the separate
 Dashie product. Nothing in Chickadee is feature-gated on paying.
 
+## What Chickadee Cloud runs — and what isn't published
+
+Chickadee Cloud is a paid hosted service, and this repo is AGPL. That
+combination deserves a straight answer rather than a shrug, so here it is.
+
+**What the cloud runs: the same brain core that's in this repo.** The
+orchestrator, prompt builder, templates, dialog policy, parsers, and tool
+implementations under `chickadee/server/brain/src/` are the literal input set
+of the bundle the add-on runs, and the cloud runs those same modules with a
+different I/O shell injected into the one `OrchestratorIO` seam. You can see
+that seam from here: `chickadee/server/brain/chickadee-io.js` is the add-on's
+shell. The cloud has an equivalent one, and that shell is the difference.
+
+**What isn't published: the cloud's deployment glue and its key-holding
+proxies.** Concretely, four things —
+
+1. **The HTTP entry point.** Deno `serve`, CORS headers, a `?warmup` ping that
+   boots the isolate on wake-word, and the NDJSON streaming wrapper that emits
+   stage events. About 95 lines whose entire job is turning a POST into a call
+   to the published orchestrator.
+2. **Auth and DB access.** JWT verification against our Supabase project, and
+   a service-role client used to read personality/config rows.
+3. **Metering and billing.** Credit pre-flight, per-turn debit from real
+   API-returned token counts, rate limiting, and the interaction/usage log
+   writes.
+4. **The third-party gateways our published tools call** — `ai-gateway`,
+   `web-search-gateway`, `serper-image-search`, `sports-gateway`. These hold
+   our vendor API keys, which is the whole reason they're separate functions.
+
+That last one has a visible consequence worth naming: some published tools are
+clients of unpublished proxies. `_shared/tools/image_search.ts` and
+`_shared/tools/sports.ts` POST to endpoints that exist only in our cloud. On
+the self-hosted path those tools are **off**, not silently proxied through us —
+`chickadee-io.js` disables the metered tools and says so in its header comment.
+
+**Why this isn't an AGPL §13 dodge.** §13, the network-use clause, exists
+specifically to close the "run it as a service, publish nothing" gap that GPL
+leaves open, so picking AGPL and then running a hosted service on unpublished
+code is a fair thing to interrogate. Two answers, and the first is the real
+one:
+
+- **We are the sole copyright holder.** AGPL is a license we *grant*; it does
+  not bind us for our own code. A copyright holder may run a private, modified
+  build of their own program as a service and owes nobody source. That is the
+  same position MongoDB, Elastic, Grafana, and Sentry occupy. It isn't a
+  loophole in AGPL — it's how copyright works, and §13 was never aimed at the
+  author.
+- **Independently, none of the withheld code would help you self-host.** Every
+  piece above is a binding to *our* Supabase project, *our* billing tables, or
+  *our* vendor keys. The add-on ships its own equivalent of each, in this repo,
+  and those are the ones you'd actually run. Publishing our HTTP shell would
+  give you a file you'd delete.
+
+**If that ever stops being true, we'll say so.** The sole-copyright-holder
+answer has an expiry date: the first time outside code lands in this repo, it
+reaches us under AGPL like everyone else's, and a cloud build containing a
+modified version of it *would* carry §13 obligations. That's why
+[CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md) exist and why the CLA
+is a broad-grant CLA rather than a DCO — a DCO wouldn't cover it, and the
+honest time to work that out is before a merge, not after.
+
+**The Nabu Casa parallel, stated precisely.** The *funding model* is Nabu
+Casa's: an open project, an optional paid hosted convenience, nothing
+feature-gated on paying. The *licenses* differ, and it's worth stating rather
+than letting someone catch it — Home Assistant is Apache-2.0 with a closed
+Nabu Casa backend; we chose the more restrictive copyleft for the open part.
+That makes withheld glue more conspicuous, not less. We'd still rather have it
+that way than a permissive license that lets anyone — us included — close the
+core later.
+
+**One claim on this page rests on trust.** "The cloud runs the same core" is
+not currently verifiable from outside. The bundle header and
+`voice-brain.bundle.meta.json` cite source SHA `dda157e0d`, but that commit
+lives in a private monorepo, so there is no public object to diff against.
+We state it because it's true, not because you can check it. If that bothers
+you, open an issue and say so — reproducible-build metadata is the obvious
+fix and we'd rather be pushed into it than assumed trustworthy.
+
 ## Where each piece is developed
 
 | Piece | Canonical home | Notes |

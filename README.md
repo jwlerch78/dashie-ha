@@ -102,6 +102,11 @@ is why the commit history is short and fast. Said here rather than only in
 [PROVENANCE.md](PROVENANCE.md), because you shouldn't have to find it. Judge
 the code; issues and corrections welcome.
 
+One maintainer also means limited review capacity: during the beta, **bug
+reports and feature requests are what help, and external code contributions
+aren't being accepted yet** — see [CONTRIBUTING.md](CONTRIBUTING.md) for what
+does help and why there's a CLA when that changes.
+
 ## For developers
 
 - [Add-on internals &amp; option reference](chickadee/DOCS.md) — the deeper
