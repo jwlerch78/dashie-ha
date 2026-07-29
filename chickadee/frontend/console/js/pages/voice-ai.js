@@ -478,12 +478,18 @@ const VoiceAiPage = {
             // would still read as unavailable and the click would no-op.
             await window.CreditsService?.fetch({ force: true });
             const amount = this._formatUsd(res.amount);
+            // Bare "credits", not BRAND.cloudName — every other console surface (sidebar,
+            // credits page, expiry notice, buy modal) says plain "credits", and cloudName
+            // resolves to "Dashie Cloud" in the delta build, which would have printed
+            // "Dashie Cloud credits" and contradicted the locked decision that the meter is
+            // Chickadee-branded everywhere. Not rebranding the console's credits noun as a
+            // side effect of this feature; if that noun should change, it changes on its own.
             await ConfirmModal.confirm({
-                title: `${BRAND.cloudName} voice`,
+                title: 'Cloud Voice & AI',
                 message:
-                    `Cloud voice & AI runs on ${BRAND.cloudName} credits, which are billed as ` +
-                    `you use them.\n\nWe've added ${amount} to your account so you can try it ` +
-                    `out. You can add more any time, or set up local AI & voice engines instead.`,
+                    `Cloud voice & AI runs on credits, which are billed as you use them.` +
+                    `\n\nWe've added ${amount} to your account so you can try it out. ` +
+                    `You can add more any time, or set up local AI & voice engines instead.`,
                 confirmLabel: 'Start using voice',
                 hideCancel: true,
             });
