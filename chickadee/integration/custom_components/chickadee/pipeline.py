@@ -24,6 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import language as language_util
 
+from . import satellite_wake
 from .const import (
     CONF_ASSISTANT_NAME,
     DEFAULT_ASSISTANT_NAME,
@@ -43,12 +44,20 @@ def _best_language(preferred: str, supported: list[str]) -> str:
     return matches[0] if matches else supported[0]
 
 
-async def async_ensure_pipeline(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_ensure_pipeline(
+    hass: HomeAssistant, entry: ConfigEntry, wake_word_id: str | None = None
+) -> None:
     """Create the Chickadee Assist pipeline if no pipeline references our entities.
 
     Called after platform setup so the entities exist in the registry. Any
     failure is a loud WARN, never a failed entry setup — voice still works via
     a manually-built pipeline.
+
+    `wake_word_id` is the household's default wake word (console
+    VoiceAiOptions.WAKE_WORDS id). For our custom words we wire the satellite
+    wake stage to the wyoming-microwakeword add-on when it's present; otherwise
+    the pipeline is created with wake unset and a DROP-warn tells the user to
+    install/configure the add-on (same detect-and-guide flow as Wyoming STT/TTS).
     """
     try:
         from homeassistant.components.assist_pipeline import async_get_pipelines
@@ -99,6 +108,20 @@ async def async_ensure_pipeline(hass: HomeAssistant, entry: ConfigEntry) -> None
     language = hass.config.language or "en"
     engine_language = _best_language(language, SUPPORTED_LANGUAGES)
     name = entry.data.get(CONF_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME
+
+    # Satellite wake: pair our custom word with the wyoming-microwakeword entity
+    # if it's live. None,None when the add-on isn't configured yet — pipeline is
+    # still created (wake unset), with guidance below.
+    wake_entity, wake_id = satellite_wake.resolve_wake(hass, wake_word_id)
+    if satellite_wake.is_custom_wake(wake_word_id) and wake_entity is None:
+        _LOGGER.warning(
+            "DROP: wake word '%s' selected but no wyoming-microwakeword entity found "
+            "— install the add-on and point --custom-model-dir at %s (the model is "
+            "already deployed there); satellites won't wake until then",
+            wake_word_id,
+            satellite_wake.SHARE_MWW_DIR,
+        )
+
     settings = {
         "conversation_engine": conversation_id,
         "conversation_language": language,
@@ -110,8 +133,8 @@ async def async_ensure_pipeline(hass: HomeAssistant, entry: ConfigEntry) -> None
         "tts_language": engine_language if tts_id else None,
         # None = the add-on's configured default voice (tts_voice option).
         "tts_voice": None,
-        "wake_word_entity": None,
-        "wake_word_id": None,
+        "wake_word_entity": wake_entity,
+        "wake_word_id": wake_id,
     }
 
     try:
@@ -122,10 +145,11 @@ async def async_ensure_pipeline(hass: HomeAssistant, entry: ConfigEntry) -> None
         return
 
     _LOGGER.info(
-        "CHICKADEE-PIPELINE created '%s' (id=%s) conversation=%s stt=%s tts=%s",
+        "CHICKADEE-PIPELINE created '%s' (id=%s) conversation=%s stt=%s tts=%s wake=%s",
         name,
         pipeline.id,
         conversation_id,
         stt_id,
         tts_id,
+        wake_entity or "unset",
     )
