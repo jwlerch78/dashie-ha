@@ -1,5 +1,81 @@
 # Changelog
 
+Versions here are the ones released on this (`chickadee`) add-on channel.
+The `chickadee_dev` channel runs ahead of it; its changes land here when they
+ship to this channel.
+
+## 0.8.6 — 2026-07-28
+
+### Fixed
+- **The setup funnel no longer dead-ends.** After the restart, Home Assistant
+  parks a "Do you want to set up Chickadee?" card under Settings → Devices &
+  Services → Discovered, and nothing loads until you click it — but the
+  console's banner kept saying "Restart Home Assistant" (a no-op the second
+  time) because it only checked whether the integration had loaded. The banner
+  now advances: restart → **Configure Chickadee** (one click, completes the
+  discovery flow for you) → loaded.
+
+## 0.8.5 — 2026-07-27
+
+### Fixed
+- Your avatar now appears in the console when you sign in from the panel
+  (the add-on stored the account but not the profile picture).
+- The console's status banners moved above the top bar so they can't be
+  covered by the sign-in card.
+
+## 0.8.1 – 0.8.4 — 2026-07-27
+
+### Changed
+- This repository is now `jwlerch78/chickadee` — the front door. The
+  integration moved to `jwlerch78/chickadee-integration`.
+- Plain-language add-on store description.
+
+### Fixed
+- The restart banner is now visible **before** you sign in (the sign-in overlay
+  covered it — and the funnel reaches the restart step pre-login).
+- The banner no longer goes stale after an add-on update.
+
+## 0.8.0 — 2026-07-27
+
+### Added
+- **One-click "Restart Home Assistant"** in the console, for the step in setup
+  where the freshly-installed integration needs a Core restart to load. This is
+  why the add-on declares **`hassio_role: manager`** — it is the only thing that
+  privilege is used for, and the restart only ever happens when you click it.
+- The add-on **adds its own panel to your HA sidebar** on first start, instead
+  of asking you to turn "Show in sidebar" on by hand.
+- `/api/runtime` now reports the integration's live status and whether a restart
+  is pending, so the console can tell you where you are in setup.
+
+## 0.7.0 — 2026-07-27
+
+### Added
+- **The add-on installs the Chickadee integration for you** (the pattern Get
+  HACS uses) — it copies the bundled integration into
+  `/config/custom_components/chickadee` and keeps it updated, then asks you to
+  restart. This is what **`homeassistant_config:rw`** is for.
+  - It only ever touches copies carrying its own marker file: a **HACS or
+    manual install of the integration is never modified**.
+  - It never restarts Core on its own.
+  - Turn it off with the `install_integration` option if you'd rather manage
+    the integration yourself.
+
+### Changed
+- 0.7.1 – 0.7.7 (same day): console branding and artwork, Chickadee-navy theme,
+  `chickadee` as the default wake word, supplier names on the cloud engine
+  labels ("Cloud STT (Deepgram / Whisper)"), and the default personality shown
+  as "Standard".
+
+## 0.6.0 — 2026-07-27
+
+### Added
+- **`/api/internal` — the LAN-sharing lane.** Lets Dashie kiosk devices on your
+  network run their voice through this add-on's household account instead of
+  each holding their own credential (`sharing-status`, `account-credential`,
+  `authorize-device`, `voice-config`). It is same-box-authenticated via the
+  bridge secret, reachable only through the integration, and gated on the
+  account's household-sharing toggle, which fails closed.
+
 ## 0.5.0 — 2026-07-27
 
 ### Added
