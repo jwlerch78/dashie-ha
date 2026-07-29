@@ -50,6 +50,28 @@ there so Dashie satellites work out of the box; nothing selects it for you
 about where your audio goes. Its manifest credits Dashie as the model's
 author because Dashie trained it — attribution, not advertising.
 
+### What that means for this repo's history
+
+Say the quiet part: this repo is an **extraction from a commercial codebase**,
+not a clean-room build. Until 2026-07-27 the console tree here still contained
+Dashie's subscription/paywall modules and its family-product pages, and they
+were removed in a single commit (`ea2f9d3`, "REPO INVERSION"), with the Dashie
+logo assets going in `59167e6`. Git keeps deleted content, so all of it is
+still recoverable from this repo's history — `git show
+ea2f9d3^:chickadee/frontend/console/js/lib/subscribe-gate.js` works, and we're
+not going to rewrite history to hide that.
+
+Nothing sensitive is in there: a full-history secret scan finds only the two
+Supabase **anon** keys that are public by design. What's in there is the fact
+above — that the open project was made by subtraction. That's how open-core
+extractions look, and it's the same shape Nabu Casa's is; we'd rather you read
+it here than discover it and wonder what else wasn't said.
+
+The maintainer's own HA hostname also appears in early history (scrubbed at
+HEAD in `a5e36b6` in favor of a `CHICKADEE_HA_HOST` env var). It's a
+Cloudflare-fronted address with no credential attached, so the scrub was
+hygiene, not damage control.
+
 ## Known Dashie residue (being generalized)
 
 Full candor about what's still Dashie-shaped in the current beta:
