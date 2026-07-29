@@ -73,6 +73,15 @@ models are reliable.
 
 ## Chickadee Cloud (hosted engines)
 
+**You do not need an account.** Open the Chickadee panel without signing in and
+it shows your local-mode status — which engines are configured and where to
+change them. Home Assistant has already authenticated you to reach the panel at
+all, so there is nothing further to prove unless you want hosted compute. If you
+point `llm_url`, `stt_url`, and `tts_url` at your own servers, you never sign in
+and no Chickadee service is contacted.
+
+Signing in is how you buy the hosted option, and that's all it is.
+
 Sign in from the **Chickadee panel** in the HA sidebar (link + code, approve
 from any browser). While signed in, every engine you leave blank runs on
 Chickadee Cloud under your account — brain, speech-to-text, and voices —
