@@ -66,7 +66,11 @@ const BuyCreditsModal = {
                 </div>
                 <div class="modal-body" data-bc-body>
                     <div style="display:flex; gap:10px; align-items:flex-start;">${cells}</div>
-                    <div style="color: var(--text-muted); font-size:11px; margin-top:10px;">1 credit = $1 USD · credits expire 1 year after purchase.</div>
+                    <!-- No "1 credit = $1 USD": credits are denominated in USD everywhere they
+                         appear (pack buttons, balance, expiry notice, the sidebar), so stating
+                         the identity is not just redundant — it implies credits are a separate
+                         currency needing conversion. Expiry stays; that one is real news. -->
+                    <div style="color: var(--text-muted); font-size:11px; margin-top:10px;">Credits expire 1 year after purchase.</div>
                 </div>
             </div>`;
 
