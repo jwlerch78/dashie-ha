@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Chickadee pre-commit hook.
+#
+# Lives in the repo (not .git/hooks) so it is version-controlled and shared.
+# Activate in a fresh clone with:
+#
+#     git config core.hooksPath scripts/hooks
+#
+# ./scripts/install-hooks.sh does that for you.
+
+set -euo pipefail
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec "$REPO_ROOT/scripts/check-generated-tree.sh"

@@ -39,9 +39,11 @@ NEW_VERSION=""
 CHANNEL="prod"
 DO_PUSH=0
 FROM_HEAD=0
+ASSUME_YES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --push)      DO_PUSH=1; shift ;;
+    --yes|-y)    ASSUME_YES=1; shift ;;
     --from-head) FROM_HEAD=1; shift ;;
     --channel)   CHANNEL="${2:-}"; shift 2 ;;
     -*)          echo "Unknown flag: $1" >&2; exit 1 ;;
@@ -63,6 +65,10 @@ esac
 ADDON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ADDON_ROOT"
 DIR="$ADDON_ROOT/$ADDON_DIR"
+
+# Writing the generated trees is this script's JOB, so exempt it from the
+# pre-commit gate that refuses hand-edits to them (check-generated-tree.sh).
+export CHICKADEE_RELEASE=1
 
 # Refuse a dirty tree so the release commit contains only what this script staged.
 if ! git diff-index --quiet HEAD --; then
@@ -92,10 +98,20 @@ rollback_on_failure() {
   [[ $ROLLBACK_ARMED -eq 1 && $code -ne 0 ]] || exit $code
   echo "" >&2
   echo "==> Release failed — restoring the working tree to HEAD" >&2
+  # ORDER MATTERS. `git checkout -- <path>` restores the worktree from the
+  # INDEX, not from HEAD. By the time we fail, the version bump is usually
+  # already staged, so checking out first would faithfully restore the bump and
+  # report success while leaving the tree dirty. Unstage first, then restore.
+  git reset -q HEAD -- chickadee chickadee-dev 2>/dev/null || true
   git checkout -- chickadee chickadee-dev 2>/dev/null || true
   git clean -qfd -- chickadee chickadee-dev 2>/dev/null || true
-  git reset -q HEAD -- chickadee chickadee-dev 2>/dev/null || true
-  echo "    tree restored; nothing was committed." >&2
+  if git diff --quiet -- chickadee chickadee-dev && git diff --cached --quiet -- chickadee chickadee-dev; then
+    echo "    tree restored; nothing was committed." >&2
+  else
+    # Never claim a clean rollback we didn't achieve.
+    echo "    ⚠️  could NOT fully restore — inspect and clean up by hand:" >&2
+    git status --short -- chickadee chickadee-dev | sed 's/^/      /' >&2
+  fi
   exit $code
 }
 trap rollback_on_failure EXIT
@@ -239,6 +255,46 @@ fi
 if git diff --cached --quiet; then
   echo "==> Nothing to commit (already at $NEW_VERSION with console @ $CONSOLE_SHA, integration @ $INTEGRATION_SHA)"
   exit 0
+fi
+
+# ── Confirm before it becomes real ──────────────────────────────────────────
+# Everything so far is local and rolled back on failure. The commit (and any
+# --push) is the point of no return, and for prod it reaches field boxes: HA
+# reads config.yaml's version and offers every installed box an Update.
+echo ""
+echo "────────────────────────────────────────────────────────────"
+if [[ "$CHANNEL" == "prod" ]]; then
+  echo " RELEASE: prod  →  slug 'chickadee'  (FIELD BOXES)"
+else
+  echo " RELEASE: dev   →  slug 'chickadee_dev'  (test box only)"
+fi
+echo " version:      $NEW_VERSION"
+echo " source @:     $CONSOLE_SHA"
+echo " integration @ $INTEGRATION_SHA"
+if [[ "$CHANNEL" == "prod" && $FROM_HEAD -eq 0 ]]; then
+  echo " promoted from dev $DEV_VERSION (${DEV_COMMIT:0:9}) — tree verified identical"
+elif [[ "$CHANNEL" == "prod" ]]; then
+  echo " ⚠️  --from-head: NOT promoted from a tested dev build"
+fi
+echo " push:         $([[ $DO_PUSH -eq 1 ]] && echo 'YES — origin main' || echo 'no (local commit only)')"
+echo "────────────────────────────────────────────────────────────"
+echo " files staged:"
+git diff --cached --stat | tail -n 6 | sed 's/^/  /'
+echo "────────────────────────────────────────────────────────────"
+
+if [[ $ASSUME_YES -eq 1 ]]; then
+  echo "  (--yes given, proceeding)"
+elif [[ ! -t 0 ]]; then
+  # Non-interactive with no --yes: refuse rather than assume. A release that
+  # silently proceeds under automation is exactly the thing worth not doing.
+  echo "Error: not a terminal and --yes not given — refusing to release unattended." >&2
+  exit 1
+else
+  read -r -p "Cut this release? (y/N) " REPLY
+  if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    exit 1
+  fi
 fi
 
 echo "==> Committing [$CHANNEL]"
