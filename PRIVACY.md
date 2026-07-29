@@ -19,6 +19,14 @@ servers are not involved. Your keys are stored on-box only
 (`/data/api-keys.json`, file mode 600), are masked in the console UI, and
 are excluded from HA backups (`backup_exclude`).
 
+One credential this does **not** cover: the add-on↔integration bridge secret
+is also mirrored to `<config>/.chickadee/bridge_secret`, which is in your HA
+config directory and therefore **is** included in HA backups —
+`backup_exclude` only reaches `/data`. It's a same-box credential (nothing is
+exposed on your LAN), but while signed in it can be exchanged for your
+household account token, so it's worth more than the name suggests. Details
+and the reset in the add-on's DOCS → "How the bridge auth works".
+
 ## Chickadee Cloud (signed in)
 
 When you leave an engine blank while signed in, that stage runs on hosted

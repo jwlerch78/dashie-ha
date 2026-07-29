@@ -104,7 +104,8 @@ so you can audit rather than trust:
 | `homeassistant_api` | The console's engine detection talks to HA's WebSocket API (`tts/engine/list` etc.) to show your real STT/TTS engines and voices. |
 | `hassio_role: manager` | One thing: the panel's **Restart Home Assistant** button (the integration needs a Core restart to activate; the banner offers it one-click). The restart only ever happens when you click it. |
 | `homeassistant_config:rw` | Two writes: (1) the integration installer (below); (2) a fallback copy of the bridge secret at `<config>/.chickadee/bridge_secret` for older integration versions — Supervisor discovery is the primary channel. |
-| `backup_exclude` | Keeps your on-box secrets (`api-keys.json`, the account cache) **out of HA backups**. |
+| `addon_config:rw` | **Granted but effectively unused.** Our own `/addon_configs/<slug>/` folder — it was meant to carry the bridge secret, but HA Core can't read that path on HAOS (verified 2026-07-25), so the secret goes via Supervisor discovery instead. Kept only for a future discovery handoff; listed here rather than quietly left in the manifest. |
+| `backup_exclude` | Keeps your on-box API keys and account cache (`/data/api-keys.json`, `/data/account-config.cache.json`) **out of HA backups**. Note the scope: it covers those two `/data` files. The bridge secret's fallback copy at `<config>/.chickadee/bridge_secret` lives in your HA config directory, so it **is** included in HA backups — see "How the bridge auth works" below. |
 
 **The integration installer** (`install_integration: true`, default): on
 start, the add-on copies its bundled integration to
@@ -114,6 +115,47 @@ that marker — a HACS or manual install is **never touched**. It never
 restarts Core on its own; it posts a notification and the panel banner, and
 you click Restart. Turn it off to manage the integration yourself.
 
+**Wake-word models → `/share/microwakeword`:** when you pick one of
+Chickadee's own wake words (`chickadee`, `hey_dashie`), the integration copies
+that model's `.json` + `.tflite` into `/share/microwakeword/` so the standard
+`wyoming-microwakeword` add-on can load it — mirroring the established
+`/share/openwakeword` convention. This is the integration writing (HA Core can
+write `/share` directly), not an add-on mount; `/share` is the one mount other
+add-ons can read, which is the point — the wake engine is a different add-on.
+Community wake words (Okay Nabu, Hey Jarvis, Alexa) are referenced by name
+from the official repo and deploy nothing. The two models we ship were trained
+in-house by Dashie; their weights are released under this repo's AGPL-3.0
+alongside everything else, and the training pipeline is not yet public.
+
+## Who on your HA box can use the household account
+
+Worth stating plainly, because it's a spending question. When you sign in and
+turn **household sharing** on, the voice endpoints the integration exposes
+(`/api/chickadee/voice/*`, `/api/chickadee/account/authorize`) are available to
+**any logged-in Home Assistant user on your box — not just admins.** Any of
+them can run voice turns that spend your Chickadee Cloud credits, and can
+enroll a device into your household account.
+
+That's deliberate. A dedicated **non-admin** HA user is the normal way to run a
+wall tablet or kiosk, and that's exactly the token those devices present — so
+requiring admin would break the households following the recommended practice,
+in order to stop a household member from using a household feature.
+
+The controls you actually have:
+
+- **Household sharing is the switch.** It's off by default, fails closed, and
+  turning it off revokes the devices that were enrolled through it. Sharing off
+  → these endpoints return 403 and nothing can be spent.
+- **Enrollment is attributed.** Authorizing a device logs the HA user who did
+  it (`... authorized into the household account by HA user <name> (non-admin)`),
+  so it's reviewable rather than anonymous.
+- **Credits are a hard ceiling.** Metered usage stops at your balance; there's
+  no overdraft, and auto-replenish is opt-in.
+
+If you want stricter separation than that today, the answer is to not turn on
+household sharing — run the box on your own engines (Local mode), which is
+unmetered and needs no account at all.
+
 ## How the bridge auth works
 
 At startup the add-on generates a random bridge secret and publishes it to the
@@ -122,6 +164,21 @@ broker uses); the integration presents it on every request
 (`X-Chickadee-Bridge-Secret`), and anything without it gets a 401. The secret
 never leaves the box. A copy is also written to `.chickadee/bridge_secret` in
 the HA config directory as a fallback for older integration versions.
+
+Two things about that fallback copy you should know:
+
+- **It is in your HA backups.** `backup_exclude` only reaches files under
+  `/data`; this copy is in your config directory, so a Home Assistant backup
+  contains it. Treat an HA backup as containing this credential.
+- **It is worth more than voice plumbing.** Presenting it to the add-on's
+  `/api/internal/account-credential` returns your household account JWT. Any
+  add-on with a config mount can read it — disclosed since 0.0.2 as `INTERIM`,
+  and the reason the Supervisor-discovery channel above is the primary one.
+
+The secret is generated once and persists in `/data/bridge_secret.txt` across
+restarts and updates — it is **not** rotated on restart. Uninstalling the
+add-on (which clears `/data`) generates a fresh one on the next install. So if
+a backup containing the old secret concerns you, that's the reset.
 
 ## Troubleshooting
 
