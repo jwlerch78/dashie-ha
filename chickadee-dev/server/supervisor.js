@@ -111,6 +111,33 @@ async function completeIntegrationFlow(flowId) {
     }
 }
 
+/**
+ * Fire an HA service, best-effort. Returns true when core accepted it.
+ *
+ * Used for the revocation fast path: turning household sharing off must reach the
+ * wall tablets in SECONDS, not at their 24h liveness poll. The tablet-facing relay
+ * lives in the `dashie` integration (`dashie.refresh_voice_config` →
+ * coordinator.send_command("refreshVoiceConfig") → the device's :2323 API →
+ * KioskJwtRefresher.verifySessionNow). A 404/400 here just means that integration
+ * isn't installed on this box — expected, and not an error worth shouting about.
+ */
+async function callService(domain, service, data = {}) {
+    if (!TOKEN) return false;
+    try {
+        const resp = await fetch(`${SUP}/core/api/services/${domain}/${service}`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        });
+        if (!resp.ok) {
+            console.log(`[supervisor] ${domain}.${service} not accepted (HTTP ${resp.status}) — integration likely absent`);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn(`[supervisor] ${domain}.${service} call failed:`, e.message);
+        return false;
+    }
+}
+
 /** Restart HA core (manager role). Returns true when accepted. */
 async function restartCore() {
     if (!TOKEN) return false;
@@ -130,5 +157,6 @@ module.exports = {
     isIntegrationLoaded,
     getPendingIntegrationFlowId,
     completeIntegrationFlow,
+    callService,
     restartCore,
 };

@@ -959,6 +959,17 @@ const VoiceAiPage = {
      * kills each session at its next refresh — worst case the token's remaining TTL.
      *
      * Only kiosks. A phone/TV/tablet the user deliberately signed in is untouched.
+     *
+     * ⚠️ 2026-07-29: this swept ZERO rows for a household with two live kiosks, because their
+     * rows had been re-created as `tablet_android` by the tablets' own `register_device` call
+     * (see the server-side HA-origin guard in database-operations/handlers/devices.ts). The
+     * server now refuses that insert and heals drifted rows back, so the `ha_kiosk` filter is
+     * sound again — but a zero-row sweep is the exact signature of that bug class returning, so
+     * it is now REPORTED rather than silently treated as success. Do not "fix" this by widening
+     * the filter to guess at kiosk-shaped rows: `ha_app` is the ADD-ON's own row and deleting it
+     * signs the add-on out of the account.
+     *
+     * @returns {Promise<{found:number, removed:number, listed:boolean}>}
      */
     async _signOutKiosksOnSharingOff() {
         let kiosks = [];
@@ -971,12 +982,22 @@ const VoiceAiPage = {
             // session. Do not "simplify" this back to `{}`.
             const res = await DashieAuth.dbRequest('list_devices', { controllable_only: false });
             const devices = res?.devices || res || [];
-            kiosks = (Array.isArray(devices) ? devices : []).filter(d => d?.device_type === 'ha_kiosk');
+            const all = Array.isArray(devices) ? devices : [];
+            kiosks = all.filter(d => d?.device_type === 'ha_kiosk');
+            if (!kiosks.length) {
+                // Loud, and with the evidence needed to triage it: which types WERE on the
+                // account. A silent zero here is what let two signed-in tablets look swept.
+                console.warn(
+                    '[VoiceAiPage] DROP: sharing-off sweep matched ZERO ha_kiosk rows. If any wall ' +
+                    'tablet is still signed in, its row was re-created under the wrong device_type. ' +
+                    'Device types seen: ' + JSON.stringify(all.map(d => d?.device_type))
+                );
+            }
         } catch (e) {
             console.warn('[VoiceAiPage] could not list devices to sign kiosks out:', e.message);
-            return 0;
+            return { found: 0, removed: 0, listed: false };
         }
-        if (!kiosks.length) return 0;
+        if (!kiosks.length) return { found: 0, removed: 0, listed: true };
 
         let removed = 0;
         for (const k of kiosks) {
@@ -990,7 +1011,10 @@ const VoiceAiPage = {
                 console.warn(`[VoiceAiPage] could not remove kiosk ${k.device_id}:`, e.message);
             }
         }
-        return removed;
+        if (removed < kiosks.length) {
+            console.warn(`[VoiceAiPage] DROP: sweep removed ${removed}/${kiosks.length} kiosk rows — the rest keep their sessions`);
+        }
+        return { found: kiosks.length, removed, listed: true };
     },
 
     async toggleHouseholdSharing(enabled) {
@@ -1031,9 +1055,15 @@ const VoiceAiPage = {
             // a tablet that re-provisions in this window is refused by jwt-auth's sharing gate
             // (the authoritative one) rather than racing us back onto the account.
             if (!enabled) {
-                const removed = await this._signOutKiosksOnSharingOff();
-                if (removed > 0) {
-                    Toast.success(`Sharing off — ${removed} kiosk ${removed === 1 ? 'device' : 'devices'} signed out.`);
+                const sweep = await this._signOutKiosksOnSharingOff();
+                if (sweep.removed > 0) {
+                    Toast.success(`Sharing off — ${sweep.removed} kiosk ${sweep.removed === 1 ? 'device' : 'devices'} signed out.`);
+                } else if (sweep.listed) {
+                    // Say so out loud. Reporting "off" while a tablet stays signed in is the
+                    // failure this whole path exists to prevent (field report 2026-07-29).
+                    Toast.success('Sharing off — no kiosk devices were on the account.');
+                } else {
+                    Toast.error('Sharing off, but the device list could not be read — kiosks may still be signed in.');
                 }
             }
             // Then tell the add-on to drop its cached account config and push a voice-config

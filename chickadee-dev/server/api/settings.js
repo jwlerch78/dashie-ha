@@ -4,9 +4,16 @@
 // Ingress-protected (HA authenticates the user first); writes additionally
 // require the add-on to be signed in. Simplified port of the dashie add-on's
 // api/settings.js — householdSharing resolves from the ACCOUNT
-// (voice.householdSharing in user_settings), and the dashie version's
-// refresh_voice_config service push is dropped: the chickadee integration
-// has no such service (nothing caches the account credential downstream).
+// (voice.householdSharing in user_settings).
+//
+// ⚠️ The refresh_voice_config push is NOT optional. It was dropped in the 0.5.0
+// Express port on the premise that "the chickadee integration has no such
+// service (nothing caches the account credential downstream)" — true about the
+// integration, wrong about who the consumer is. The consumer is each WALL
+// TABLET: the service relays to the device's :2323 `refreshVoiceConfig`, which
+// runs KioskJwtRefresher.verifySessionNow(). Without it a kiosk only learns its
+// session was revoked at the 24h liveness safety net. Field report 2026-07-29:
+// sharing turned off, tablets stayed signed in.
 
 'use strict';
 
@@ -14,6 +21,7 @@ const express = require('express');
 const auth = require('../auth');
 const settingsStore = require('../settings-store');
 const accountConfig = require('../account-config');
+const supervisor = require('../supervisor');
 
 const router = express.Router();
 
@@ -44,6 +52,11 @@ router.put('/household-sharing', requireSignedIn, express.json(), async (req, re
     const enabled = req.body?.enabled === true;
     accountConfig.invalidate();
     console.log(`[settings] household-sharing → ${enabled} (account-scoped; cache invalidated)`);
+    // Fast path: tell every kiosk to re-verify its session NOW. Best-effort and
+    // fire-and-forget — the setting itself is already written by the console.
+    supervisor.callService('dashie', 'refresh_voice_config', {}).then(ok => {
+        if (ok) console.log('[settings] pushed refresh_voice_config to kiosks');
+    });
     let householdSharing = enabled;
     try {
         const cfg = await accountConfig.getAccountVoiceConfig();
