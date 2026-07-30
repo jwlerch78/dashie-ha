@@ -182,19 +182,35 @@ const DashieAuth = {
      *  false, not merely "no JWT yet". */
     _addonAuthenticated: false,
 
-    /** True when settings must persist to the ADD-ON's own /data rather than
-     *  Dashie cloud: the published HA build, inside the add-on, no account.
+    /**
+     * LOCAL MODE — the published HA build, running inside the add-on, with no
+     * account. Home Assistant has already authenticated whoever can reach the
+     * ingress panel; running without a Dashie account is a normal operating
+     * mode here (your own engines, nothing hosted), not a locked door.
      *
-     *  Gated on the build as well as auth so this cannot change behaviour in
-     *  the family console, which shares this source and is an account product
-     *  (`check-console-tree.sh` catches file/string leaks, not behavioural
-     *  ones — this gate is the behavioural half). The family add-on's server
-     *  has no /api/settings/local either, so an ungated fallback would 404. */
-    get _useLocalSettings() {
+     * THE one definition. Settings persistence (below), the signed-out console
+     * routing, the page whitelist and the locked cloud presets all read this
+     * getter rather than re-deriving the condition — a second hand-rolled copy
+     * of a three-part safety predicate is exactly the seam rule's failure mode.
+     *
+     * Three parts, each load-bearing:
+     *  - `isAddonMode`      — the web console has no /api/settings/local to fall back to.
+     *  - not authenticated  — including `_addonAuthenticated`, so the window between
+     *                         init() starting and the JWT arriving does NOT count as
+     *                         local (it would show a signed-in user the box's blob).
+     *  - `isPublishedBuild` — the family console shares this source and IS an account
+     *                         product. `check-console-tree.sh` catches file/string
+     *                         leaks, not behavioural ones; this is the behavioural half.
+     */
+    get isLocalMode() {
         if (!this.isAddonMode) return false;
         if (this.isAuthenticated || this._addonAuthenticated) return false;
         return typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild() === true;
     },
+
+    /** Settings-layer alias for {@link isLocalMode} — kept so the many call
+     *  sites below read in terms of what they do (choose a settings backend). */
+    get _useLocalSettings() { return this.isLocalMode; },
 
     /** Read the account-less blob from the add-on. */
     async _loadLocalSettings() {

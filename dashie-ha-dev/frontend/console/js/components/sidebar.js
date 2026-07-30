@@ -19,7 +19,10 @@ const Sidebar = {
         // hidden when the console is served from the public website; the
         // credits widget is dev-only; locations is hidden everywhere until
         // the feature is ready.
-        const showCredits = FeatureGate.shouldShow('credits');
+        // Gate on the PAGE, not the feature: the widget is a deep link to
+        // 'credits', so it must not render when that page is unreachable — which
+        // is the case in local mode, where there is no account to hold a balance.
+        const showCredits = FeatureGate.isPageEnabled('credits');
         // Dashie Cloud dashboard section — built first so we can drop the whole
         // section (label + divider) when it has no visible items. For an ha_only
         // (voice-only) account every item here is gated off, so the section
@@ -62,7 +65,7 @@ const Sidebar = {
 
             <div class="sidebar-section">
                 <div class="sidebar-section-label">Manage</div>
-                ${this._navItem('account', 'Account', 'icon-account-settings', activePage)}
+                ${this._gatedNavItem('account', 'Account', 'icon-account-settings', activePage)}
                 ${this._gatedNavItem('credits', 'Credits', 'icon-credits', activePage)}
                 ${this._gatedNavItem('api-keys', 'API Keys', 'icon-key', activePage)}
                 ${this._gatedNavItem('local-engines', 'Local Engines', 'icon-server', activePage)}

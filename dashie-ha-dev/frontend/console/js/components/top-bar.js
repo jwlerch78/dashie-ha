@@ -26,8 +26,15 @@ const TopBar = {
                     style="object-fit: cover;"
                     onerror="this.outerHTML = TopBar._initialsAvatarHtml()">`
             : this._initialsAvatarHtml();
+        // Local mode: no Dashie account, so this slot becomes the sign-in door
+        // instead of an account menu. It shows the HA identity the add-on reports
+        // over ingress — that IS who is signed in here — and the label states the
+        // account is optional, because it is.
+        const localMode = (typeof DashieAuth !== 'undefined') && DashieAuth.isLocalMode;
+        const label = localMode ? (user.name || 'Not signed in') : user.email;
         // Avatar group is clickable — opens an account menu (Account
-        // Settings, Sign Out). Click outside closes via _onDocumentClick.
+        // Settings, Sign Out), or the sign-in menu in local mode. Click outside
+        // closes via _onDocumentClick.
         return `
             <div class="top-bar-left">
                 <button class="hamburger-btn" onclick="App.toggleSidebar()">☰</button>
@@ -41,7 +48,7 @@ const TopBar = {
                          onclick="event.stopPropagation(); TopBar.toggleMenu()"
                          style="cursor: pointer; user-select: none;">
                         ${avatar}
-                        <span class="top-bar-username">${user.email}</span>
+                        <span class="top-bar-username">${label}</span>
                         <span class="top-bar-chevron" style="font-size: 10px; opacity: 0.6; margin-left: 2px;">▾</span>
                     </div>
                     ${this._menuOpen ? this._renderMenu() : ''}
@@ -55,6 +62,10 @@ const TopBar = {
     },
 
     _renderMenu() {
+        // Local mode: the only account action available is acquiring one. No
+        // Account Settings / Sign Out / Delete — there is nothing to manage,
+        // sign out of, or delete.
+        if ((typeof DashieAuth !== 'undefined') && DashieAuth.isLocalMode) return this._renderSignInMenu();
         // Subscribe entry for confirmed-expired users (delta — Dashie builds
         // only; open-core ships without SubscribeGate and this stays '').
         const subscribeRow = window.SubscribeGate?.renderMenuSubscribeRow?.() ?? '';
@@ -82,6 +93,33 @@ const TopBar = {
                         style="width: 100%; text-align: left; padding: 10px 14px; background: none;
                                border: none; cursor: pointer; font-size: 14px; color: var(--status-error, #c00);">
                     Delete account…
+                </button>
+            </div>
+        `;
+    },
+
+    /** Local-mode account menu: one door, and an honest description of what is
+     *  behind it. Deliberately not phrased as an upsell — hosted engines and
+     *  credits are what an account buys, and everything else already works. */
+    _renderSignInMenu() {
+        return `
+            <div class="top-bar-user-menu" id="top-bar-user-menu"
+                 onclick="event.stopPropagation()"
+                 style="position: absolute; top: calc(100% + 6px); right: 0; min-width: 260px;
+                        background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb);
+                        border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                        z-index: 1050; overflow: hidden;">
+                <div style="padding: 10px 14px; font-size: 12px; color: var(--text-muted, #777); line-height: 1.5;">
+                    Running on your own engines — no ${BRAND.productName} account needed.
+                </div>
+                <div style="height: 1px; background: var(--border, #e5e7eb);"></div>
+                <button onclick="TopBar.closeMenu(); App.startSignIn()"
+                        style="width: 100%; text-align: left; padding: 10px 14px; background: none;
+                               border: none; cursor: pointer; font-size: 14px; color: var(--text-primary);">
+                    Sign in or create an account
+                    <div style="font-size: 12px; color: var(--text-muted, #777); margin-top: 2px;">
+                        For hosted engines and credits
+                    </div>
                 </button>
             </div>
         `;

@@ -1,6 +1,6 @@
 {
   "name": "dashie-ha-addon",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Dashie for Home Assistant — brain runtime + console for the dashie_voice integration.",
   "main": "server/index.js",
   "private": true,
