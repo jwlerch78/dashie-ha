@@ -453,6 +453,13 @@ const DashieAuth = {
         return this._addonMode === true;
     },
 
+    /** The /api/runtime payload (ingress flag, ha_user, versions, integration
+     *  state). Empty object before the probe completes so callers can read
+     *  fields without guarding. */
+    get runtimeInfo() {
+        return this._addonRuntimeInfo || {};
+    },
+
     // =========================================================
     //  Initialization
     // =========================================================

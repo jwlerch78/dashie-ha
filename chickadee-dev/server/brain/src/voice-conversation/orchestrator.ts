@@ -60,9 +60,14 @@ import { dashieHelpTool } from '../_shared/tools/dashie-help.ts';
 import type { ToolContext } from '../_shared/tools/types.ts';
 import { retainFields } from './retention.ts';
 import { templateWeather, weatherResultToReading } from './weather-synth.ts';
-import type { GatewayResult } from './gateway.ts';
-import type { SportsResult, WebSearchResult, WeatherLocation, WeatherResult } from './gather.ts';
-import type { LogData, WebSearchLogData, SportsLogData } from './logging.ts';
+// Contract types come from io-contracts.ts / the published tool + weather modules —
+// NEVER from the Deno-coupled impls (gateway/gather/logging). Those are unpublished,
+// and esbuild erases type-only imports, so importing types from them shipped the open
+// brain source with dangling modules and a failing `deno check`. Keep this pointing at
+// published files: sync-brain-bundle.sh's verify step now enforces it.
+import type { GatewayResult, WebSearchResult, LogData, WebSearchLogData, SportsLogData } from './io-contracts.ts';
+import type { SportsResult } from '../_shared/tools/sports.ts';
+import type { WeatherLocation, WeatherResult } from './weather.ts';
 import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest } from './types.ts';
 import { dispatchMultiTurn, recoverHaAction } from './multi-dispatch.ts';
 
@@ -736,7 +741,14 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const imageHint = (!sportsCard && retrievePictures && p1Parsed?.type === 'response')
       ? (p1Parsed as { image?: { searchTerms?: string; criteria?: string } }).image
       : undefined;
-    const imageCard = imageHint?.searchTerms ? await resolveImageHint(p1Parsed, token, sessionId, io.toolConn) : undefined;
+    // Safety-net: the model SPOKE a picture promise but set no `image` — derive a query from its
+    // own words (or the user's) so we don't leave the screen blank. `salvaged` marks the trace.
+    const salvagedTerms = (!imageHint?.searchTerms && !sportsCard && retrievePictures && p1Parsed?.type === 'response')
+      ? promisedPictureQuery(p1Parsed?.voice, req.text)
+      : null;
+    const effImageHint = imageHint?.searchTerms ? imageHint : (salvagedTerms ? { searchTerms: salvagedTerms } : undefined);
+    if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field → searching "${salvagedTerms}"`);
+    const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn) : undefined;
     const card = sportsCard ?? imageCard;
     // A "direct" answer that ATTACHES a card is a tool use — log it as one (not "direct") so
     // "show me a picture" and a prefetched score are attributable. Image logs its search terms +
@@ -749,9 +761,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const logMeta = sportsCard
       ? { tool_used: 'get_sports_scores', response_type: p1Parsed?.type ?? null,
           tool_trace: { route: 'sports', tool: 'get_sports_scores', args: providedSports?.query ?? null, caps } }
-      : imageHint?.searchTerms
+      : effImageHint?.searchTerms
         ? { tool_used: 'show_image', response_type: p1Parsed?.type ?? null,
-            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: imageHint.searchTerms, criteria: imageHint.criteria ?? null, resolved: !!imageCard }, caps } }
+            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: effImageHint.searchTerms, criteria: (effImageHint as { criteria?: string }).criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms }, caps } }
         : calendarUsed
           ? { tool_used: 'calendar_context', response_type: p1Parsed?.type ?? null,
               tool_trace: { route: 'calendar', tool: 'calendar_context', args: { time_range: providedCalendar.time_range ?? null }, caps } }
@@ -907,12 +919,25 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if ((sports?.games?.length || 0) === 0 && groundingAvailable) {
       return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
+    // The card the templates would emit for this result — attached to the SYNTHESIS passes
+    // too (John 2026-07-28): a model-voiced sports answer with no card on screen reads as
+    // "the tool never ran", so the card now rides EVERY sports turn that has games,
+    // regardless of which pass (or personality) voices it. Supersedes the DLG-2 "detail
+    // turn emits no card" rule; a follow-up may re-show the same card — accepted tradeoff.
+    const cardForGames = () => {
+      const n = sports?.games?.length ?? 0;
+      if (n === 0) return undefined;
+      if (wantsSlate && n !== 1) {
+        return templateSlate(sports, sportsQuery, { timezone: req.timezone }).structured_data ?? undefined;
+      }
+      return templateSports(sports, sportsQuery, { timezone: req.timezone }).structured_data ?? undefined;
+    };
     // Model synthesis when the template can't serve the ask: a DETAIL request (recap/scorers —
     // the template only emits a one-liner), OR anything we don't recognise as a score/schedule
     // question. The second half is the 2026-07-16 inversion (see templateCanAnswer): the template
     // used to be the catch-all and would read the fixture back at a roster question forever.
     if ((sports?.games?.length || 0) > 0 && (wantsGameDetail(req.text) || !templateCanAnswer(req.text))) {
-      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     // ── Tier-1 structured tool: template the answer (no pass-2 LLM) ───────────
     // The gateway already returned structured games[]; synthesize deterministically
@@ -944,7 +969,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           retain, sessionId, route,
         });
       }
-      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const parsed = { type: 'response', voice: synth.voice, text: synth.text, action: null } as ReturnType<typeof parseContent>;
     // Log the synthesis as a zero-token "template" pass so the Analysis step and
@@ -1301,6 +1326,10 @@ async function secondPass(
   retain: RetainCtx,
   route: string,
   grounding = false,
+  // Pre-built tool card to attach to the synthesized turn (sports score/slate — John
+  // 2026-07-28: cards show regardless of which pass voices the answer). Takes the card
+  // slot over the image hint when present.
+  card: unknown = undefined,
 ): Promise<Turn> {
   const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context: context as never });
   // Live progress: tool fetch done, synthesis pass starting. Reads as the 3rd act of
@@ -1361,7 +1390,42 @@ async function secondPass(
       && imageHint?.searchTerms)
     ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn)
     : undefined;
-  return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: (pass1.latency_ms + pass2.latency_ms), retain, sessionId, route, structured_data: imageCard ?? undefined });
+  return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: (pass1.latency_ms + pass2.latency_ms), retain, sessionId, route, structured_data: card ?? imageCard ?? undefined });
+}
+
+/**
+ * IMAGE PROMISE SAFETY-NET: when a direct answer's SPOKEN line promises a picture ("here's a
+ * picture of X", "here he is", "take a look") but the model set NO `image` field, derive a search
+ * query so the screen isn't left blank — the worst case per the response-format prompt (field
+ * 2026-07-27: "show me a picture of a chickadee" → "Here is a lovely one for you." with no image).
+ *
+ * The subject is taken from the MODEL'S voice first (it already resolved it — "…picture of a
+ * chickadee…" → "chickadee"), falling back to the user's request. Returns null when the line makes
+ * no visual promise, so it never fabricates an image for a normal answer.
+ *
+ * Exported for unit tests.
+ */
+export function promisedPictureQuery(voice: string | null | undefined, userText: string | null | undefined): string | null {
+  const v = String(voice || '');
+  const promises =
+    /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) ||           // "a picture of X"
+    /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
+    /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) ||           // "here he is"
+    /\btake a look\b/i.test(v);
+  if (!promises) return null;
+  // Prefer the subject the model NAMED in its voice ("…picture of a chickadee, …" → "chickadee").
+  const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
+  let subject = m?.[1]?.trim();
+  if (!subject) {
+    // Fall back to the user's request with the "show me a picture of" lead-in stripped.
+    subject = String(userText || '')
+      .replace(/^(?:hey dashie[,\s]*)?(?:can you |could you |please |will you )?(?:show me|show us|pull up|find|display|get me|let me see|i want to see|can i see)\s+/i, '')
+      .replace(/\b(?:a |an |the )?(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?/i, '')
+      .replace(/[?.!]+$/, '')
+      .trim();
+  }
+  subject = subject.replace(/\b(?:please|for me|right now)\b/gi, '').replace(/\s+/g, ' ').trim();
+  return subject && subject.length >= 2 ? subject : null;
 }
 
 /** Resolve a `response` turn's `image` hint into a {type:'image'} card via the

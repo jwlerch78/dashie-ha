@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 # the /share/openwakeword convention; /share is the only cross-add-on shared mount.
 SHARE_MWW_DIR = "/share/microwakeword"
 
-# Vendored bundle inside this package (copied from wake-word-training/satellite-mww).
+# Vendored bundle inside this package. Provenance + license: wake_models/README.md.
 _BUNDLE_DIR = Path(__file__).parent / "wake_models"
 
 # console VoiceAiOptions.WAKE_WORDS id -> (manifest, tflite, HA wake-word label).

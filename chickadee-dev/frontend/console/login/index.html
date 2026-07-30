@@ -39,7 +39,10 @@
         <div>Completing sign-in...</div>
         <div class="error" id="error"></div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Vendored, not CDN-loaded. This is the SIGN-IN page: a third-party
+         request here would happen before the user has an account at all.
+         See ../vendor/README.md. -->
+    <script src="../vendor/supabase-js-2.111.0.min.js"></script>
     <script src="../js/lib/console-auth.js"></script>
     <script>
         // OAuth callback handler. Google redirects here with ?code=...&state=...

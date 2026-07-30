@@ -15,12 +15,16 @@ paths hit the same handler. Ownership: when the Chickadee integration is
 configured it registers these views and the Dashie integration cedes (its
 __init__ checks our config entries); see async_register_voice_views.
 
-The payload builder is a faithful copy of the Dashie gateway's pass-through
-design (allowlist rot postmortem: dashieapp_staging
-`.reference/build-plans/20260716_HA_GATEWAY_PAYLOAD_ALLOWLIST_ROT.md`).
-GATEWAY_OWNED_KEYS mirrors VoiceRequest field names — dashieapp_staging's
-`lint:gateway-payload` currently checks the Dashie copy only; keep the two
-builders in step until that lint learns this file.
+The payload builder FORWARDS the caller's body wholesale and overrides only the
+keys it owns (GATEWAY_OWNED_KEYS, which mirror VoiceRequest field names). It is
+deliberately not an allowlist: naming each forwarded field means the builder
+silently drops every field added to the brain contract afterwards — that cost
+device tool capability, the user's timezone, and anti-recursion state, with no
+error and no log. Add a key here only to OVERRIDE it, never to permit it.
+
+A sibling copy of this builder ships in the Dashie integration, and the lint
+that guards this shape currently checks that copy only — so keep the two in
+step by hand until it covers this file too.
 """
 from __future__ import annotations
 

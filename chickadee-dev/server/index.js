@@ -32,7 +32,7 @@ process.on('unhandledRejection', (err) => {
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
     consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haWs,
-    supervisor, installer;
+    supervisor, installer, ingressIdentity;
 try {
     path = require('path');
     fs = require('fs');
@@ -51,6 +51,7 @@ try {
     haWs = require('./ha-ws');
     supervisor = require('./supervisor');
     installer = require('./integration-installer');
+    ingressIdentity = require('./ingress-identity');
 } catch (err) {
     console.error('[fatal] Failed to load modules:', err?.stack || err);
     console.error('[fatal] Node version:', process.version);
@@ -171,12 +172,20 @@ app.get('/api/runtime', async (req, res) => {
         const loadedHash = installer.getLoadedHash();
         updatePending = !!(onDisk && loadedHash && onDisk !== loadedHash);
     }
+    // Ingress identity. HA has ALREADY authenticated whoever is reading this
+    // panel, which is why the console API below needs no bridge secret — and it
+    // is also why the UI must not demand a Chickadee account from someone who
+    // only wants their own local engines. Identity, never authorization: see
+    // ingress-identity.js. Cloud surfaces still require a real signed JWT.
+    const haUser = ingressIdentity.ingressUser(req);
     res.json({
         addon: true,
         chickadee: true,
         version: VERSION,
         supabase_env: CLOUD_ENV,
         email_auth: true,
+        ingress: ingressIdentity.isIngress(req),
+        ha_user: haUser,
         integration: instStatus,
         integration_pending_restart: pending,
         integration_discovered_pending: discoveredPending,

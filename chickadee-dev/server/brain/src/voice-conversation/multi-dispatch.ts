@@ -17,7 +17,7 @@
 
 import { buildPrompt } from './prompt.ts';
 import { parseContent } from './parse.ts';
-import type { GatewayRaw, GatewayResult } from './gateway.ts';
+import type { GatewayRaw, GatewayResult } from './io-contracts.ts';
 import type { HaEntity, MultiStep, ParsedResponse, Stage, TurnStep, Usage } from './types.ts';
 
 /** The pass-2 gateway call, narrowed to what dispatch needs (mirrors OrchestratorIO.callGateway).

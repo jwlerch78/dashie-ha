@@ -22,8 +22,11 @@
         </main>
     </div>
 
-    <!-- Supabase JS SDK (for real-time broadcasts) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Supabase JS SDK (for real-time broadcasts). VENDORED, not CDN-loaded —
+         see vendor/README.md: an add-on panel must not phone a third party to
+         render, must work on an air-gapped box, and must run the code that is
+         actually in this repo. -->
+    <script src="vendor/supabase-js-2.111.0.min.js"></script>
     <!-- Pinned to HA frontend's exact version (see home-assistant/frontend
          package.json) so we run the same hls.js code HA's <ha-hls-player>
          uses. Version drift here was producing bufferAppendError on streams
@@ -51,6 +54,8 @@
     <script src="js/lib/feeds-api.js?v=20260712a"></script>
     <script src="js/lib/voice-ai-api.js?v=20260727c"></script>
     <script src="js/lib/photo-file-processor.js?v=20260712a"></script>
+    <!-- Local mode: the no-account panel for ingress users (Chickadee build). -->
+    <script src="js/lib/local-mode.js?v=20260729a"></script>
     <script src="js/lib/credits-service.js?v=20260712a"></script>
     <script src="js/lib/history-chart.js?v=20260712a"></script>
     <script src="js/lib/mock-data.js?v=20260727a"></script>
@@ -65,7 +70,7 @@
     <script src="js/components/confirm-modal.js?v=20260712a"></script>
     <script src="js/components/feedback-modal.js?v=20260725b"></script>
     <script src="js/components/toast.js?v=20260725b"></script>
-    <script src="js/components/buy-credits-modal.js?v=20260712a"></script>
+    <script src="js/components/buy-credits-modal.js?v=20260729a"></script>
     <script src="js/components/autorefill-modal.js?v=20260725b"></script>
     <script src="js/components/credits-controls.js?v=20260712a"></script>
 

@@ -66,7 +66,7 @@ const App = {
                 // Fire-and-forget — runs in background after first paint.
                 if (typeof SubscribeGate !== 'undefined') SubscribeGate.checkAndShow();
             } else {
-                this._showLogin();
+                this._showSignedOut();
             }
         };
 
@@ -101,7 +101,7 @@ const App = {
             this._showApp();
             if (typeof SubscribeGate !== 'undefined') SubscribeGate.checkAndShow();
         } else {
-            this._showLogin();
+            this._showSignedOut();
         }
     },
 
@@ -439,6 +439,36 @@ const App = {
         }
     },
 
+    /** Signed-out router — ONE decision point, on purpose.
+     *
+     *  On the Chickadee build reached over HA ingress, "no Chickadee account" is
+     *  a normal operating mode (your own engines, nothing hosted), not a locked
+     *  door — so show the local-mode panel. Home Assistant already authenticated
+     *  this person; a second login here was identity for billing, demanded of
+     *  someone who isn't billing. See js/lib/local-mode.js.
+     *
+     *  Everywhere else the account IS the product — the Dashie build and the
+     *  plain web console both keep the login screen. Any failure falls through
+     *  to _showLogin(), so the worst case is today's behaviour.
+     *
+     *  Three call sites used to hard-code _showLogin(); they all come here now
+     *  rather than each growing its own copy of this rule. */
+    _showSignedOut() {
+        try {
+            const rt = DashieAuth.runtimeInfo;
+            const isChickadee = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
+            if (isChickadee && rt.ingress && typeof LocalMode !== 'undefined') {
+                document.getElementById('sidebar').innerHTML = '';
+                document.getElementById('top-bar').innerHTML = '';
+                LocalMode.show(rt.ha_user || null);
+                return;
+            }
+        } catch (e) {
+            console.warn('[App] DROP: local-mode render failed, falling back to login', e);
+        }
+        this._showLogin();
+    },
+
     _showLogin() {
         // Tear down any background pollers left running from a previously
         // authed session (devices auto-refresh interval, fresh-device poll,
@@ -620,7 +650,7 @@ const App = {
 
     async _cancelAddonSignIn() {
         await DashieAuth.cancelSignIn();
-        this._showLogin();
+        this._showSignedOut();
     },
 
     _showApp() {
