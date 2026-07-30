@@ -26,16 +26,25 @@
    ============================================================ */
 
 const VoiceAiOptions = {
-    // Strong swatch (tags, legend) + light row-background tint. Chickadee build:
-    // cloud locality rides the brand wing-blue instead of Dashie orange (matches
-    // the accent-var theme the generated brand.js injects).
-    COLOR: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
-        ? { cloud: '#2C6ECE', local: '#16a34a' }
-        : { cloud: '#f97316', local: '#16a34a' },
-    BG: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
-        ? { cloud: 'rgba(44, 110, 206, 0.08)', local: 'rgba(22, 163, 74, 0.10)' }
-        : { cloud: 'rgba(249, 115, 22, 0.08)', local: 'rgba(22, 163, 74, 0.10)' },
+    // Strong swatch (tags, legend) + light row-background tint. One build-
+    // independent palette: cloud locality is Dashie orange everywhere. (Until
+    // 2026-07-30 the published build swapped in Chickadee's wing-blue — both
+    // builds are Dashie now, so there is nothing to branch on.)
+    COLOR: { cloud: '#f97316', local: '#16a34a' },
+    BG: { cloud: 'rgba(249, 115, 22, 0.08)', local: 'rgba(22, 163, 74, 0.10)' },
     LABEL: { cloud: 'Cloud', local: 'Local' },
+
+    // Who actually runs the hosted engines. Stated ONCE, here, and rendered as a
+    // note on the Voice & AI page — deliberately not baked into the option labels,
+    // where a supplier we later switch away from becomes a lie nobody notices
+    // (TTS has already changed once). Same facts in the repo README.
+    // Both builds show this: "which vendor hears my audio" is not a brand
+    // question, and a self-hosting reader checking the cloud claim should be
+    // able to find the answer without leaving the console.
+    CLOUD_SUPPLIERS: [
+        { stage: 'Speech-to-text', vendors: 'Deepgram' },
+        { stage: 'Text-to-speech', vendors: 'Inworld, ElevenLabs for personality voices' },
+    ],
 
     // ── pipeline presets (Open Brain plan §6) ─────────────────
     // The top-level Voice & AI selector: three Dashie Intelligence presets
@@ -94,7 +103,11 @@ const VoiceAiOptions = {
      */
     WAKE_WORDS: [
         { id: 'hey_dashie',      label: 'Hey Dashie' },
-        // Chickadee v0 dual-engine model (open-core brand; standalone keyword).
+        // Standalone keyword, real in-house microWakeWord model (v0 dual-engine).
+        // Predates the 2026-07-30 brand consolidation and is no longer any build's
+        // default — kept because the weights ship and the id is a persisted wire
+        // value (Kotlin WakeWordModel + wake_models/chickadee.*): removing it would
+        // silently unset the wake word for anyone who chose it.
         { id: 'chickadee',       label: 'Chickadee' },
         { id: 'mww_okay_nabu',   label: 'Okay Nabu' },
         { id: 'mww_hey_jarvis',  label: 'Hey Jarvis' },
@@ -234,10 +247,12 @@ const VoiceAiOptions = {
     // engine-direct row (ha_engine, labeled "Whisper (Home Assistant)") is
     // injected by sttOptions() when /api/voice/engines finds a Whisper engine.
     STT: [
-        // Chickadee names the actual suppliers (open-core transparency); Dashie keeps its brand label.
+        // Supplier names deliberately NOT in the label — suppliers change (TTS
+        // already has once) and a stale vendor name in a picker is worse than no
+        // vendor name. Who currently processes cloud audio is disclosed in the
+        // repo README and on the Voice & AI page's suppliers note.
         { id: 'dashie_cloud',
-          label: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
-              ? 'Cloud STT (Deepgram)' : `${BRAND.cloudName} STT`,
+          label: `${BRAND.cloudName} STT`,
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
           description: 'Streaming, premium accuracy.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
@@ -266,10 +281,9 @@ const VoiceAiOptions = {
         // the server's margined rate card. Two engines behind one row: the
         // default Dashie voice runs on Inworld (~4× cheaper per character);
         // personality voices are premium ElevenLabs.
-        // Chickadee names the actual suppliers (open-core transparency); Dashie keeps its brand label.
+        // Supplier names deliberately NOT in the label — see the STT row above.
         { id: 'dashie_cloud',
-          label: (typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild())
-              ? 'Cloud TTS (Inworld / ElevenLabs)' : `${BRAND.cloudName} TTS`,
+          label: `${BRAND.cloudName} TTS`,
           locality: 'cloud', cost: '$0.09–0.33/1k chars · ~0.5–1.9¢/reply',
           description: `The default ${BRAND.assistantName} voice is the most economical; personality voices are premium.` },
         { id: 'local_url', label: 'Local TTS (your box)', locality: 'local', cost: 'Free',

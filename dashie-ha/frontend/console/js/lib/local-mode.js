@@ -1,10 +1,10 @@
 /* ============================================================
-   LocalMode — the panel you get when you have no Chickadee account.
+   LocalMode — the panel you get when you have no Dashie account.
    ------------------------------------------------------------
-   Chickadee runs fully on your own engines with no account, and PRIVACY.md and
+   Dashie for Home Assistant runs fully on your own engines with no account, and PRIVACY.md and
    the README both say so. The panel used to contradict that: signed out, the
-   only screen was "Sign in to Chickadee — connect your Home Assistant to your
-   Chickadee account". Someone who never intends to buy hosted compute installed
+   only screen was "Sign in — connect your Home Assistant to your
+   account". Someone who never intends to buy hosted compute installed
    the add-on and the first thing it did was ask them to create an account with
    the vendor. Whatever the docs said, that screen was the product's answer.
 
@@ -24,8 +24,8 @@
    and drops you straight on settings. Frigate and Immich both use LOCAL
    accounts. None of them gate the app behind a vendor account.
 
-   Chickadee-build only — the Dashie build IS an account product, so it keeps
-   its login. Gated on FeatureGate.isChickadeeBuild() by the caller in app.js.
+   Published-build only — the full build IS an account product, so it keeps
+   its login. Gated on FeatureGate.isPublishedBuild() by the caller in app.js.
    ============================================================ */
 
 (function () {
@@ -38,13 +38,13 @@
     function row(label, value, hint) {
         const set = !!value;
         return `
-            <div class="chickadee-local-row">
-                <span class="chickadee-local-dot ${set ? 'on' : 'off'}" aria-hidden="true"></span>
-                <span class="chickadee-local-label">${esc(label)}</span>
-                <span class="chickadee-local-value ${set ? '' : 'muted'}">
+            <div class="dashie-local-row">
+                <span class="dashie-local-dot ${set ? 'on' : 'off'}" aria-hidden="true"></span>
+                <span class="dashie-local-label">${esc(label)}</span>
+                <span class="dashie-local-value ${set ? '' : 'muted'}">
                     ${set ? esc(value) : 'not configured'}
                 </span>
-                ${hint ? `<span class="chickadee-local-hint">${esc(hint)}</span>` : ''}
+                ${hint ? `<span class="dashie-local-hint">${esc(hint)}</span>` : ''}
             </div>`;
     }
 
@@ -71,17 +71,17 @@
             // mechanism if a link is ever wanted back.
             el.innerHTML = `
                 <div class="dashie-login-overlay">
-                    <div class="dashie-login-card chickadee-local-card">
+                    <div class="dashie-login-card dashie-local-card">
                         <img src="${esc(BRAND.logo)}" alt="${esc(BRAND.productName)}" class="dashie-login-logo">
                         <div class="dashie-login-title">Running in local mode</div>
                         <div class="dashie-login-subtitle">
                             You're signed in to Home Assistant${esc(who)} — that's all
                             ${esc(BRAND.productName)} needs. No account required.
                         </div>
-                        <div class="chickadee-local-rows" id="chickadee-local-rows">
-                            <div class="chickadee-local-loading">Checking your engines…</div>
+                        <div class="dashie-local-rows" id="dashie-local-rows">
+                            <div class="dashie-local-loading">Checking your engines…</div>
                         </div>
-                        <div class="chickadee-local-note">
+                        <div class="dashie-local-note">
                             Engine settings aren't on this page. They live on the add-on's
                             own page — <strong>Settings → Add-ons →
                             ${esc(BRAND.productName)} → Configuration</strong>. Point
@@ -115,7 +115,7 @@
         /** /api/voice/local-status is ingress-trusted already and needs no account.
          *  Failure is non-fatal: the view still explains where to configure. */
         async _loadStatus() {
-            const host = document.getElementById('chickadee-local-rows');
+            const host = document.getElementById('dashie-local-rows');
             if (!host) return;
             try {
                 const r = await fetch('api/voice/local-status');
@@ -130,7 +130,7 @@
                     row('Voices', s.tts);
             } catch (_) {
                 // Don't invent a status we couldn't read.
-                host.innerHTML = `<div class="chickadee-local-loading">
+                host.innerHTML = `<div class="dashie-local-loading">
                     Couldn't read engine status — check the add-on log.</div>`;
             }
         },

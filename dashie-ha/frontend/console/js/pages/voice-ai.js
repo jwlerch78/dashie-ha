@@ -479,11 +479,11 @@ const VoiceAiPage = {
             await window.CreditsService?.fetch({ force: true });
             const amount = this._formatUsd(res.amount);
             // Bare "credits", not BRAND.cloudName — every other console surface (sidebar,
-            // credits page, expiry notice, buy modal) says plain "credits", and cloudName
-            // resolves to "Dashie Cloud" in the delta build, which would have printed
-            // "Dashie Cloud credits" and contradicted the locked decision that the meter is
-            // Chickadee-branded everywhere. Not rebranding the console's credits noun as a
-            // side effect of this feature; if that noun should change, it changes on its own.
+            // credits page, expiry notice, buy modal) says plain "credits". Not rebranding
+            // the console's credits noun as a side effect of this feature; if that noun
+            // should change, it changes on its own. (The original reason was that cloudName
+            // differed per build; it no longer does, but "credits" is still the right word
+            // and still what every other surface says.)
             await ConfirmModal.confirm({
                 title: 'Cloud Voice & AI',
                 message:
@@ -1268,6 +1268,7 @@ const VoiceAiPage = {
                 available: (id) => this._presetAvailable(id),
                 isAddonMode: DashieAuth.isAddonMode,
             })}
+            ${this._renderCloudSuppliers()}
             ${body}
 
             ${isHaAssist ? '' : `
@@ -1702,6 +1703,23 @@ const VoiceAiPage = {
             <div style="display:flex; gap: 16px; font-size: 12px; color: var(--text-secondary);">
                 ${dot(O.COLOR.cloud, 'Cloud')}
                 ${dot(O.COLOR.local, 'Local')}
+            </div>`;
+    },
+
+    /** Who runs the hosted engines. These names used to live inside the STT/TTS
+     *  option labels; they were moved here on 2026-07-30 so a supplier switch is
+     *  one edit instead of a stale vendor name sitting in a picker. Moving them
+     *  off the labels must not mean losing them — this is where they went.
+     *  Suppressed on the Local preset, where no cloud engine is in play. */
+    _renderCloudSuppliers() {
+        const rows = window.VoiceAiOptions?.CLOUD_SUPPLIERS || [];
+        if (!rows.length) return '';
+        const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const list = rows.map(r => `${esc(r.stage)}: ${esc(r.vendors)}`).join(' · ');
+        return `
+            <div style="margin: 8px 2px 0; font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+                ${esc(BRAND.cloudName)} engines are currently run by — ${list}.
+                Suppliers can change; local and hybrid presets never send audio to them.
             </div>`;
     },
 

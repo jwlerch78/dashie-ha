@@ -193,7 +193,7 @@ const DashieAuth = {
     get _useLocalSettings() {
         if (!this.isAddonMode) return false;
         if (this.isAuthenticated || this._addonAuthenticated) return false;
-        return typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild() === true;
+        return typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild() === true;
     },
 
     /** Read the account-less blob from the add-on. */
