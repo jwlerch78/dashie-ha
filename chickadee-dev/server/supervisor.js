@@ -39,6 +39,30 @@ async function ensureSidebarPanel() {
     }
 }
 
+/** Our own add-on slug, e.g. `62f754e2_chickadee_dev`. Cached for the process —
+ *  it cannot change without a restart.
+ *
+ *  Needed because the local-mode panel has to tell the user where engine settings
+ *  actually live, and "the Configuration tab" is NOT reachable from the sidebar
+ *  panel — that panel has no tabs. The real destination is HA's add-on page at
+ *  /hassio/addon/<slug>/config, which needs the slug. Field report 2026-07-30:
+ *  "There's no configuration tab though." */
+let _slugCache;
+async function getSelfSlug() {
+    if (_slugCache !== undefined) return _slugCache;
+    _slugCache = null;
+    if (!TOKEN) return _slugCache;
+    try {
+        const info = await fetch(`${SUP}/addons/self/info`, { headers: headers() })
+            .then(r => r.json()).catch(() => null);
+        const slug = info?.data?.slug;
+        if (typeof slug === 'string' && slug) _slugCache = slug;
+    } catch (e) {
+        console.warn('[supervisor] could not read own slug:', e.message);
+    }
+    return _slugCache;
+}
+
 let _loadedCache = { at: 0, val: null };
 
 /** Is the chickadee integration loaded in the RUNNING core? 15s cache; null = unknown. */
@@ -153,6 +177,7 @@ async function restartCore() {
 }
 
 module.exports = {
+    getSelfSlug,
     ensureSidebarPanel,
     isIntegrationLoaded,
     getPendingIntegrationFlowId,

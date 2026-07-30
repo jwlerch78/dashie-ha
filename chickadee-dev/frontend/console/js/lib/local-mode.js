@@ -50,12 +50,26 @@
 
     const LocalMode = {
         /** Render into #content. `haUser` is runtime.ha_user (may be null, and its
-         *  display_name may be null — X-Remote-User-Name is not guaranteed). */
-        async show(haUser) {
+         *  display_name may be null — X-Remote-User-Name is not guaranteed).
+         *  `addonSlug` is runtime.addon_slug, used to deep-link the settings page. */
+        async show(haUser, addonSlug) {
             const el = document.getElementById('content');
             if (!el) return;
 
             const who = haUser && haUser.display_name ? `, ${haUser.display_name}` : '';
+
+            // Where engine settings ACTUALLY live. Not "the Configuration tab" —
+            // this panel is HA's sidebar ingress view and has no tabs; the tab is on
+            // the add-on's own page. Field report 2026-07-30: "There's no
+            // configuration tab though." So name the full path, and link straight
+            // there when we know our slug.
+            //
+            // target="_top" is required: the panel runs in an iframe, and without it
+            // HA's add-on page would render INSIDE this card.
+            const cfgPath = addonSlug ? `/hassio/addon/${encodeURIComponent(addonSlug)}/config` : null;
+            const cfgLink = cfgPath
+                ? `<a href="${esc(cfgPath)}" target="_top" class="chickadee-local-cfg">Open the Configuration page →</a>`
+                : '';
             el.innerHTML = `
                 <div class="dashie-login-overlay">
                     <div class="dashie-login-card chickadee-local-card">
@@ -69,10 +83,14 @@
                             <div class="chickadee-local-loading">Checking your engines…</div>
                         </div>
                         <div class="chickadee-local-note">
-                            Engines are configured in this add-on's
-                            <strong>Configuration</strong> tab. Point them at your own
-                            LLM, speech-to-text, and voices and everything works from
-                            your box — no ${esc(BRAND.productName)} service involved.
+                            Engine settings aren't on this page. They live on the add-on's
+                            own page — <strong>Settings → Add-ons →
+                            ${esc(BRAND.productName)} → Configuration</strong>. Point
+                            <code>llm_url</code>, <code>stt_url</code> and
+                            <code>tts_url</code> at your own servers and everything runs
+                            from your box, with no ${esc(BRAND.productName)} service
+                            involved.
+                            ${cfgLink}
                         </div>
                         <div class="dashie-login-buttons">
                             <button class="dashie-path-btn secondary" onclick="App._handleAddonSignIn()">
