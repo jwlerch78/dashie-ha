@@ -22,10 +22,10 @@ const VoiceAiPresetPicker = {
         return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     },
 
-    /** @param {object} o { presets[], selectedId, available(id)→bool, isAddonMode } */
+    /** @param {object} o { presets[], selectedId, available(id)→bool, isAddonMode, localMode } */
     render(o) {
         const cards = (o.presets || [])
-            .map(p => this._card(p, p.id === o.selectedId, o.available(p.id), o.isAddonMode))
+            .map(p => this._card(p, p.id === o.selectedId, o.available(p.id), o.isAddonMode, !!o.localMode))
             .join('');
         return `
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin-bottom: 16px;">
@@ -33,7 +33,7 @@ const VoiceAiPresetPicker = {
             </div>`;
     },
 
-    _card(p, selected, available, isAddonMode) {
+    _card(p, selected, available, isAddonMode, localMode) {
         const O = window.VoiceAiOptions;
         const costColor = p.needsCreditsOrKey ? O.COLOR.cloud : O.COLOR.local;
         // Mixed presets color each tagline half by its locality (Hybrid:
@@ -61,10 +61,18 @@ const VoiceAiPresetPicker = {
         // and Hybrid can run on credits OR a BYO AI key, so we surface both
         // options on either card (not addon-gated). margin-top:auto bottom-
         // justifies the prompt so it aligns across the equal-height cards.
-        const prompt = available ? '' : `
+        //
+        // Local mode swaps the credits half for sign-in: there is no account to
+        // hold credits, and the Credits page is not even routable, so offering
+        // it would be a dead link. The AI-keys half is unchanged — a BYO key
+        // works on the box with no account at all, which is the point.
+        const prompt = available ? '' : (localMode ? `
+            <div style="font-size: 11px; color: var(--text-muted, #777); margin-top: auto; padding-top: 8px; line-height: 1.4; opacity: 1;">
+                <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.startSignIn()" style="color: var(--accent); font-weight: 600;">Sign in</a> or add your own <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">AI key</a> →
+            </div>` : `
             <div style="font-size: 11px; color: var(--status-error, #c00); margin-top: auto; padding-top: 8px; line-height: 1.4; opacity: 1;">
                 Add <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('credits')" style="color: var(--accent); font-weight: 600;">credits</a> or <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">AI keys</a> →
-            </div>`;
+            </div>`);
         return `
             <div ${onclick}
                 class="card"

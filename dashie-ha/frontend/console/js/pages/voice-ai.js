@@ -441,10 +441,27 @@ const VoiceAiPage = {
         // Accounts that don't see the credits feature aren't metered from the
         // console's perspective — don't lock their presets.
         if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return true;
+        // A BYO provider key unlocks a cloud-AI preset in EVERY mode, including
+        // local: the key lives on the box (/data/api-keys.json) and the brain runs
+        // BYOK without an account. Checked before the local-mode bail below on
+        // purpose — "no account" must not lock a user out of their own key.
         if (this._keyStatus && Object.values(this._keyStatus).some(Boolean)) return true;
+        // Local mode: no account, therefore no credit balance to spend. This is
+        // the one place the answer is a definite NO rather than the optimistic
+        // default below — and it must not fall through to the balance check,
+        // whose "still loading → true" would flash the presets as available.
+        if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) return false;
         const bal = window.CreditsService?.balance();
         if (!bal || typeof bal.balance !== 'number') return true;   // still loading → optimistic
         return bal.balance > 0;
+    },
+
+    /** Why a Cloud/Hybrid card is locked, for the card's own copy. */
+    _lockedPresetReason() {
+        if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) {
+            return `Needs a ${BRAND.productName} account — or add your own AI key`;
+        }
+        return null;   // signed in: the existing out-of-credits treatment applies
     },
 
     /**
@@ -465,6 +482,13 @@ const VoiceAiPage = {
     async tryStarterGrant(id) {
         const O = window.VoiceAiOptions;
         if (!O.PRESETS.some(p => p.id === id)) return;
+        // Local mode: the grant is keyed to an ACCOUNT server-side, so there is
+        // nothing to claim and dbRequest would 401. The click still must not be
+        // silent (the picker's standing rule) — route to the door instead.
+        if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) {
+            App.startSignIn();
+            return;
+        }
         let res = null;
         try {
             res = await DashieAuth.dbRequest('claim_starter_grant', {});
@@ -1267,6 +1291,7 @@ const VoiceAiPage = {
                 selectedId: preset,
                 available: (id) => this._presetAvailable(id),
                 isAddonMode: DashieAuth.isAddonMode,
+                localMode: DashieAuth.isLocalMode,
             })}
             ${this._renderCloudSuppliers()}
             ${body}
