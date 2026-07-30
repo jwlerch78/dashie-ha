@@ -91,6 +91,14 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         // offering them in the first place.
         runWebSearch: async () => { throw new Error('web search is not available without a Dashie account'); },
         runSports: async (query) => ({ provider: 'none', query, games: [], result_count: 0, latency: 0 }),
+        // Image search has no hook here — the core resolves it inline — so the refusal
+        // must be DECLARED. Without this, a caller passing retrieve_pictures:true
+        // re-enabled it (the request override beats the account default by design, and
+        // checkSpendable below fails open so a BYOK turn can run), and the only thing
+        // that kept the call away from Dashie was the empty toolConn making the URL
+        // relative so fetch threw at parse. Off by rule now, not by coincidence.
+        // Runbook F / invariant I4; regression-tested in orchestrator.test.ts.
+        paidTools: false,
         resolvePersonality: async () => null,   // base prompt until personas are ported
         checkSpendable: async () => ({ spendable: true, balance: Number.POSITIVE_INFINITY, floor: 0, low: false }),
         readAccountAiConfig: async () => ({ model: null, webSearchEnabled: false, retrievePicturesEnabled: false, zipCode: null }),

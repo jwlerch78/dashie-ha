@@ -342,6 +342,19 @@ export interface OrchestratorIO {
   // for the turn and the prompt says so honestly. Absent/'metered' → unchanged CR1
   // terminal rejection.
   billing?: 'metered' | 'byok';
+  // Does this shell have an account the DASHIE-FUNDED tools (web/image search) can be
+  // billed to? false → they are off for every turn, and no request is attempted.
+  //
+  // Distinct from `spendable`, which only answers "may the AI turn proceed". The
+  // self-hosted shell fails `checkSpendable` OPEN (the AI runs on the user's own
+  // endpoint — it costs Dashie nothing), and that same signal used to be the only
+  // thing gating the paid tools, so a caller passing `retrieve_pictures: true`
+  // re-enabled image search on a box with no account. It failed to reach us only
+  // because `toolConn.supabaseUrl` is '' there and `SUPABASE_URL` is unset in the
+  // add-on image, so the URL was relative and fetch threw before opening a socket.
+  // Nothing leaked, but the refusal was a coincidence rather than a rule. Absent →
+  // unchanged (the cloud shell bills a real account).
+  paidTools?: false;
   // Supabase connection for shared tools that reach edge fns over HTTP (image search).
   // The cloud shell omits it (the tools fall back to Deno env); the Node add-on shell
   // MUST supply it — there is no Deno env there, and without it image resolution threw.
@@ -496,7 +509,10 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // below via paidToolsOk, and the prompt tells the model honestly.
   const byokBrain = io.billing === 'byok';
   if (!spend.spendable && !byokBrain) return insufficientCreditsTurn(t0, spend.balance);
-  const paidToolsOk = spend.spendable;   // false only reachable on the BYOK path
+  // Two independent reasons a Dashie-funded tool is unavailable: no credit to spend,
+  // or no account to bill at all (the self-hosted shell). Both must gate it — see
+  // OrchestratorIO.paidTools.
+  const paidToolsOk = spend.spendable && io.paidTools !== false;
 
   // T3 resolution — request override → ACCOUNT setting → global default. This is what
   // makes the console's model/tool choices actually take effect (§16.7 item 4).
