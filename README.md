@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="chickadee/logo.png" alt="Chickadee" width="420">
+  <img src="dashie-ha/logo.png" alt="Chickadee" width="420">
 </p>
 
 <h3 align="center">Voice &amp; AI for Home Assistant — plug and play.</h3>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjwlerch78%2Fchickadee">
+  <a href="https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjwlerch78%2Fdashie-ha-console">
     <img src="https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg" alt="Add repository to my Home Assistant">
   </a>
 </p>
@@ -27,7 +27,7 @@ run everything on your own hardware.
 
 **1.** Click the button above — or add this repository by hand:
 Settings → Add-ons → Add-on Store → **⋮ → Repositories** → paste
-`https://github.com/jwlerch78/chickadee`
+`https://github.com/jwlerch78/dashie-ha-console`
 
 **2.** Install **Chickadee** from the store, then press **Start**.
 It sets everything else up for you — including the Chickadee integration.
@@ -74,8 +74,8 @@ takes minutes. Cloud and Hybrid exist for exactly that case.
 
 Wake word runs wherever it makes sense for your hardware: on-device, or in
 the pipeline for satellites that can't do it locally (experimental — we're
-building it). Chickadee ships custom microWakeWord models (`chickadee`,
-`hey_dashie`) that run unmodified on the standard `wyoming-microwakeword`
+building it). Chickadee ships custom microWakeWord models (`hey_dashie`,
+`chickadee`) that run unmodified on the standard `wyoming-microwakeword`
 add-on, and supports the community ones (Okay Nabu, Hey Jarvis, Alexa)
 referenced by name from the official repo — use ours, use theirs, or bring
 your own. Realtime speech-to-speech (interrupt it mid-sentence, keep
@@ -109,12 +109,12 @@ does help and why there's a CLA when that changes.
 
 ## For developers
 
-- [Add-on internals &amp; option reference](chickadee/DOCS.md) — the deeper
+- [Add-on internals &amp; option reference](dashie-ha/DOCS.md) — the deeper
   technical story, engine recipes, and every config option
 - [Integration source](https://github.com/jwlerch78/chickadee-integration)
   (HACS / manual install for people who'd rather manage it themselves —
   the add-on's auto-installer never touches a HACS-managed copy)
-- [`tools/`](tools/) — maintainers' headless dev rig (set `CHICKADEE_HA_HOST`)
+- [`tools/`](tools/) — maintainers' headless dev rig (set `DASHIE_HA_HOST`)
 
 ## License
 

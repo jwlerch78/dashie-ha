@@ -12,7 +12,7 @@ the add-on, and no Chickadee service is contacted — there is no account,
 no telemetry, no version ping.
 
 **Your engine configuration stays on the box too.** With no account signed in,
-the console writes its settings to `/data/chickadee_settings.json` on the add-on
+the console writes its settings to `/data/dashie_ha_settings.json` on the add-on
 — your endpoint URLs and model ids, never uploaded. (This was not always true:
 until 2026-07-30 the console's only settings backend was the account one, so the
 page for configuring *your own* local Ollama round-tripped that config through
@@ -28,7 +28,7 @@ your browser makes two third-party requests when you view that page. Neither is
 used by anything in this repo — they serve pages that only exist in the closed
 Dashie build which vendors this console as its core, and they are being moved to
 that build's delta. Everything else the console needs is served from the add-on
-itself (see `chickadee/frontend/console/vendor/`, where the Supabase SDK is
+itself (see `dashie-ha/frontend/console/vendor/`, where the Supabase SDK is
 vendored for exactly this reason — it used to be a third request, on the sign-in
 page). Voice, the brain, and your engines are unaffected either way: no audio,
 transcript, or account data is involved, and the add-on makes no such request —
@@ -43,7 +43,7 @@ servers are not involved. Your keys are stored on-box only
 are excluded from HA backups (`backup_exclude`).
 
 One credential this does **not** cover: the add-on↔integration bridge secret
-is also mirrored to `<config>/.chickadee/bridge_secret`, which is in your HA
+is also mirrored to `<config>/.dashie_voice/bridge_secret`, which is in your HA
 config directory and therefore **is** included in HA backups —
 `backup_exclude` only reaches `/data`. It's a same-box credential (nothing is
 exposed on your LAN), but while signed in it can be exchanged for your

@@ -30,7 +30,7 @@ external code. That's a capacity-and-churn decision, not a permanent policy.
   immediately.
 
 Integration issues (entities, config flow, pipeline setup) belong in
-[chickadee-integration](https://github.com/jwlerch78/chickadee-integration/issues).
+[dashie-voice-integration](https://github.com/jwlerch78/dashie-voice-integration/issues).
 
 ## If you want to send code anyway
 
@@ -39,7 +39,7 @@ Ask first in an issue. If we agree it should be a PR:
 1. **Sign the [CLA](CLA.md)** — add your line to
    [CONTRIBUTORS.md](CONTRIBUTORS.md) in the PR. This is required for any code
    contribution, including a one-line fix.
-2. **Don't edit generated trees.** `chickadee/` and `chickadee-dev/` are build
+2. **Don't edit generated trees.** `dashie-ha-dev/` and the vendored `integration/` trees are build
    output. Editing them is gated by a pre-commit hook; the change belongs
    upstream of the generator, which for some files means the private Dashie
    monorepo — say so in the issue and the maintainer will carry it across.

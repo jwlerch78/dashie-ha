@@ -27,10 +27,10 @@ combination deserves a straight answer rather than a shrug, so here it is.
 
 **What the cloud runs: the same brain core that's in this repo.** The
 orchestrator, prompt builder, templates, dialog policy, parsers, and tool
-implementations under `chickadee/server/brain/src/` are the literal input set
+implementations under `dashie-ha/server/brain/src/` are the literal input set
 of the bundle the add-on runs, and the cloud runs those same modules with a
 different I/O shell injected into the one `OrchestratorIO` seam. You can see
-that seam from here: `chickadee/server/brain/chickadee-io.js` is the add-on's
+that seam from here: `dashie-ha/server/brain/addon-io.js` is the add-on's
 shell. The cloud has an equivalent one, and that shell is the difference.
 
 **What isn't published: the cloud's deployment glue and its key-holding
@@ -53,7 +53,7 @@ That last one has a visible consequence worth naming: some published tools are
 clients of unpublished proxies. `_shared/tools/image_search.ts` and
 `_shared/tools/sports.ts` POST to endpoints that exist only in our cloud. On
 the self-hosted path those tools are **off**, not silently proxied through us —
-`chickadee-io.js` disables the metered tools and says so in its header comment.
+`addon-io.js` disables the metered tools and says so in its header comment.
 
 **Why this isn't an AGPL §13 dodge.** §13, the network-use clause, exists
 specifically to close the "run it as a service, publish nothing" gap that GPL
@@ -102,9 +102,9 @@ fix and we'd rather be pushed into it than assumed trustworthy.
 
 | Piece | Canonical home | Notes |
 |---|---|---|
-| Add-on server + brain runtime | this repo (`chickadee/server/`) | The brain core (`server/brain/`) is a generated bundle **with its TypeScript source vendored alongside**; the generator lives in the Dashie monorepo, where the same core is built for Dashie's clients |
-| Console SPA | this repo (`chickadee/frontend/console/`) — **canonical since 2026-07-27** | The Dashie build vendors this core and overlays its private pages (a "delta"). The empty `DELTA-SCRIPTS` block in `index.html` is that seam. Historical note: before 2026-07-27 the direction was reversed (the console was vendored *from* Dashie's private repo) — the inversion made the public repo the source of truth |
-| HA integration | [chickadee-integration](https://github.com/jwlerch78/chickadee-integration) | Vendored into the add-on image at release (the add-on's auto-installer ships it); also installable via HACS |
+| Add-on server + brain runtime | this repo (`dashie-ha/server/`) | The brain core (`server/brain/`) is a generated bundle **with its TypeScript source vendored alongside**; the generator lives in the Dashie monorepo, where the same core is built for Dashie's clients |
+| Console SPA | this repo (`dashie-ha/frontend/console/`) — **canonical since 2026-07-27** | The Dashie build vendors this core and overlays its private pages (a "delta"). The empty `DELTA-SCRIPTS` block in `index.html` is that seam. Historical note: before 2026-07-27 the direction was reversed (the console was vendored *from* Dashie's private repo) — the inversion made the public repo the source of truth |
+| HA integration | [dashie-voice-integration](https://github.com/jwlerch78/dashie-voice-integration) | Vendored into the add-on image at release (the add-on's auto-installer ships it); also installable via HACS |
 
 ## Why some identifiers say "dashie"
 
@@ -119,12 +119,12 @@ identity is centralized in `js/lib/brand.js`.
 
 One `dashie` name is deliberately **user-facing**, and it isn't a wire value:
 the **`hey_dashie` wake word**. Chickadee ships two custom microWakeWord
-models — `chickadee` and `hey_dashie` — and offers them in the same picker as
+models — `hey_dashie` and `chickadee` — and offers them in the same picker as
 the community words (Okay Nabu, Hey Jarvis, Alexa). Shipping a wake word
 named after a product is the ecosystem norm, not a funnel: openWakeWord ships
 `alexa` and `hey_mycroft`, microWakeWord ships `okay_nabu`. `hey_dashie` is
 there so Dashie satellites work out of the box; nothing selects it for you
-(the default on this build is `chickadee`), and picking it changes nothing
+(the default is `hey_dashie` on every build since 2026-07-30), and picking it changes nothing
 about where your audio goes. Its manifest credits Dashie as the model's
 author because Dashie trained it — attribution, not advertising.
 
@@ -136,7 +136,7 @@ Dashie's subscription/paywall modules and its family-product pages, and they
 were removed in a single commit (`ea2f9d3`, "REPO INVERSION"), with the Dashie
 logo assets going in `59167e6`. Git keeps deleted content, so all of it is
 still recoverable from this repo's history — `git show
-ea2f9d3^:chickadee/frontend/console/js/lib/subscribe-gate.js` works, and we're
+ea2f9d3^:chickadee/frontend/console/js/lib/subscribe-gate.js (pre-rename path)` works, and we're
 not going to rewrite history to hide that.
 
 Nothing sensitive is in there: a full-history secret scan finds only the two
@@ -146,7 +146,7 @@ extractions look, and it's the same shape Nabu Casa's is; we'd rather you read
 it here than discover it and wonder what else wasn't said.
 
 The maintainer's own HA hostname also appears in early history (scrubbed at
-HEAD in `a5e36b6` in favor of a `CHICKADEE_HA_HOST` env var). It's a
+HEAD in `a5e36b6` in favor of a `DASHIE_HA_HOST` env var). It's a
 Cloudflare-fronted address with no credential attached, so the scrub was
 hygiene, not damage control.
 
@@ -197,7 +197,7 @@ Full candor about what's still Dashie-shaped in the current beta:
   console) currently installs from the Dashie add-on repository
   (`dashie-ha-app`) — dual-listing it in this repo is planned.
 - Cross-boundary contracts are registered in
-  [chickadee-integration/CONTRACTS.md](https://github.com/jwlerch78/chickadee-integration/blob/main/CONTRACTS.md)
+  [dashie-voice-integration/CONTRACTS.md](https://github.com/jwlerch78/dashie-voice-integration/blob/main/CONTRACTS.md)
   (see this repo's `CONTRACTS.md` pointer).
 
 ## Development style

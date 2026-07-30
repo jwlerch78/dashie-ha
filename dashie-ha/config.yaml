@@ -38,7 +38,7 @@ backup_exclude:
 # LAN-exposed (ports stays {}).
 ingress: true
 ingress_port: 8099
-panel_icon: mdi:bird
+panel_icon: mdi:home-heart
 panel_title: Dashie
 
 # data:rw                — private persistent storage (bridge secret master copy, later config).
