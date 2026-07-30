@@ -50,9 +50,8 @@
 
     const LocalMode = {
         /** Render into #content. `haUser` is runtime.ha_user (may be null, and its
-         *  display_name may be null — X-Remote-User-Name is not guaranteed).
-         *  `addonSlug` is runtime.addon_slug, used to deep-link the settings page. */
-        async show(haUser, addonSlug) {
+         *  display_name may be null — X-Remote-User-Name is not guaranteed). */
+        async show(haUser) {
             const el = document.getElementById('content');
             if (!el) return;
 
@@ -61,15 +60,15 @@
             // Where engine settings ACTUALLY live. Not "the Configuration tab" —
             // this panel is HA's sidebar ingress view and has no tabs; the tab is on
             // the add-on's own page. Field report 2026-07-30: "There's no
-            // configuration tab though." So name the full path, and link straight
-            // there when we know our slug.
+            // configuration tab though."
             //
-            // target="_top" is required: the panel runs in an iframe, and without it
-            // HA's add-on page would render INSIDE this card.
-            const cfgPath = addonSlug ? `/hassio/addon/${encodeURIComponent(addonSlug)}/config` : null;
-            const cfgLink = cfgPath
-                ? `<a href="${esc(cfgPath)}" target="_top" class="chickadee-local-cfg">Open the Configuration page →</a>`
-                : '';
+            // NO DEEP LINK. The obvious one, /hassio/addon/<slug>/config, is DEAD:
+            // HA moved the supervisor panel and /hassio/* now 404s at the HTTP level
+            // (verified on HA 2026-07: /hassio/dashboard and /hassio/store both 404
+            // while /config/addons is 200). A hardcoded frontend route has already
+            // broken once, so don't ship a second guess — the written path below is
+            // stable, and HA's own /_my_redirect/supervisor_addon is the version-proof
+            // mechanism if a link is ever wanted back.
             el.innerHTML = `
                 <div class="dashie-login-overlay">
                     <div class="dashie-login-card chickadee-local-card">
@@ -90,7 +89,6 @@
                             <code>tts_url</code> at your own servers and everything runs
                             from your box, with no ${esc(BRAND.productName)} service
                             involved.
-                            ${cfgLink}
                         </div>
                         <div class="dashie-login-buttons">
                             <button class="dashie-path-btn secondary" onclick="App._handleAddonSignIn()">

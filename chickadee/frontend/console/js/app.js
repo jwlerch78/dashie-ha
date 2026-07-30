@@ -460,7 +460,7 @@ const App = {
             if (isChickadee && rt.ingress && typeof LocalMode !== 'undefined') {
                 document.getElementById('sidebar').innerHTML = '';
                 document.getElementById('top-bar').innerHTML = '';
-                LocalMode.show(rt.ha_user || null, rt.addon_slug || null);
+                LocalMode.show(rt.ha_user || null);
                 return;
             }
         } catch (e) {
