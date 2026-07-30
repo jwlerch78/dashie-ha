@@ -7,7 +7,7 @@
 // no REST equivalent for tts/engine/list & co.
 //
 // Auth: SUPERVISOR_TOKEN via the Supervisor core proxy (homeassistant_api in
-// config.yaml), or CHICKADEE_HA_URL + CHICKADEE_HA_TOKEN (long-lived token)
+// config.yaml), or DASHIE_HA_URL + DASHIE_HA_TOKEN (long-lived token)
 // for local dev. Not configured → isAvailable() false, callers degrade.
 
 'use strict';
@@ -30,12 +30,12 @@ function getWsConfig() {
     if (process.env.SUPERVISOR_TOKEN) {
         return { url: 'ws://supervisor/core/api/websocket', token: process.env.SUPERVISOR_TOKEN, mode: 'supervisor' };
     }
-    if (process.env.CHICKADEE_HA_URL && process.env.CHICKADEE_HA_TOKEN) {
-        const wsUrl = process.env.CHICKADEE_HA_URL
+    if (process.env.DASHIE_HA_URL && process.env.DASHIE_HA_TOKEN) {
+        const wsUrl = process.env.DASHIE_HA_URL
             .replace(/\/$/, '')
             .replace(/^https?:/, m => (m === 'https:' ? 'wss:' : 'ws:'))
             + '/api/websocket';
-        return { url: wsUrl, token: process.env.CHICKADEE_HA_TOKEN, mode: 'dev-llat' };
+        return { url: wsUrl, token: process.env.DASHIE_HA_TOKEN, mode: 'dev-llat' };
     }
     return null;
 }
@@ -160,7 +160,7 @@ function getStates() { return _send({ type: 'get_states' }); }
 
 function start() {
     if (!isAvailable()) {
-        console.log('[ha-ws] Not configured (no SUPERVISOR_TOKEN or CHICKADEE_HA_URL+TOKEN); engine detection unavailable.');
+        console.log('[ha-ws] Not configured (no SUPERVISOR_TOKEN or DASHIE_HA_URL+TOKEN); engine detection unavailable.');
         return;
     }
     stopped = false;

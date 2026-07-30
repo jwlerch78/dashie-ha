@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// auth.js — persistent JWT storage + Chickadee Cloud device-flow auth.
+// auth.js — persistent JWT storage + Dashie Cloud device-flow auth.
 // Ported from the Dashie add-on's auth.js (same account system, same jwt-auth
 // edge function; see 20260702 device-flow docs there).
 //
@@ -17,7 +17,7 @@ const { CLOUD, CLOUD_ENV, JWT_FILE, DATA_DIR } = require('./config');
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;   // refresh when <24h remain
 const DEVICE_TYPE = 'ha_app';                        // shared flow type (edge-fn validated)
 const EDGE_FN_URL = CLOUD.url + '/functions/v1/jwt-auth';
-const DEVICE_ID_FILE = path.join(DATA_DIR, 'chickadee_device_id');
+const DEVICE_ID_FILE = path.join(DATA_DIR, 'dashie_ha_device_id');
 
 /**
  * Stable device id for this add-on install, persisted OUTSIDE the JWT file so
@@ -31,7 +31,7 @@ function getStableDeviceId() {
         const id = fs.readFileSync(DEVICE_ID_FILE, 'utf8').trim();
         if (/^[A-Za-z0-9_-]{8,64}$/.test(id)) return id;
     } catch { /* absent — create below */ }
-    const id = `chickadee-addon-${crypto.randomBytes(6).toString('hex')}`;
+    const id = `dashie-ha-addon-${crypto.randomBytes(6).toString('hex')}`;
     try { fs.writeFileSync(DEVICE_ID_FILE, id, { mode: 0o600 }); } catch (e) {
         console.warn('[auth] could not persist device id (using ephemeral):', e.message);
     }
@@ -116,7 +116,7 @@ async function createDeviceCode() {
         device_type: DEVICE_TYPE,
         base_url: CLOUD.verificationBase,
         device_info: {
-            model: 'Chickadee Add-on',
+            model: 'Dashie for Home Assistant Add-on',
             os_version: `node-${process.versions.node}`,
             app_version: '0.3.0',
         },
@@ -132,10 +132,17 @@ async function createDeviceCode() {
     } catch {
         verification_url = `${CLOUD.verificationBase}/auth.html?code=${encodeURIComponent(result.user_code || '')}&type=${DEVICE_TYPE}`;
     }
-    // Chickadee skin on the approval pages (brand-config.js there; unknown
-    // param = no-op on older deploys, so this is safe to send unconditionally).
+    // Skin for the approval pages (brand-config.js there; unknown param = no-op
+    // on older deploys, so this is safe to send unconditionally).
+    //
+    // ⚠️ `chickadee` is a WIRE VALUE, deliberately NOT renamed with the rest of
+    // the 2026-07-30 brand consolidation. It keys a brand entry in the Dashie
+    // webapp (js/data/auth/mobile-auth/brand-config.js) that owns its own Google
+    // OAuth client, whose secret lives in Supabase as GOOGLE_CHICKADEE_CLIENT_SECRET.
+    // Renaming it needs a coordinated webapp deploy + secret rename — that's T2c.
+    // Until then, changing it here breaks sign-in. Same rule as `dashie_cloud`.
     verification_url += '&brand=chickadee';
-    // Single-origin env selection: getchickadee.org's auth-config reads ?env=
+    // Single-origin env selection: the auth origin's auth-config reads ?env=
     // (beta→staging, stable→prod) since one origin can't sniff env by host.
     // Ignored by the legacy dashieapp.com pages, so safe to send always.
     verification_url += '&env=' + CLOUD_ENV;

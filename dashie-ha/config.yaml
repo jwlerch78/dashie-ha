@@ -1,10 +1,11 @@
-name: Chickadee
+name: Dashie for Home Assistant
 version: "0.8.6"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
-# orphaned /data). Born `chickadee` — see chickadee CONTRACTS.md.
-slug: chickadee
-description: Voice & AI for Home Assistant — plug and play. Gives your voice assistant a real brain — ask anything, control your home in plain language, and hear natural voices back. Bring your own AI (local or your API key) or use Chickadee Cloud. Sets up the Chickadee integration and a ready-to-use voice assistant for you.
-url: https://github.com/jwlerch78/chickadee
+# orphaned /data). Born `chickadee`, renamed to `dashie_ha` on
+# 2026-07-30, BEFORE anything shipped. See the integration repo CONTRACTS.md.
+slug: dashie_ha
+description: Voice & AI for Home Assistant — plug and play. Gives your voice assistant a real brain — ask anything, control your home in plain language, and hear natural voices back. Bring your own AI (local or your API key) or use Dashie Cloud. Sets up the Dashie Voice integration and a ready-to-use voice assistant for you.
+url: https://github.com/jwlerch78/dashie-ha-console
 arch:
   - aarch64
   - amd64
@@ -24,7 +25,7 @@ homeassistant_api: true
 # installer needs a core restart to activate; the banner offers it one-click).
 hassio_role: manager
 discovery:
-  - chickadee
+  - dashie_voice
 
 # BYO provider keys + the account-config replay cache live in /data and carry
 # secrets — keep them out of HA backups (same posture as the Dashie add-on).
@@ -32,20 +33,20 @@ backup_exclude:
   - api-keys.json
   - account-config.cache.json
 
-# Ingress panel: the Chickadee sign-in/status page (open-console seed), served
+# Ingress panel: the Dashie sign-in/status page (open-console seed), served
 # by the same server on 8099. HA proxies frontend traffic in; nothing is
 # LAN-exposed (ports stays {}).
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:bird
-panel_title: Chickadee
+panel_title: Dashie
 
 # data:rw                — private persistent storage (bridge secret master copy, later config).
 # addon_config:rw        — the add-on's OWN config folder (/addon_configs/<slug>/ on the host).
 #                          NOT visible to HA Core on HAOS (verified 2026-07-25) — kept for the
 #                          future Supervisor-discovery handoff.
 # homeassistant_config:rw — the HA config dir; carries the bridge secret at
-#                          .chickadee/bridge_secret so the integration can read it.
+#                          .dashie_voice/bridge_secret so the integration can read it.
 #                          INTERIM: any add-on with a config mount can read it too —
 #                          replace with Supervisor discovery (CONTRACTS.md).
 map:
@@ -69,12 +70,12 @@ ports: {}
 #          whisper.cpp server, faster-whisper/speaches, or a provider endpoint.
 # tts_url: an OpenAI-compatible speech server (we append /v1/audio/speech) —
 #          Kokoro-FastAPI, the Piper shim, or a provider endpoint.
-# cloud_env: which Chickadee Cloud environment a signed-in account uses.
-# During the beta, Chickadee Cloud accounts run on the `beta` environment
+# cloud_env: which Dashie Cloud environment a signed-in account uses.
+# During the beta, Dashie Cloud accounts run on the `beta` environment
 # (dev.dashieapp.com auth) — disclosed in DOCS.md; `stable`
 # (app.dashieapp.com) is where accounts move when the beta ends.
 # `development`/`production` are accepted as legacy aliases.
-# install_integration: the add-on installs/updates the bundled Chickadee
+# install_integration: the add-on installs/updates the bundled Dashie Voice
 # integration into /config/custom_components (never touches a HACS/manual
 # install; see server/integration-installer.js). Off = manage it yourself.
 options:

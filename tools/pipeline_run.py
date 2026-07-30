@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run a full Chickadee Assist pipeline over the HA WebSocket:
-16 kHz PCM audio in → stt.chickadee_stt → conversation.chickadee → tts.chickadee_tts.
+"""Run a full Dashie Voice Assist pipeline over the HA WebSocket:
+16 kHz PCM audio in → stt.dashie_voice_stt → conversation.dashie_voice → tts.dashie_voice_tts.
 
 Usage: pipeline_run.py <wav-file> [pipeline-name]
-With no name, targets "Chickadee (full)" and creates it if missing (legacy rig
+With no name, targets "Dashie Voice (full)" and creates it if missing (legacy rig
 behavior). With an explicit name it must already exist — no silent create, so a
 missing auto-created pipeline FAILS instead of being masked.
 Prints each pipeline event's essentials; downloads the TTS result to /tmp/pipeline-tts-out.wav.
@@ -12,9 +12,9 @@ import asyncio, json, os, sys, wave
 
 import websockets
 
-HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
+HA = os.environ.get("DASHIE_HA_HOST") or exit("set DASHIE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
-PIPELINE_NAME = sys.argv[2] if len(sys.argv) > 2 else "Chickadee (full)"
+PIPELINE_NAME = sys.argv[2] if len(sys.argv) > 2 else "Dashie Voice (full)"
 ALLOW_CREATE = len(sys.argv) <= 2
 
 
@@ -51,11 +51,11 @@ async def main():
                 "type": "assist_pipeline/pipeline/create",
                 "name": PIPELINE_NAME,
                 "language": "en",
-                "conversation_engine": "conversation.chickadee",
+                "conversation_engine": "conversation.dashie_voice",
                 "conversation_language": "en",
-                "stt_engine": "stt.chickadee_stt",
+                "stt_engine": "stt.dashie_voice_stt",
                 "stt_language": "en",
-                "tts_engine": "tts.chickadee_tts",
+                "tts_engine": "tts.dashie_voice_tts",
                 "tts_language": "en-US",
                 "tts_voice": "af_heart",
                 "wake_word_entity": None,

@@ -6,7 +6,7 @@
 // to the CONFIGURED engine (add-on options). v0 targets any OpenAI-compatible
 // engine server — whisper.cpp/faster-whisper (/v1/audio/transcriptions) and
 // Kokoro/Piper-shim (/v1/audio/speech) — the same "Local Engines" lane the Dashie
-// console productized. The hosted (Chickadee Cloud) engines slot into this same
+// console productized. The hosted (Dashie Cloud) engines slot into this same
 // seam with the account port.
 
 'use strict';
@@ -55,7 +55,7 @@ async function handleStt(req, res, sendJson) {
         return;
     }
     if (!base) {
-        // Hosted fallback: Chickadee Cloud Whisper under the account (metered).
+        // Hosted fallback: Dashie Cloud Whisper under the account (metered).
         const jwt = await cloudJwt();
         if (!jwt) {
             console.warn('DROP: stt requested but no stt_url and not signed in');
@@ -69,7 +69,7 @@ async function handleStt(req, res, sendJson) {
     const model = String(opts.stt_model || 'whisper-1');
 
     // Hand-rolled multipart (dependency-free): file + model fields.
-    const boundary = '----chickadee' + Date.now().toString(16);
+    const boundary = '----dashieha' + Date.now().toString(16);
     const head = Buffer.from(
         `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\n` +
         `Content-Type: audio/wav\r\n\r\n`);
@@ -95,7 +95,7 @@ async function handleStt(req, res, sendJson) {
             return;
         }
         const text = String(data.text || '').trim();
-        console.log(`CHICKADEE-STT text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        console.log(`DASHIE-STT text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
         sendJson(res, 200, { text });
     } catch (e) {
         clearTimeout(timer);
@@ -106,7 +106,7 @@ async function handleStt(req, res, sendJson) {
 
 /** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}). */
 async function cloudStt(audio, jwt, res, sendJson) {
-    const boundary = '----chickadee' + Date.now().toString(16);
+    const boundary = '----dashieha' + Date.now().toString(16);
     const head = Buffer.from(
         `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="audio.wav"\r\n` +
         `Content-Type: audio/wav\r\n\r\n`);
@@ -129,7 +129,7 @@ async function cloudStt(audio, jwt, res, sendJson) {
             return;
         }
         const text = String(data.transcript || data.text || '').trim();
-        console.log(`CHICKADEE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        console.log(`DASHIE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
         sendJson(res, 200, { text });
     } catch (e) {
         console.warn('DROP: cloud stt unreachable:', e.message);
@@ -158,7 +158,7 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
         }
         const audio = Buffer.from(await resp.arrayBuffer());
         const ctype = resp.headers.get('Content-Type') || 'audio/mpeg';
-        console.log(`CHICKADEE-TTS route=cloud chars=${text.length} bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        console.log(`DASHIE-TTS route=cloud chars=${text.length} bytes=${audio.length} latency=${Date.now() - t0}ms`);
         res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'no-store' });
         res.end(audio);
     } catch (e) {
@@ -182,7 +182,7 @@ async function handleTts(req, res, sendJson) {
     if (!text) { sendJson(res, 400, { error: 'bad_request', message: 'text is required' }); return; }
     const voice = String(payload.voice || opts.tts_voice || '');
     if (!base) {
-        // Hosted fallback: Chickadee Cloud voice under the account (metered).
+        // Hosted fallback: Dashie Cloud voice under the account (metered).
         const jwt = await cloudJwt();
         if (!jwt) {
             console.warn('DROP: tts requested but no tts_url and not signed in');
@@ -213,7 +213,7 @@ async function handleTts(req, res, sendJson) {
             return;
         }
         const audio = Buffer.from(await resp.arrayBuffer());
-        console.log(`CHICKADEE-TTS chars=${text.length} voice=${voice || '(default)'} bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        console.log(`DASHIE-TTS chars=${text.length} voice=${voice || '(default)'} bytes=${audio.length} latency=${Date.now() - t0}ms`);
         res.writeHead(200, { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' });
         res.end(audio);
     } catch (e) {

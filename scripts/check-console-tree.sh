@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gate: the public console tree stays open-core clean.
 #
-# The console at chickadee/frontend/console is CANONICAL SOURCE (repo
+# The console at dashie-ha/frontend/console is CANONICAL SOURCE (repo
 # inversion, 2026-07-27) — the Dashie build vendors from here and overlays
 # its private delta (paywall/subscription + family-product pages). This gate
 # proves none of that delta leaks back into the public tree:
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONSOLE="$ROOT/chickadee/frontend/console"
+CONSOLE="$ROOT/dashie-ha/frontend/console"
 fail=0
 
 say()  { echo "check-console-tree: $*"; }
@@ -42,7 +42,7 @@ done
 
 # ---- 2. Paywall strings ----------------------------------------------------
 # NOTE: credits purchase (buy-credits/credits-controls, price_1 ids) is the
-# disclosed Chickadee Cloud business model and stays public ON the credits
+# disclosed Dashie Cloud business model and stays public ON the credits
 # surfaces; everything subscription/trial-shaped must be gone.
 PAYWALL_PATTERNS=(
   'trial has ended' 'Subscribe to unlock' 'Purchase License' 'Start free trial'

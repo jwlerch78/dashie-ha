@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chickadee pre-commit hook.
+# Dashie for Home Assistant pre-commit hook.
 #
 # Lives in the repo (not .git/hooks) so it is version-controlled and shared.
 # Activate in a fresh clone with:

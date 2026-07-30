@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement to the Chickadee add-on (engines, routing, runtime)
+description: Suggest an improvement to the Dashie for Home Assistant add-on (engines, routing, runtime)
 labels: ["enhancement"]
 body:
   - type: textarea

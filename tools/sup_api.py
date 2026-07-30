@@ -4,7 +4,7 @@ Usage: sup_api.py <endpoint> [method] [json-data] [timeout-s]"""
 import asyncio, json, os, sys
 import websockets
 
-HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
+HA = os.environ.get("DASHIE_HA_HOST") or exit("set DASHIE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
 
 

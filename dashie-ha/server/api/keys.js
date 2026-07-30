@@ -3,7 +3,7 @@
 // Console-facing endpoints for add-on-local BYO API keys (Open Brain plan
 // 20260710_OPEN_BRAIN_BYOK_PRESETS_UI.md §4). Mirrors api/settings.js:
 // ingress-protected reads; writes additionally require the add-on to be
-// signed into a Chickadee account.
+// signed into a Dashie account.
 //
 //   GET /api/keys         → masked per-provider view (for the console UI)
 //   PUT /api/keys         → { provider, value } — set or clear (value: null)

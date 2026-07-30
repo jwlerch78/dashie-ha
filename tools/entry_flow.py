@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Drive Chickadee config-entry lifecycle on the HA box headlessly (REST + WS).
+"""Drive Dashie Voice config-entry lifecycle on the HA box headlessly (REST + WS).
 
 Usage:
-  entry_flow.py list                     # chickadee config entries
-  entry_flow.py delete                   # delete the chickadee config entry
+  entry_flow.py list                     # dashie_voice config entries
+  entry_flow.py delete                   # delete the dashie_voice config entry
   entry_flow.py add [assistant-name]     # config flow: create the entry
   entry_flow.py options [new-name]       # options flow: show status / rename
   entry_flow.py pipelines                # list Assist pipelines (name, engines)
   entry_flow.py delete-pipeline <name>   # delete a pipeline by exact name
 
 Built for the auto-create-pipeline verify: delete + re-add the entry without the
-UI, then check the pipeline appeared. Auth from ~/.ha_token via your HA host (CHICKADEE_HA_HOST).
+UI, then check the pipeline appeared. Auth from ~/.ha_token via your HA host (DASHIE_HA_HOST).
 """
 import asyncio, json, os, sys, urllib.request
 
-HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
+HA = os.environ.get("DASHIE_HA_HOST") or exit("set DASHIE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
 HDRS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json",
-    "User-Agent": "chickadee-rig/1.0",
+    "User-Agent": "dashie-ha-rig/1.0",
 }
 
 
@@ -35,8 +35,8 @@ def rest(path, method="GET", body=None):
     return json.loads(raw) if raw else None
 
 
-def chickadee_entries():
-    return [e for e in rest("/api/config/config_entries/entry") if e["domain"] == "chickadee"]
+def dashie_voice_entries():
+    return [e for e in rest("/api/config/config_entries/entry") if e["domain"] == "dashie-ha"]
 
 
 async def ws_cmd(msg):
@@ -59,22 +59,22 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
 
     if cmd == "list":
-        for e in chickadee_entries():
+        for e in dashie_voice_entries():
             print(e["entry_id"], e["state"], repr(e["title"]), e["data"] if "data" in e else "")
         return
 
     if cmd == "delete":
-        entries = chickadee_entries()
+        entries = dashie_voice_entries()
         if not entries:
-            print("no chickadee entry")
+            print("no dashie_voice entry")
             return
         for e in entries:
             print("deleting", e["entry_id"], rest(f"/api/config/config_entries/entry/{e['entry_id']}", "DELETE"))
         return
 
     if cmd == "add":
-        name = sys.argv[2] if len(sys.argv) > 2 else "Chickadee"
-        flow = rest("/api/config/config_entries/flow", "POST", {"handler": "chickadee", "show_advanced_options": False})
+        name = sys.argv[2] if len(sys.argv) > 2 else "Dashie"
+        flow = rest("/api/config/config_entries/flow", "POST", {"handler": "dashie-ha", "show_advanced_options": False})
         print("flow step:", flow["type"], flow.get("step_id"), "errors:", flow.get("errors"))
         step = rest(f"/api/config/config_entries/flow/{flow['flow_id']}", "POST", {"assistant_name": name})
         if step["type"] == "form" and step.get("errors"):
@@ -89,8 +89,8 @@ def main():
         return
 
     if cmd == "options":
-        entries = chickadee_entries()
-        assert entries, "no chickadee entry"
+        entries = dashie_voice_entries()
+        assert entries, "no dashie_voice entry"
         flow = rest("/api/config/config_entries/options/flow", "POST", {"handler": entries[0]["entry_id"]})
         print("options step:", flow["type"], flow.get("step_id"))
         print("description_placeholders:", flow.get("description_placeholders"))

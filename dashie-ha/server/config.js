@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// config.js — runtime configuration: data paths + Chickadee Cloud environment.
+// config.js — runtime configuration: data paths + Dashie Cloud environment.
 //
-// Chickadee Cloud accounts are hosted on the same backend that powers Dashie
+// Dashie Cloud accounts are hosted on the same backend that powers Dashie
 // (one shared account system, by design — the relationship is documented in
 // PROVENANCE.md and disclosed on the console's sign-in footer). The anon keys
 // below are public-by-design (the browser-shipped Supabase anon role; RLS and
@@ -17,13 +17,20 @@ const DATA_DIR = fs.existsSync('/data') && fs.statSync('/data').isDirectory()
     : path.resolve(__dirname, '..', 'data');
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 
-// `beta` is the environment Chickadee Cloud beta accounts run on (disclosed in
-// DOCS.md); `stable` is the production backend, which Chickadee accounts will
+// `beta` is the environment Dashie Cloud beta accounts run on (disclosed in
+// DOCS.md); `stable` is the production backend, which Dashie accounts will
 // move to when the beta ends. `development`/`production` are accepted as
 // legacy aliases from pre-0.9 installs.
 const ENVIRONMENTS = {
-    // verificationBase is now Chickadee's own first-party origin for BOTH
-    // channels (single origin per the getchickadee site plan). The auth pages
+    // verificationBase is the first-party auth origin for BOTH channels (one
+    // origin serves both).
+    //
+    // ⚠️ Still getchickadee.org after the 2026-07-30 brand consolidation, on
+    // purpose: these pages are LIVE and select their Supabase env from `?env=`
+    // on the URL. The dashieapp.com auth pages select by HOST instead and ignore
+    // `?env=`, so repointing this without the site work first breaks beta
+    // sign-in. Moving it belongs with the site split (T1) / staging refs (T2c).
+    // The auth pages
     // there select their Supabase env from ?env= on the URL — auth.js appends
     // `&env=${CLOUD_ENV}` (beta→staging, stable→prod), so one origin serves
     // both channels. Old add-ons still point at dashieapp.com and keep working.
@@ -59,8 +66,8 @@ module.exports = {
     DATA_DIR,
     CLOUD_ENV: envName,
     CLOUD: ENVIRONMENTS[envName],
-    JWT_FILE: path.join(DATA_DIR, 'chickadee_auth.json'),
-    // The vendored Chickadee console SPA (scripts/sync-console.sh).
+    JWT_FILE: path.join(DATA_DIR, 'dashie_ha_auth.json'),
+    // The vendored Dashie console SPA (scripts/sync-console.sh).
     FRONTEND_DIR: path.resolve(__dirname, '..', 'frontend', 'console'),
     PORT: parseInt(process.env.INGRESS_PORT || process.env.PORT || '8099', 10),
     VERSION: version,

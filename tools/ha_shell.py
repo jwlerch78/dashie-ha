@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run a shell script on the HA box via the Advanced SSH & Web Terminal add-on's
-ingress ttyd WebSocket, reached at $CHICKADEE_HA_HOST.
+ingress ttyd WebSocket, reached at $DASHIE_HA_HOST.
 
 Usage: python3 ha_shell.py <script-file>
        python3 ha_shell.py -c 'command string'
@@ -11,7 +11,7 @@ import asyncio, json, os, sys, uuid
 
 import websockets
 
-HA = os.environ.get("CHICKADEE_HA_HOST") or exit("set CHICKADEE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
+HA = os.environ.get("DASHIE_HA_HOST") or exit("set DASHIE_HA_HOST to your HA hostname (e.g. homeassistant.local:8123 or your remote URL host)")
 SSH_ADDON = "a0d7b954_ssh"
 TOKEN = open(os.path.expanduser("~/.ha_token")).read().strip()
 

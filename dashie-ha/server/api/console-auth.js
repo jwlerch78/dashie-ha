@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// api/console-auth.js — auth endpoints for the Chickadee console SPA.
+// api/console-auth.js — auth endpoints for the Dashie console SPA.
 //
 // Merge of the dashie add-on's api/auth.js (the SPA's add-on-mode contract:
-// status/jwt/start-link/poll-link/cancel-link/sign-out) with the Chickadee
+// status/jwt/start-link/poll-link/cancel-link/sign-out) with the Dashie
 // panel's email/password endpoints (email-signin/email-signup — kept at their
 // 0.4.0 paths). Reachable only via HA Ingress + the hassio container network
 // (ports:{} — no LAN exposure); HA authenticates the user before the request

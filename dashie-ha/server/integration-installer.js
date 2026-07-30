@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// integration-installer.js — install/update the Chickadee INTEGRATION from the
+// integration-installer.js — install/update the Dashie Voice INTEGRATION from the
 // add-on ("all at once" onboarding: add-on → integration → discovery → done).
 //
 // Pattern precedent: the official "Get HACS" add-on — an add-on with a
@@ -27,10 +27,10 @@ const { readOptions } = require('./options');
 // homeassistant_config:rw mounts the HA config dir here (same mount
 // bridge-auth.js provisions the secret through).
 const HA_CONFIG_ROOT = '/homeassistant';
-const TARGET_DIR = path.join(HA_CONFIG_ROOT, 'custom_components', 'chickadee');
+const TARGET_DIR = path.join(HA_CONFIG_ROOT, 'custom_components', 'dashie_voice');
 // Vendored by scripts/sync-integration.sh, shipped in the image (Dockerfile).
-const BUNDLED_DIR = path.resolve(__dirname, '..', 'integration', 'custom_components', 'chickadee');
-const MARKER = '.installed_by_chickadee_addon';
+const BUNDLED_DIR = path.resolve(__dirname, '..', 'integration', 'custom_components', 'dashie_voice');
+const MARKER = '.installed_by_dashie_ha_addon';
 
 function readManifestVersion(dir) {
     try {
@@ -96,9 +96,9 @@ async function notifyRestart(message) {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                title: 'Chickadee',
+                title: 'Dashie Voice',
                 message,
-                notification_id: 'chickadee_integration_install',
+                notification_id: 'dashie_voice_integration_install',
             }),
         });
         if (!resp.ok) console.warn(`[installer] notification HTTP ${resp.status}`);
@@ -116,7 +116,7 @@ function installCopy(contentHash) {
     // content-hash stamp the next run compares against. Hash is of BUNDLED_DIR,
     // which has no marker — so it stays stable regardless of what we write here.
     fs.writeFileSync(path.join(tmp, MARKER),
-        'Installed by the Chickadee add-on — re-copied whenever the bundled integration changes.\n' +
+        'Installed by the Dashie for Home Assistant add-on — re-copied whenever the bundled integration changes.\n' +
         'Delete this file to manage the integration yourself (HACS/manual).\n' +
         `content-hash: ${contentHash}\n`);
     fs.rmSync(TARGET_DIR, { recursive: true, force: true });
@@ -151,9 +151,9 @@ async function ensureIntegration() {
             installCopy(bundledHash);
             console.log(`[installer] ✅ integration v${bundled} INSTALLED to ${TARGET_DIR}`);
             await notifyRestart(
-                `The Chickadee integration (v${bundled}) was installed. ` +
+                `The Dashie Voice integration (v${bundled}) was installed. ` +
                 '**Restart Home Assistant** (Settings → System → Restart) to activate it — '
-                + 'Chickadee will then appear as a discovered device to configure with one click.');
+                + 'Dashie Voice will then appear as a discovered device to configure with one click.');
             return 'installed';
         }
 
@@ -172,7 +172,7 @@ async function ensureIntegration() {
             const how = installedHash ? 'content changed' : 'establishing content stamp';
             console.log(`[installer] ✅ integration RE-COPIED (${how}) — installed v${installed}, bundled v${bundled}`);
             await notifyRestart(
-                `The Chickadee integration was updated (bundled v${bundled}). ` +
+                `The Dashie Voice integration was updated (bundled v${bundled}). ` +
                 '**Restart Home Assistant** to apply.');
             return 'updated';
         }
@@ -190,13 +190,13 @@ function getInstalledHash() {
 }
 
 /** Content-hash the LOADED integration stamped at its last setup (the integration
- *  writes it to <config>/.chickadee/loaded_hash), or null. When this differs from
+ *  writes it to <config>/.dashie_voice/loaded_hash), or null. When this differs from
  *  getInstalledHash() the add-on has re-copied newer files that a core restart
  *  hasn't loaded yet → the console nudges "restart to apply". Self-clears: the
  *  integration rewrites it on its next setup (i.e. after that restart). */
 function getLoadedHash() {
     try {
-        const txt = fs.readFileSync(path.join(HA_CONFIG_ROOT, '.chickadee', 'loaded_hash'), 'utf8');
+        const txt = fs.readFileSync(path.join(HA_CONFIG_ROOT, '.dashie_voice', 'loaded_hash'), 'utf8');
         const m = txt.match(/([0-9a-f]{64})/i);
         return m ? m[1] : null;
     } catch (e) {

@@ -7,7 +7,7 @@
 // (voice.householdSharing in user_settings).
 //
 // ⚠️ The refresh_voice_config push is NOT optional. It was dropped in the 0.5.0
-// Express port on the premise that "the chickadee integration has no such
+// Express port on the premise that "the dashie_voice integration has no such
 // service (nothing caches the account credential downstream)" — true about the
 // integration, wrong about who the consumer is. The consumer is each WALL
 // TABLET: the service relays to the device's :2323 `refreshVoiceConfig`, which

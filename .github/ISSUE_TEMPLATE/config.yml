@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Chickadee integration issues (entities, config flow, pipeline setup)
-    url: https://github.com/jwlerch78/chickadee-integration/issues
+  - name: Dashie for Home Assistant integration issues (entities, config flow, pipeline setup)
+    url: https://github.com/jwlerch78/dashie-ha-console-integration/issues
     about: The integration has its own tracker — entity and pipeline problems go there.

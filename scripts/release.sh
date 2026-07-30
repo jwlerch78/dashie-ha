@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Atomic release for the Chickadee add-on — two channels in ONE repo:
+# Atomic release for the Dashie for Home Assistant add-on — two channels in ONE repo:
 #
-#   prod (default) → chickadee/       slug `chickadee`      (what field boxes install)
-#   dev            → chickadee-dev/   slug `chickadee_dev`  (test box; push freely)
+#   prod (default) → dashie-ha/       slug `dashie_ha`      (what field boxes install)
+#   dev            → dashie-ha-dev/   slug `dashie_ha_dev`  (test box; push freely)
 #
-# `chickadee/` is the CANONICAL source (console + server developed in place).
-# `chickadee-dev/` is a generated MIRROR of it (server/, frontend/, integration/,
+# `dashie-ha/` is the CANONICAL source (console + server developed in place).
+# `dashie-ha-dev/` is a generated MIRROR of it (server/, frontend/, integration/,
 # Dockerfile, run.sh, package*.json, docs) refreshed here on every dev release —
-# only chickadee-dev/config.yaml is hand-owned (name/slug/version). Isolation is
+# only dashie-ha-dev/config.yaml is hand-owned (name/slug/version). Isolation is
 # by version: a dev release bumps ONLY the dev add-on, so an installed prod
 # add-on shows no Update until you deliberately cut prod.
 #
@@ -22,7 +22,7 @@
 # prod can only ever ship a tree the dev channel actually ran. Whatever landed
 # on main since the last dev release is NOT picked up — cut a dev release and
 # test it first. The promotion verifies the result byte-for-byte against
-# chickadee-dev/ before committing.
+# dashie-ha-dev/ before committing.
 #
 # `--from-head` opts out and builds prod from current HEAD + integration
 # origin/main (the pre-2026-07-29 behaviour). It exists for hotfixes; it prints
@@ -57,8 +57,8 @@ if [[ -z "$NEW_VERSION" ]]; then
 fi
 
 case "$CHANNEL" in
-  prod) ADDON_DIR="chickadee" ;;
-  dev)  ADDON_DIR="chickadee-dev" ;;
+  prod) ADDON_DIR="dashie-ha" ;;
+  dev)  ADDON_DIR="dashie-ha-dev" ;;
   *)    echo "Unknown channel: $CHANNEL (expected dev|prod)" >&2; exit 1 ;;
 esac
 
@@ -68,7 +68,7 @@ DIR="$ADDON_ROOT/$ADDON_DIR"
 
 # Writing the generated trees is this script's JOB, so exempt it from the
 # pre-commit gate that refuses hand-edits to them (check-generated-tree.sh).
-export CHICKADEE_RELEASE=1
+export DASHIE_HA_RELEASE=1
 
 # Refuse a dirty tree so the release commit contains only what this script staged.
 if ! git diff-index --quiet HEAD --; then
@@ -80,7 +80,7 @@ fi
 # be swept into `git add -A`, and the rollback below uses `git clean`, which is
 # only safe to run if we know nothing untracked was there to begin with.
 # (Ignored paths — node_modules/, data/ — are excluded and never touched.)
-STRAY="$(git ls-files --others --exclude-standard -- chickadee chickadee-dev)"
+STRAY="$(git ls-files --others --exclude-standard -- dashie-ha dashie-ha-dev)"
 if [[ -n "$STRAY" ]]; then
   echo "Error: untracked files in the channel folders. Commit or remove them first:" >&2
   sed 's/^/  /' <<<"$STRAY" >&2
@@ -102,22 +102,22 @@ rollback_on_failure() {
   # INDEX, not from HEAD. By the time we fail, the version bump is usually
   # already staged, so checking out first would faithfully restore the bump and
   # report success while leaving the tree dirty. Unstage first, then restore.
-  git reset -q HEAD -- chickadee chickadee-dev 2>/dev/null || true
-  git checkout -- chickadee chickadee-dev 2>/dev/null || true
-  git clean -qfd -- chickadee chickadee-dev 2>/dev/null || true
-  if git diff --quiet -- chickadee chickadee-dev && git diff --cached --quiet -- chickadee chickadee-dev; then
+  git reset -q HEAD -- dashie-ha dashie-ha-dev 2>/dev/null || true
+  git checkout -- dashie-ha dashie-ha-dev 2>/dev/null || true
+  git clean -qfd -- dashie-ha dashie-ha-dev 2>/dev/null || true
+  if git diff --quiet -- dashie-ha dashie-ha-dev && git diff --cached --quiet -- dashie-ha dashie-ha-dev; then
     echo "    tree restored; nothing was committed." >&2
   else
     # Never claim a clean rollback we didn't achieve.
     echo "    ⚠️  could NOT fully restore — inspect and clean up by hand:" >&2
-    git status --short -- chickadee chickadee-dev | sed 's/^/      /' >&2
+    git status --short -- dashie-ha dashie-ha-dev | sed 's/^/      /' >&2
   fi
   exit $code
 }
 trap rollback_on_failure EXIT
 
 # Repo inversion (2026-07-27): the console is DEVELOPED HERE — no vendoring.
-# chickadee/frontend/console is canonical source; the Dashie build vendors
+# dashie-ha/frontend/console is canonical source; the Dashie build vendors
 # FROM this repo and overlays its private delta. check-console-tree.sh gates
 # the tree instead.
 echo "==> Checking console tree (canonical here since the repo inversion)"
@@ -135,7 +135,7 @@ echo "==> Checking disclosure (docs still describe the code)"
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
 
-# The set of paths the dev channel mirrors from chickadee/. Single source of
+# The set of paths the dev channel mirrors from dashie-ha/. Single source of
 # truth for both the dev mirror and the prod promotion — they must agree, or a
 # promotion would verify a different set of files than dev actually shipped.
 MIRRORED_ITEMS=(server frontend Dockerfile run.sh package.json package-lock.json DOCS.md CHANGELOG.md icon.png logo.png)
@@ -144,24 +144,24 @@ MIRRORED_ITEMS=(server frontend Dockerfile run.sh package.json package-lock.json
 ROLLBACK_ARMED=1
 
 if [[ "$CHANNEL" == "dev" ]]; then
-  # Mirror the canonical chickadee/ source into the dev folder (everything
+  # Mirror the canonical dashie-ha/ source into the dev folder (everything
   # tracked EXCEPT config.yaml, which is dev-owned, and integration/, vendored
   # separately below). node_modules/data are gitignored and never copied.
-  echo "==> [dev] Mirroring canonical chickadee/ source → chickadee-dev/"
+  echo "==> [dev] Mirroring canonical dashie-ha/ source → dashie-ha-dev/"
   for item in "${MIRRORED_ITEMS[@]}"; do
-    if [[ -d "chickadee/$item" ]]; then
-      rsync -a --delete --exclude node_modules "chickadee/$item/" "chickadee-dev/$item/"
+    if [[ -d "dashie-ha/$item" ]]; then
+      rsync -a --delete --exclude node_modules "dashie-ha/$item/" "dashie-ha-dev/$item/"
     else
-      cp "chickadee/$item" "chickadee-dev/$item"
+      cp "dashie-ha/$item" "dashie-ha-dev/$item"
     fi
   done
-  echo "==> [dev] Vendoring chickadee integration main → chickadee-dev/integration"
+  echo "==> [dev] Vendoring Dashie Voice integration main → dashie-ha-dev/integration"
   INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main "" "$DIR/integration")"
 
 elif [[ $FROM_HEAD -eq 1 ]]; then
   echo "==> [prod] ⚠️  --from-head: building prod from current HEAD, NOT promoting a dev build."
   echo "    Prod will ship a tree no dev box has run. Only correct for a hotfix."
-  echo "==> [prod] Vendoring chickadee integration main → chickadee/integration"
+  echo "==> [prod] Vendoring Dashie Voice integration main → dashie-ha/integration"
   INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main)"
 
 else
@@ -188,50 +188,50 @@ else
 
   # Restore the prod source tree to exactly what that dev release mirrored.
   # rm -rf + git archive (not `git checkout -- path`), so files added to
-  # chickadee/ since the dev release are REMOVED rather than left behind —
+  # dashie-ha/ since the dev release are REMOVED rather than left behind —
   # otherwise prod would carry code dev never saw, which is the whole point.
-  echo "==> [prod] Restoring chickadee/ source @ $CONSOLE_SHA"
+  echo "==> [prod] Restoring dashie-ha/ source @ $CONSOLE_SHA"
   for item in "${MIRRORED_ITEMS[@]}"; do
-    if ! git cat-file -e "$CONSOLE_SHA:chickadee/$item" 2>/dev/null; then
-      echo "Error: chickadee/$item does not exist at $CONSOLE_SHA — refusing a partial promotion." >&2
+    if ! git cat-file -e "$CONSOLE_SHA:dashie-ha/$item" 2>/dev/null; then
+      echo "Error: dashie-ha/$item does not exist at $CONSOLE_SHA — refusing a partial promotion." >&2
       exit 1
     fi
-    rm -rf "chickadee/$item"
-    git archive "$CONSOLE_SHA" "chickadee/$item" | tar -x -C "$ADDON_ROOT"
+    rm -rf "dashie-ha/$item"
+    git archive "$CONSOLE_SHA" "dashie-ha/$item" | tar -x -C "$ADDON_ROOT"
   done
 
-  echo "==> [prod] Vendoring chickadee integration @ $INTEGRATION_SHA_WANTED"
+  echo "==> [prod] Vendoring Dashie Voice integration @ $INTEGRATION_SHA_WANTED"
   INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" "$INTEGRATION_SHA_WANTED")"
 fi
 
 # ── Promotion proof ─────────────────────────────────────────────────────────
 # Everything above is intent; this is the evidence. Compare the prod tree we
-# just assembled against chickadee-dev/ file-by-file. If they differ, the
+# just assembled against dashie-ha-dev/ file-by-file. If they differ, the
 # promotion did NOT reproduce the tested build and the release must not happen.
 # Runs BEFORE the version bump, since config.yaml/package.json versions are the
 # one thing the channels are supposed to differ on.
 if [[ "$CHANNEL" == "prod" && $FROM_HEAD -eq 0 ]]; then
-  echo "==> [prod] Verifying the promoted tree matches chickadee-dev/"
+  echo "==> [prod] Verifying the promoted tree matches dashie-ha-dev/"
   PROMOTION_DRIFT=0
   for item in "${MIRRORED_ITEMS[@]}" integration; do
     # package.json holds the channel's own version — compare everything else in
     # it by stripping that one line.
     if [[ "$item" == "package.json" ]]; then
-      if ! diff <(grep -v '"version"' "chickadee/$item") <(grep -v '"version"' "chickadee-dev/$item") >/dev/null; then
+      if ! diff <(grep -v '"version"' "dashie-ha/$item") <(grep -v '"version"' "dashie-ha-dev/$item") >/dev/null; then
         echo "    ✗ $item differs (beyond the version field)"; PROMOTION_DRIFT=1
       fi
       continue
     fi
     if ! diff -r --exclude=node_modules --exclude=__pycache__ --exclude=data \
-              "chickadee/$item" "chickadee-dev/$item" >/dev/null 2>&1; then
+              "dashie-ha/$item" "dashie-ha-dev/$item" >/dev/null 2>&1; then
       echo "    ✗ $item differs between prod and dev"; PROMOTION_DRIFT=1
     fi
   done
   if [[ $PROMOTION_DRIFT -eq 1 ]]; then
     echo "" >&2
-    echo "Error: the promoted prod tree does not match chickadee-dev/." >&2
+    echo "Error: the promoted prod tree does not match dashie-ha-dev/." >&2
     echo "       Prod would ship something the dev channel never ran." >&2
-    echo "       Most likely: chickadee-dev/ was hand-edited (it is GENERATED —" >&2
+    echo "       Most likely: dashie-ha-dev/ was hand-edited (it is GENERATED —" >&2
     echo "       see the header of this script), or the dev release predates a" >&2
     echo "       change to MIRRORED_ITEMS. Re-cut the dev release and retest." >&2
     exit 1
@@ -273,9 +273,9 @@ fi
 echo ""
 echo "────────────────────────────────────────────────────────────"
 if [[ "$CHANNEL" == "prod" ]]; then
-  echo " RELEASE: prod  →  slug 'chickadee'  (FIELD BOXES)"
+  echo " RELEASE: prod  →  slug 'dashie-ha'  (FIELD BOXES)"
 else
-  echo " RELEASE: dev   →  slug 'chickadee_dev'  (test box only)"
+  echo " RELEASE: dev   →  slug 'dashie_ha_dev'  (test box only)"
 fi
 echo " version:      $NEW_VERSION"
 echo " source @:     $CONSOLE_SHA"

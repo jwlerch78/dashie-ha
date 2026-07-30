@@ -6,7 +6,7 @@
 #
 # This file exists separately because WRITE_SITES below is the part humans edit.
 # When the gate stops you, the fix is almost always one line here plus a
-# sentence in chickadee/DOCS.md — not a change to the checking logic.
+# sentence in dashie-ha/DOCS.md — not a change to the checking logic.
 
 # ---------------------------------------------------------------------------
 # 1. Every write path outside /data is in the DOCS.md permissions table
@@ -27,38 +27,43 @@
 # writes something.
 WRITE_SITES=(
   # --- add-on server: /data (private persistent storage) -------------------
-  "chickadee/server/config.js|mkdirSync|1|/data|"
-  "chickadee/server/auth.js|writeFileSync|2|/data|"
-  "chickadee/server/auth.js|renameSync|1|/data|"
-  "chickadee/server/auth.js|unlinkSync|1|/data|"
-  "chickadee/server/key-store.js|writeFileSync|1|/data/api-keys.json|"
-  "chickadee/server/key-store.js|renameSync|1|/data/api-keys.json|"
-  "chickadee/server/settings-store.js|writeFileSync|1|/data|"
-  "chickadee/server/settings-store.js|renameSync|1|/data|"
-  "chickadee/server/account-config.js|writeFileSync|1|/data|"
-  "chickadee/server/account-config.js|renameSync|1|/data|"
+  "dashie-ha/server/config.js|mkdirSync|1|/data|"
+  "dashie-ha/server/auth.js|writeFileSync|2|/data|"
+  "dashie-ha/server/auth.js|renameSync|1|/data|"
+  "dashie-ha/server/auth.js|unlinkSync|1|/data|"
+  "dashie-ha/server/key-store.js|writeFileSync|1|/data/api-keys.json|"
+  "dashie-ha/server/key-store.js|renameSync|1|/data/api-keys.json|"
+  "dashie-ha/server/settings-store.js|writeFileSync|1|/data|"
+  "dashie-ha/server/settings-store.js|renameSync|1|/data|"
+  "dashie-ha/server/account-config.js|writeFileSync|1|/data|"
+  "dashie-ha/server/account-config.js|renameSync|1|/data|"
 
   # --- add-on server: OUTSIDE /data (must be disclosed) --------------------
   # bridge-auth writes the master secret to /data AND provisions fallback
   # copies into the add-on config mount and the HA config dir.
-  "chickadee/server/bridge-auth.js|writeFileSync|2|/data + addon_config mount + <config>/.chickadee|.chickadee/bridge_secret"
-  "chickadee/server/bridge-auth.js|renameSync|2|/data + addon_config mount + <config>/.chickadee|.chickadee/bridge_secret"
-  "chickadee/server/bridge-auth.js|mkdirSync|1|addon_config mount + <config>/.chickadee|addon_config"
-  # the integration installer stages and swaps <config>/custom_components/chickadee
-  "chickadee/server/integration-installer.js|writeFileSync|1|<config>/custom_components/chickadee|custom_components/chickadee"
-  "chickadee/server/integration-installer.js|renameSync|1|<config>/custom_components/chickadee|custom_components/chickadee"
-  "chickadee/server/integration-installer.js|mkdirSync|1|<config>/custom_components|custom_components/chickadee"
+  "dashie-ha/server/bridge-auth.js|writeFileSync|2|/data + addon_config mount + <config>/.dashie_voice|.dashie_voice/bridge_secret"
+  "dashie-ha/server/bridge-auth.js|renameSync|2|/data + addon_config mount + <config>/.dashie_voice|.dashie_voice/bridge_secret"
+  "dashie-ha/server/bridge-auth.js|mkdirSync|1|addon_config mount + <config>/.dashie_voice|addon_config"
+  # the integration installer stages and swaps <config>/custom_components/dashie_voice
+  "dashie-ha/server/integration-installer.js|writeFileSync|1|<config>/custom_components/dashie_voice|custom_components/dashie_voice"
+  "dashie-ha/server/integration-installer.js|renameSync|1|<config>/custom_components/dashie_voice|custom_components/dashie_voice"
+  "dashie-ha/server/integration-installer.js|mkdirSync|1|<config>/custom_components|custom_components/dashie_voice"
   # rmSync ×2 = wipe the staging dir, then DELETE the old install before the
-  # swap. A delete of the user's custom_components/chickadee is the most
+  # swap. A delete of the user's custom_components/dashie_voice is the most
   # invasive thing this add-on does, so the docs must say so out loud.
-  "chickadee/server/integration-installer.js|rmSync|2|<config>/custom_components/chickadee(.staging)|deletes"
-  "chickadee/server/integration-installer.js|cpSync|1|<config>/custom_components/chickadee.staging|chickadee.staging"
+  "dashie-ha/server/integration-installer.js|rmSync|2|<config>/custom_components/dashie_voice(.staging)|deletes"
+  "dashie-ha/server/integration-installer.js|cpSync|1|<config>/custom_components/dashie_voice.staging|dashie_voice.staging"
 
   # --- integration (runs as HA Core, not the add-on) -----------------------
-  "chickadee/integration/custom_components/chickadee/satellite_wake.py|mkdir|1|/share/microwakeword|/share/microwakeword"
-  "chickadee/integration/custom_components/chickadee/satellite_wake.py|copy2|1|/share/microwakeword|/share/microwakeword"
-  "chickadee/integration/custom_components/chickadee/__init__.py|makedirs|1|<config>/.chickadee|.chickadee/loaded_hash"
-  "chickadee/integration/custom_components/chickadee/__init__.py|open-w|1|<config>/.chickadee/loaded_hash|.chickadee/loaded_hash"
+  # <pkg> stands in for the vendored integration's package dir. The scanner
+  # normalizes it (see scan_write_sites) so this baseline does not encode the
+  # integration DOMAIN — renaming the domain, as 2026-07-30 did, would otherwise
+  # read here as "4 writes appeared and 4 vanished" during the window between the
+  # rename and the release that re-vendors.
+  "dashie-ha/integration/custom_components/<pkg>/satellite_wake.py|mkdir|1|/share/microwakeword|/share/microwakeword"
+  "dashie-ha/integration/custom_components/<pkg>/satellite_wake.py|copy2|1|/share/microwakeword|/share/microwakeword"
+  "dashie-ha/integration/custom_components/<pkg>/__init__.py|makedirs|1|<config>/.dashie_voice|.dashie_voice/loaded_hash"
+  "dashie-ha/integration/custom_components/<pkg>/__init__.py|open-w|1|<config>/.dashie_voice/loaded_hash|.dashie_voice/loaded_hash"
 )
 
 JS_CALLS="writeFileSync writeFile appendFileSync appendFile createWriteStream mkdirSync mkdir renameSync unlinkSync rmSync rmdirSync copyFileSync cpSync"
@@ -80,10 +85,13 @@ scan_write_sites() {
         case "$code" in *"$call("*) echo "$rel|$call" ;; esac
       done
     done < "$f"
-  done < <(find "$ROOT/chickadee/server" -name '*.js' -not -path '*/node_modules/*' 2>/dev/null | sort)
+  done < <(find "$ROOT/dashie-ha/server" -name '*.js' -not -path '*/node_modules/*' 2>/dev/null | sort)
 
   while IFS= read -r f; do
     rel="${f#$ROOT/}"
+    # Normalize the vendored package dir to <pkg> — the baseline tracks WHICH
+    # writes exist, not what the integration domain is currently called.
+    rel="$(echo "$rel" | sed -E 's#(integration/custom_components/)[^/]+/#\1<pkg>/#')"
     while IFS= read -r code; do
       code="${code#"${code%%[![:space:]]*}"}"
       case "$code" in \#*|\**) continue ;; esac
@@ -95,14 +103,14 @@ scan_write_sites() {
         echo "$rel|open-w"
       fi
     done < "$f"
-  done < <(find "$ROOT/chickadee/integration" -name '*.py' -not -path '*/__pycache__/*' 2>/dev/null | sort)
+  done < <(find "$ROOT/dashie-ha/integration" -name '*.py' -not -path '*/__pycache__/*' 2>/dev/null | sort)
 }
 
 check_writes() {
   local perms found_file declared_file
-  perms="$(awk '/^## Permissions/{f=1;next} f&&/^## /{exit} f' "$ROOT/chickadee/DOCS.md")"
+  perms="$(awk '/^## Permissions/{f=1;next} f&&/^## /{exit} f' "$ROOT/dashie-ha/DOCS.md")"
   if [ -z "$perms" ]; then
-    bad "could not find the '## Permissions' section in chickadee/DOCS.md"
+    bad "could not find the '## Permissions' section in dashie-ha/DOCS.md"
     return
   fi
 

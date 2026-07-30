@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in the Chickadee add-on isn't working
+description: Something in the Dashie for Home Assistant add-on isn't working
 labels: ["bug"]
 body:
   - type: markdown
@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the report! If the problem is in the **integration** (entities
         missing, config flow, pipeline setup), please file it at
-        [chickadee-integration](https://github.com/jwlerch78/chickadee-integration/issues) instead.
+        [dashie-voice-integration](https://github.com/jwlerch78/dashie-voice-integration/issues) instead.
   - type: textarea
     id: what-happened
     attributes:
@@ -43,5 +43,5 @@ body:
     id: logs
     attributes:
       label: Add-on log
-      description: Relevant lines from the add-on Log tab — the CHICKADEE-TURN / CHICKADEE-BRAIN / CHICKADEE-STT / CHICKADEE-TTS markers carry the engine errors. Redact anything sensitive.
+      description: Relevant lines from the add-on Log tab — the DASHIE-TURN / DASHIE-BRAIN / DASHIE-STT / DASHIE-TTS markers carry the engine errors. Redact anything sensitive.
       render: text

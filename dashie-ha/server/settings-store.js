@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const { DATA_DIR } = require('./config');
 
-const SETTINGS_FILE = path.join(DATA_DIR, 'chickadee_settings.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'dashie_ha_settings.json');
 
 const DEFAULTS = {
     householdSharing: false,

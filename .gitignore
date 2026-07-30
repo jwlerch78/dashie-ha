@@ -1,6 +1,6 @@
-# Local dev artifacts — the add-on's /data volume falls back to chickadee/data
+# Local dev artifacts — the add-on's /data volume falls back to dashie-ha/data
 # when run outside HAOS; it holds secrets (bridge secret, JWT, BYO keys).
-chickadee/data/
-chickadee-dev/data/
+dashie-ha/data/
+dashie-ha-dev/data/
 node_modules/
 __pycache__/

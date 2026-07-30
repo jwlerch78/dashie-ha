@@ -14,5 +14,5 @@ chmod +x scripts/hooks/* scripts/check-generated-tree.sh 2>/dev/null || true
 
 echo "✅ hooks installed (core.hooksPath = scripts/hooks)"
 echo "   active: pre-commit → check-generated-tree.sh"
-echo "           refuses hand-edits to chickadee-dev/ and */integration/,"
+echo "           refuses hand-edits to dashie-ha-dev/ and */integration/,"
 echo "           which a release rebuilds destructively."

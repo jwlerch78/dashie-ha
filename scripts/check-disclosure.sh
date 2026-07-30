@@ -12,11 +12,11 @@
 #
 # Docs that make checkable claims, and what breaks them:
 #
-#   chickadee/DOCS.md "Permissions"   enumerates every path the add-on and the
+#   dashie-ha/DOCS.md "Permissions"   enumerates every path the add-on and the
 #                                    integration write OUTSIDE /data. A new
 #                                    fs.writeFileSync three months from now is
 #                                    invisible to a reader of that table.
-#   chickadee*/integration/           is a vendored copy of another repo. If it
+#   dashie-ha*/integration/           is a vendored copy of another repo. If it
 #                                    stops matching what the release said it
 #                                    vendored, the add-on ships code that is in
 #                                    no commit of the canonical repo.
@@ -43,7 +43,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INTEG_REPO="${CHICKADEE_INTEGRATION_REPO:-$(cd "$ROOT/.." && pwd)/chickadee-integration}"
+INTEG_REPO="${DASHIE_VOICE_INTEGRATION_REPO:-$(cd "$ROOT/.." && pwd)/dashie-voice-integration}"
 ONLY="${1:-all}"
 fail=0
 
@@ -92,7 +92,7 @@ check_vendored_channel() {
     return
   fi
   if [ ! -d "$INTEG_REPO/.git" ]; then
-    warn "$channel: integration repo not found at $INTEG_REPO — cannot verify (set CHICKADEE_INTEGRATION_REPO)"
+    warn "$channel: integration repo not found at $INTEG_REPO — cannot verify (set DASHIE_VOICE_INTEGRATION_REPO)"
     return
   fi
   # Fetch before accusing. A missing object in a local clone usually means
@@ -112,14 +112,30 @@ check_vendored_channel() {
     return
   fi
 
+  # Discover the integration PACKAGE dir on each side rather than hardcoding the
+  # domain. The domain is renameable (chickadee → dashie_voice, 2026-07-30) and a
+  # hardcoded name turns every rename into a spurious "code in no canonical
+  # commit" failure — the most serious thing this gate can say, said wrongly.
+  # Each side has exactly one package under custom_components/.
   tmp="$(mktemp -d)"
-  git -C "$INTEG_REPO" archive "$sha" custom_components/chickadee | tar -x -C "$tmp"
-  canon="$tmp/custom_components/chickadee"
-  if diff -r --exclude=__pycache__ "$canon" "$dir/custom_components/chickadee" >/dev/null 2>&1; then
-    say "   $channel: ✅ matches integration @ $sha"
+  git -C "$INTEG_REPO" archive "$sha" custom_components | tar -x -C "$tmp"
+  canon="$(find "$tmp/custom_components" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)"
+  local vendored
+  vendored="$(find "$dir/custom_components" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)"
+  if [ -z "$canon" ] || [ -z "$vendored" ]; then
+    bad "$channel: could not locate the integration package (canon=${canon:-none} vendored=${vendored:-none})"
+    rm -rf "$tmp"; return
+  fi
+  if [ "$(basename "$canon")" != "$(basename "$vendored")" ]; then
+    bad "$channel vendored package is '$(basename "$vendored")' but integration @ $sha ships '$(basename "$canon")'
+       → the domain was renamed without re-vendoring; cut a fresh dev release"
+    rm -rf "$tmp"; return
+  fi
+  if diff -r --exclude=__pycache__ "$canon" "$vendored" >/dev/null 2>&1; then
+    say "   $channel: ✅ matches integration @ $sha ($(basename "$canon"))"
   else
     bad "$channel vendored tree does NOT match integration @ $sha:
-$(diff -rq --exclude=__pycache__ "$canon" "$dir/custom_components/chickadee" 2>&1 | sed 's/^/       /')
+$(diff -rq --exclude=__pycache__ "$canon" "$vendored" 2>&1 | sed 's/^/       /')
        → re-vendor with scripts/sync-integration.sh, or find who hand-edited it"
   fi
   rm -rf "$tmp"
@@ -127,8 +143,8 @@ $(diff -rq --exclude=__pycache__ "$canon" "$dir/custom_components/chickadee" 2>&
 
 check_vendored() {
   say "Vendored integration vs the SHA each channel's release recorded:"
-  check_vendored_channel dev  "$ROOT/chickadee-dev/integration"
-  check_vendored_channel prod "$ROOT/chickadee/integration"
+  check_vendored_channel dev  "$ROOT/dashie-ha-dev/integration"
+  check_vendored_channel prod "$ROOT/dashie-ha/integration"
 }
 
 # ---------------------------------------------------------------------------
@@ -164,16 +180,16 @@ check_mirrors() {
        → without it, the next editor treats a mirror as an original and the two diverge"
       continue
     fi
-    if ! grep -q "jwlerch78/chickadee/blob/main/$f" "$mirror"; then
-      bad "$f mirror's canonical pointer does not resolve to jwlerch78/chickadee/blob/main/$f"
+    if ! grep -q "jwlerch78/dashie-ha-console/blob/main/$f" "$mirror"; then
+      bad "$f mirror's canonical pointer does not resolve to jwlerch78/dashie-ha-console/blob/main/$f"
     fi
   done
 
   # CONTRACTS.md is the reverse direction: one copy in the integration repo,
   # a pointer here. A pointer that stops pointing is worse than no pointer.
   if [ -f "$ROOT/CONTRACTS.md" ] \
-     && ! grep -q "chickadee-integration/blob/main/CONTRACTS.md" "$ROOT/CONTRACTS.md"; then
-    bad "CONTRACTS.md here no longer links the canonical registry in chickadee-integration"
+     && ! grep -q "dashie-voice-integration/blob/main/CONTRACTS.md" "$ROOT/CONTRACTS.md"; then
+    bad "CONTRACTS.md here no longer links the canonical registry in dashie-voice-integration"
   fi
 
   [ "$fail" -eq 0 ] && say "✅ doc mirrors declare their canonical source"

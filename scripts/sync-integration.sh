@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vendor the Chickadee INTEGRATION into the add-on image so the add-on can
+# Vendor the Dashie Voice INTEGRATION into the add-on image so the add-on can
 # install it into /config/custom_components ("all at once" onboarding — see
 # server/integration-installer.js). Committed-tree only: a git archive of the
 # requested ref, never the working tree.
@@ -14,18 +14,18 @@
 set -euo pipefail
 
 REF="${1:-main}"
-REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/chickadee-integration}"
+REPO_PATH="${2:-$(cd "$(dirname "$0")/../.." && pwd)/dashie-voice-integration}"
 ADDON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # 3rd arg = target dir (default prod add-on's integration/). The dev channel
-# passes chickadee-dev/integration so it vendors without touching prod's copy.
-TARGET="${3:-$ADDON_ROOT/chickadee/integration}"
+# passes dashie-ha-dev/integration so it vendors without touching prod's copy.
+TARGET="${3:-$ADDON_ROOT/dashie-ha/integration}"
 
 if [[ ! -d "$REPO_PATH/.git" ]]; then
-    echo "Error: $REPO_PATH is not a git repository (pass the chickadee integration clone path)." >&2
+    echo "Error: $REPO_PATH is not a git repository (pass the Dashie Voice integration clone path)." >&2
     exit 1
 fi
 
-echo "==> Fetching chickadee integration" >&2
+echo "==> Fetching Dashie Voice integration" >&2
 git -C "$REPO_PATH" fetch origin --quiet --tags
 
 # Branch first (origin/<ref>), then fall back to treating <ref> as a raw commit.
@@ -46,8 +46,8 @@ SHA="$(git -C "$REPO_PATH" rev-parse --short "$RESOLVED^{commit}")"
 echo "==> Vendoring integration $RESOLVED ($SHA) → $TARGET" >&2
 rm -rf "$TARGET"
 mkdir -p "$TARGET"
-git -C "$REPO_PATH" archive "$RESOLVED" custom_components/chickadee | tar -x -C "$TARGET"
+git -C "$REPO_PATH" archive "$RESOLVED" custom_components/dashie_voice | tar -x -C "$TARGET"
 
-VERSION="$(python3 -c "import json;print(json.load(open('$TARGET/custom_components/chickadee/manifest.json'))['version'])")"
-echo "==> Vendored integration v$VERSION (chickadee @ $SHA)" >&2
+VERSION="$(python3 -c "import json;print(json.load(open('$TARGET/custom_components/dashie_voice/manifest.json'))['version'])")"
+echo "==> Vendored integration v$VERSION (dashie-voice-integration @ $SHA)" >&2
 echo "$SHA"
