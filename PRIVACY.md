@@ -11,6 +11,17 @@ you configured (your Ollama box, your Whisper server), the brain runs in
 the add-on, and no Chickadee service is contacted — there is no account,
 no telemetry, no version ping.
 
+**Your engine configuration stays on the box too.** With no account signed in,
+the console writes its settings to `/data/chickadee_settings.json` on the add-on
+— your endpoint URLs and model ids, never uploaded. (This was not always true:
+until 2026-07-30 the console's only settings backend was the account one, so the
+page for configuring *your own* local Ollama round-tripped that config through
+our cloud. It was a real defect and it is fixed, not reworded.) Signing in later
+switches the console to your account's settings; the two are deliberately kept
+separate, with no sync or merge in either direction. Unlike your API keys, this
+file is **not** excluded from HA backups — it holds no secrets, only URLs and
+model names.
+
 One honest exception, and it isn't us: opening the **console panel** currently
 loads two JavaScript libraries (`hls.js`, `heic2any`) from the jsDelivr CDN, so
 your browser makes two third-party requests when you view that page. Neither is
