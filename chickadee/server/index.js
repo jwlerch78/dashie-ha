@@ -178,6 +178,10 @@ app.get('/api/runtime', async (req, res) => {
     // only wants their own local engines. Identity, never authorization: see
     // ingress-identity.js. Cloud surfaces still require a real signed JWT.
     const haUser = ingressIdentity.ingressUser(req);
+    // Our own slug, so the local-mode panel can DEEP-LINK to the add-on's
+    // Configuration page. The sidebar panel has no tabs of its own, so telling the
+    // user to "use the Configuration tab" from in there is a dead end.
+    const addonSlug = await supervisor.getSelfSlug();
     res.json({
         addon: true,
         chickadee: true,
@@ -186,6 +190,7 @@ app.get('/api/runtime', async (req, res) => {
         email_auth: true,
         ingress: ingressIdentity.isIngress(req),
         ha_user: haUser,
+        addon_slug: addonSlug,
         integration: instStatus,
         integration_pending_restart: pending,
         integration_discovered_pending: discoveredPending,
