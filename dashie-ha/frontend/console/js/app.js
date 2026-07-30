@@ -702,11 +702,16 @@ const App = {
             // No Dashie identity to show — but HA has one, and the add-on reports
             // it over ingress (ingress-identity.js: identity, never authorization).
             // Showing it is the honest statement of what is signing you in here.
+            // ha_user is an OBJECT — {id, name, display_name} from
+            // server/ingress-identity.js — not a string. Pick the printable
+            // field; either name may be absent, so fall through to the id
+            // rather than rendering "undefined" at a user.
             const haUser = DashieAuth.runtimeInfo?.ha_user || null;
-            MockData.user.name = haUser || '';
+            const haName = haUser ? (haUser.display_name || haUser.name || haUser.id || null) : null;
+            MockData.user.name = haName || '';
             MockData.user.email = '';
             MockData.user.picture = '';
-            MockData.user.initials = haUser ? this._getInitials(haUser) : '';
+            MockData.user.initials = haName ? this._getInitials(haName) : '';
         } else if (DashieAuth.user) {
             // Update mock user data from real auth if available
             const stored = this._getStoredUserData();
@@ -775,6 +780,12 @@ const App = {
 
     _getInitials(str) {
         if (!str) return '?';
+        // Tolerate a non-string rather than throwing. This is called during
+        // _showApp, so a bad argument used to take down the whole console —
+        // and in local mode that surfaced as an unexplained login wall, because
+        // _showSignedOut's catch degrades a render failure to _showLogin().
+        // An avatar is not worth that; a missing monogram is.
+        if (typeof str !== 'string') return '?';
         const parts = str.split(/[\s@]+/);
         if (parts.length >= 2 && parts[0] && parts[1]) {
             return (parts[0][0] + parts[1][0]).toUpperCase();
