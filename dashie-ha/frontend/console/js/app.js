@@ -441,13 +441,19 @@ const App = {
 
     /** Signed-out router — ONE decision point, on purpose.
      *
-     *  On the published build reached over HA ingress, "no Dashie account" is
-     *  a normal operating mode (your own engines, nothing hosted), not a locked
-     *  door — so show the local-mode panel. Home Assistant already authenticated
-     *  this person; a second login here was identity for billing, demanded of
-     *  someone who isn't billing. See js/lib/local-mode.js.
+     *  On the published build reached over HA ingress, "no Dashie account" is a
+     *  normal operating mode (your own engines, nothing hosted), not a locked
+     *  door — so render the REAL console, with the account-only surfaces gated.
+     *  Home Assistant already authenticated this person; a second login here was
+     *  identity for billing, demanded of someone who isn't billing.
      *
-     *  Everywhere else the account IS the product — the Dashie build and the
+     *  This replaced a landing card (2026-07-30). The card *asserted* "no account
+     *  required" instead of showing it, and its one actionable element — a deep
+     *  link to the add-on's Configuration page — 404'd on the first real box.
+     *  The convincing artifact is the console working, with the paid tier as the
+     *  only thing greyed out.
+     *
+     *  Everywhere else the account IS the product — the family build and the
      *  plain web console both keep the login screen. Any failure falls through
      *  to _showLogin(), so the worst case is today's behaviour.
      *
@@ -455,12 +461,8 @@ const App = {
      *  rather than each growing its own copy of this rule. */
     _showSignedOut() {
         try {
-            const rt = DashieAuth.runtimeInfo;
-            const isPublished = typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild();
-            if (isPublished && rt.ingress && typeof LocalMode !== 'undefined') {
-                document.getElementById('sidebar').innerHTML = '';
-                document.getElementById('top-bar').innerHTML = '';
-                LocalMode.show(rt.ha_user || null);
+            if (DashieAuth.isLocalMode) {
+                this._showApp({ localMode: true });
                 return;
             }
         } catch (e) {
@@ -581,6 +583,20 @@ const App = {
         el.textContent = text;
     },
 
+    /**
+     * Start sign-in from anywhere in a RUNNING console (the top-bar menu in
+     * local mode, a locked Cloud/Hybrid card). One entry point on purpose —
+     * the add-on and the web console reach an account by different routes
+     * (device-flow link vs Google redirect), and that fork should exist once.
+     *
+     * Distinct from the login SCREEN's button, which is drawn before there is a
+     * console to return to; this is for a user already using the thing.
+     */
+    startSignIn() {
+        if (DashieAuth.isAddonMode) return this._handleAddonSignIn();
+        return DashieAuth.signIn();
+    },
+
     async _handleAddonSignIn() {
         try {
             const link = await DashieAuth._signInAddonMode();
@@ -653,26 +669,46 @@ const App = {
         this._showSignedOut();
     },
 
-    _showApp() {
+    /**
+     * Render the console shell.
+     *
+     * `localMode: true` renders the SAME shell with no account behind it. Every
+     * account-shaped side effect below is skipped rather than allowed to fail —
+     * in particular OptionCatalog, which is the console's only pre-sign-in
+     * network call and whose absence PRIVACY.md promises. "It would just 401"
+     * is not good enough for a signed-out phone-home.
+     */
+    _showApp({ localMode = false } = {}) {
         document.getElementById('sidebar').style.display = '';
 
-        // Dropdown-options catalog. Gated on auth on purpose — this is the
-        // console's only pre-sign-in network call, and a signed-out phone-home
-        // would falsify PRIVACY.md. Fire-and-forget; bundled fallbacks render
-        // until it lands, and the signed-out console never fetches at all.
-        if (typeof OptionCatalog !== 'undefined') OptionCatalog.init();
+        if (!localMode) {
+            // Dropdown-options catalog. Gated on auth on purpose — this is the
+            // console's only pre-sign-in network call, and a signed-out phone-home
+            // would falsify PRIVACY.md. Fire-and-forget; bundled fallbacks render
+            // until it lands, and the signed-out console never fetches at all.
+            if (typeof OptionCatalog !== 'undefined') OptionCatalog.init();
 
-        // Connect SettingsSync now that auth is known good. Pages register
-        // their consumers on first render — the manager retains them, so
-        // ordering between connect() and register() doesn't matter. Fire
-        // and forget; failures only mean realtime falls back to TTL.
-        this._connectSettingsSync();
+            // Connect SettingsSync now that auth is known good. Pages register
+            // their consumers on first render — the manager retains them, so
+            // ordering between connect() and register() doesn't matter. Fire
+            // and forget; failures only mean realtime falls back to TTL.
+            this._connectSettingsSync();
 
-        // Global "scheduled for deletion" banner — fetch state + poll while pending.
-        this._checkDeletionState();
+            // Global "scheduled for deletion" banner — fetch state + poll while pending.
+            this._checkDeletionState();
+        }
 
-        // Update mock user data from real auth if available
-        if (DashieAuth.user) {
+        if (localMode) {
+            // No Dashie identity to show — but HA has one, and the add-on reports
+            // it over ingress (ingress-identity.js: identity, never authorization).
+            // Showing it is the honest statement of what is signing you in here.
+            const haUser = DashieAuth.runtimeInfo?.ha_user || null;
+            MockData.user.name = haUser || '';
+            MockData.user.email = '';
+            MockData.user.picture = '';
+            MockData.user.initials = haUser ? this._getInitials(haUser) : '';
+        } else if (DashieAuth.user) {
+            // Update mock user data from real auth if available
             const stored = this._getStoredUserData();
             if (stored) {
                 MockData.user.email = stored.email || DashieAuth.user.email;
@@ -710,8 +746,10 @@ const App = {
         // Kick off a balance fetch so the sidebar's credits widget shows
         // the real number on first paint. CreditsService re-renders the
         // sidebar in place once the result lands; the rest of the page
-        // doesn't need to wait.
-        window.CreditsService?.fetch();
+        // doesn't need to wait. Skipped in local mode: there is no account to
+        // have a balance, and this is a cloud call (same no-phone-home rule as
+        // OptionCatalog above).
+        if (!localMode) window.CreditsService?.fetch();
 
         // Listen for hash changes
         window.addEventListener('hashchange', () => {
@@ -797,8 +835,23 @@ const App = {
         // one was in flight, it would otherwise repaint an authed page straight
         // over the login screen ~1s later, looking exactly like an auto-login.
         // renderPage only ever renders authed pages; the login UI is drawn by
-        // _showLogin(), so bailing here when signed out is always correct.
-        if (!DashieAuth.isAuthenticated) return;
+        // _showLogin(), so bailing here when signed out is always correct —
+        // EXCEPT in local mode, where the published console legitimately runs
+        // with no account (see DashieAuth.isLocalMode).
+        //
+        // ⚠️ This guard is a safety property. The whitelist is re-checked HERE
+        // as well as in _isRoutable/navigate, because renderPage() is reached
+        // from background timers, SSE events and CreditsService — paths that
+        // never went through a navigation door. A whitelist miss falls back to
+        // home and says so; it must never render an account page.
+        if (!DashieAuth.isAuthenticated) {
+            if (!DashieAuth.isLocalMode) return;
+            if (FeatureGate.requiresAccount(this._currentPage)) {
+                console.warn(`DROP: local mode blocked page '${this._currentPage}' — ` +
+                             `account required; falling back to home`);
+                this._currentPage = this._homePage();
+            }
+        }
 
         // Expired-trial branch: a user the server says has no console value
         // (no HA, no registered devices) gets a focused purchase landing

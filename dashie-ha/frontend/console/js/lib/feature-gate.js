@@ -97,6 +97,33 @@ const FeatureGate = {
     ]),
 
     /**
+     * LOCAL MODE whitelist — the ONLY pages reachable in the published console
+     * when there is no account (`DashieAuth.isLocalMode`). Everything works
+     * against the box: engine config, BYO keys, and the settings store that
+     * Stage 1 moved onto /data.
+     *
+     * A WHITELIST, deliberately, and never to be inverted into a blocklist:
+     * a page added to this console later is account-only until someone puts it
+     * here on purpose. The failure mode of the other polarity is exposing an
+     * account page to a signed-out user, which is the one thing this must not do.
+     *
+     * Not here, and why: `account`/`credits`/`account-usage` are account BY
+     * DEFINITION; `scheduled-actions` renders but every operation is a cloud
+     * dbRequest (contract #31), so it would show a feature that cannot save.
+     */
+    LOCAL_MODE_PAGES: new Set(['voice-ai', 'local-engines', 'api-keys']),
+
+    /**
+     * True when `page` needs an account that the current session doesn't have.
+     * Always false outside local mode — signed-in users and the family build
+     * are governed by the tier/entitlement rules below, not by this.
+     */
+    requiresAccount(page) {
+        if (typeof DashieAuth === 'undefined' || !DashieAuth.isLocalMode) return false;
+        return !this.LOCAL_MODE_PAGES.has(page);
+    },
+
+    /**
      * FEATURE_RULES overrides for the published build. Voice/AI and the
      * Dashie Cloud credits meter ARE the product there, so the family
      * beta-cohort gate ('beta-only') doesn't apply.
@@ -303,6 +330,10 @@ const FeatureGate = {
 
     /** True if the given page route should be visible in the current env. */
     isPageEnabled(page) {
+        // Local mode (published build, no account) — checked FIRST and for every
+        // build, so the whitelist governs the sidebar, `_isRoutable`, navigate()
+        // and hash routing from this single point.
+        if (this.requiresAccount(page)) return false;
         if (this.isPublishedBuild()) {
             if (this.CLOSED_DELTA_PAGES.has(page)) return false;
             const key = this.PAGE_FEATURE[page];
