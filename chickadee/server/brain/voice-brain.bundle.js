@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: dda157e0da74e66bb3eadc29a9021e42764ea4e2
+   Source git SHA: e9a242c316e500e0bb1c0724557f87b41ec0c4d1
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md + build plan §13.16
    ============================================================ */
@@ -30,6 +30,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var orchestrator_exports = {};
 __export(orchestrator_exports, {
   looksLikeSportsAsk: () => looksLikeSportsAsk,
+  promisedPictureQuery: () => promisedPictureQuery,
   resolvePersonality: () => resolvePersonality,
   runOrchestration: () => runOrchestration,
   runSports: () => runSports,
@@ -1731,9 +1732,9 @@ var AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "today|tomorr
 - location_events: query: {member_name: "Mary", location_name: "home", timeframe: "today|yesterday|last_night", event_type: "arrive|depart"} - Arrival/departure history
 - travel_time: query: {event_title: "game", member_name: "Jack"} - When to leave for an event
 - family_locations: query: {member_name: "Mary"} - Current GPS location ("where is X right now?")
-- weather_data: query: {timeframe: "current|today|tonight|weekend|this_week|<weekday e.g. saturday>", location?: "city or place, ONLY if the user names one \u2014 omit for the family's home location"} - Current conditions or forecast. Use timeframe to capture what they asked ("right now" \u2192 current, "this weekend" \u2192 weekend, "will it rain today" \u2192 today)
+- weather_data: query: {timeframe: "current|today|tonight|tomorrow|weekend|this_week|precip_timing|<weekday e.g. saturday>", location?: "city or place, ONLY if the user names one \u2014 omit for the family's home location"} - Current conditions or forecast. Use timeframe to capture what they asked ("right now" \u2192 current, "this weekend" \u2192 weekend, "will it rain today" \u2192 today, "what's the weather tomorrow" \u2192 tomorrow, "when will the rain stop"/"when does it start raining" \u2192 precip_timing)
 - home_assistant: query: {command_hint: "transcript"} - Smart home control NOW (lights, thermostat, garage, etc.). If the request has a future time or delay ("turn the porch light off in 5 minutes", "turn on the lights at 9:30"), DO NOT use this \u2014 use schedule_action so it runs later, not now.
-- sports: query: {sport: "soccer|football|basketball|baseball|hockey", league: "nfl|nba|mlb|nhl|college-football|world-cup|premier-league|...", team: "team or country name", date: "YYYY-MM-DD (optional)", type: "score|schedule", list: true (for PLURAL "games")} - Live game SCORES and SCHEDULES, and nothing else. MANDATORY for the score, the result, who won, the kickoff time, "what time is the game", WHICH TEAMS are playing, and upcoming fixtures. NEVER answer THOSE from your own knowledge or a web/Google search, not even one you are sure about: this tool is the ONLY source with the user's correct LOCAL time (a web answer comes back in the wrong timezone) and the ONLY way the scorecard appears on screen. Always emit an info_request for this tool instead of replying directly. **This tool returns ONLY fixtures and scores. It has NO roster, lineup, player, stats, standings, or club-history data.** A question about WHO PLAYS or PLAYED a position ("who's starting at striker for Spain", "who's their quarterback"), a player's stats or injuries, the table/standings, or a club's history is NOT a score/schedule question \u2014 use web_search for those, even when the user names a team or a specific game. Calling this tool for a roster question hands you back the FIXTURE, and reading that out loud answers nothing (it just repeats the schedule at the user). Set list:true for any MULTI-game ask \u2014 "what games are on", "the NEXT games", "upcoming/today's World Cup games" (the plural "games" is the tell); leave it off for one team's score or "the next game" (singular)
+- sports: query: {sport: "soccer|football|basketball|baseball|hockey", league: "nfl|nba|mlb|nhl|college-football|world-cup|premier-league|...", team: "team or country name", date: "YYYY-MM-DD (optional)", type: "score|schedule", list: true (for PLURAL "games")} - Live game SCORES and SCHEDULES, and nothing else. MANDATORY for the score, the result, who won, the kickoff time, "what time is the game", WHICH TEAMS are playing, and upcoming fixtures. NEVER answer THOSE from your own knowledge or a web/Google search, not even one you are sure about: this tool is the ONLY source with the user's correct LOCAL time (a web answer comes back in the wrong timezone) and the ONLY way the scorecard appears on screen. Always emit an info_request for this tool instead of replying directly. **This tool returns ONLY fixtures and scores. It has NO roster, lineup, player, stats, standings, or club-history data.** A question about WHO PLAYS or PLAYED a position ("who's starting at striker for Spain", "who's their quarterback"), a player's stats or injuries, the table/standings, or a club's history is NOT a score/schedule question \u2014 use web_search for those, even when the user names a team or a specific game. Calling this tool for a roster question hands you back the FIXTURE, and reading that out loud answers nothing (it just repeats the schedule at the user). Set list:true for any MULTI-game ask \u2014 "what games are on", "the NEXT games", "upcoming/today's World Cup games" (the plural "games" is the tell); leave it off for one team's score or "the next game" (singular). A FOLLOW-UP asking for MORE about a game already discussed ("tell me more about that game", details, color, highlights, a recap, how a team played) is ALSO not a score/schedule question: use web_search with a SELF-CONTAINED query naming both teams and the date from the conversation (e.g. "Yankees White Sox July 27 2026 recap key plays") \u2014 NEVER answer it from conversation memory alone; the score you already gave is exactly what the user wants to go BEYOND
 - get_current_time: query: {} - The CURRENT local date, time, and day of week. Call for "what time is it", "what's the date", "what day is it", AND to anchor any today/tomorrow/this-week/next reasoning. Authoritative \u2014 use it instead of your own clock, which is UTC and wrong for the user.
 - music: query: {action: "now_playing|search|play|pause|resume|stop|next|previous|volume_up|volume_down", query?: "song/artist/album text (for search or play)", uri?: "exact uri from a prior search result (for play)", speaker?: "speaker name, ONLY if the user names one"} - Music: what's playing now (action "now_playing" \u2014 "what song is this", "who sings this"), find music ("search" \u2014 returns matches to disambiguate), play it ("play" with the chosen uri, or a query), and transport \u2014 "stop the music"\u2192stop, "pause"\u2192pause, "turn it up/down"\u2192volume_up/volume_down, "next/skip"\u2192next. NEVER use "search" for a transport phrase
 - video_feeds: query: {action: "show|hide|show_all|hide_all|playback", camera?: "the camera name the user said, e.g. \\"pool\\" or \\"front door\\"", time?: "for playback ONLY \u2014 the user's own words for WHEN, e.g. \\"10 minutes ago\\", \\"at 10:30pm\\", \\"last night\\""} - Cameras: show a live feed ("show" + camera), hide it ("hide"), all of them ("show_all"/"hide_all"), or play back RECORDED footage from a past moment ("playback" + camera + time \u2014 "what happened at the front door around 3pm", "show me the pool camera 10 minutes ago"). Pass the user's own words through as "time" \u2014 the device resolves them in its own timezone. Use "show" (live) when no past time is mentioned
@@ -2591,11 +2592,29 @@ var LEAGUE_LABELS = {
   ucl: "Champions League",
   "la-liga": "La Liga"
 };
-function leagueLabel(league) {
-  const key = String(league || "").toLowerCase().trim().replace(/\s+/g, "-");
+function leagueLabel(league, sport) {
+  const raw = String(league || "").trim() || String(sport || "").trim();
+  const key = raw.toLowerCase().replace(/\s+/g, "-");
   if (LEAGUE_LABELS[key]) return LEAGUE_LABELS[key];
   if (!key) return "";
   return key.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+function dayWord(g, tz) {
+  const d = relativeDay(g.startTime, tz);
+  if (!d) return "";
+  if (d === "Today") return "today";
+  if (d === "Tomorrow") return "tomorrow";
+  if (d === "Yesterday") return "yesterday";
+  return `on ${d.replace(/^\w{3}, /, "")}`;
+}
+function dedupeGames(games) {
+  const seen = /* @__PURE__ */ new Set();
+  return games.filter((g) => {
+    const key = `${g.away || ""}|${g.home || ""}|${g.startTime || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 function sharedDayLabel(games, tz) {
   const days = new Set(games.map((g) => relativeDay(g.startTime, tz)).filter(Boolean));
@@ -2606,10 +2625,15 @@ function sharedDayLabel(games, tz) {
   if (d === "Yesterday") return "yesterday";
   return `on ${d.replace(/^\w{3}, /, "")}`;
 }
-function clause(g, tz) {
+function clause(g, tz, withDay = false) {
   const state = deriveState(g);
   const away = g.away || "TBD", home = g.home || "TBD";
-  if (state === "in") return `${away} ${g.awayScore ?? 0}, ${home} ${g.homeScore ?? 0}`;
+  if (state === "in") {
+    const hs = g.homeScore ?? 0, as = g.awayScore ?? 0;
+    if (hs === as) return `${away} and ${home} tied ${as}\u2013${hs}`;
+    const [ln, ls, tn, ts] = hs > as ? [home, hs, away, as] : [away, as, home, hs];
+    return `${ln} lead ${tn} ${ls}\u2013${ts}`;
+  }
   if (state === "post") {
     const hs = g.homeScore ?? 0, as = g.awayScore ?? 0;
     if (hs === as && !g.winner) return `${away} and ${home} tied ${as}\u2013${hs}`;
@@ -2618,24 +2642,34 @@ function clause(g, tz) {
     return `${w} beat ${l} ${ws}\u2013${ls}`;
   }
   const t = clockTime(g.startTime, tz);
-  return `${away} vs ${home}${t ? ` at ${t}` : ""}`;
+  const day = withDay ? dayWord(g, tz) : "";
+  return `${away} vs ${home}${t ? ` at ${t}` : ""}${day ? ` ${day}` : ""}`;
+}
+function highlightGames(games, when) {
+  if (when !== "last") {
+    const pre = games.filter((g) => deriveState(g) === "pre");
+    if (pre.length) return pre.slice(0, 2);
+  }
+  return games.slice(0, 2);
 }
 function slateVoice(games, query, tz) {
   const total = games.length;
   const team = String(query?.team ?? "").trim();
-  const label = leagueLabel(query?.league);
+  const label = leagueLabel(query?.league, query?.sport);
   const day = sharedDayLabel(games, tz);
+  const when = String(query?.when ?? "").toLowerCase();
   const noun = `game${total === 1 ? "" : "s"}`;
   const head = team ? `${team} have ${total} ${day ? "" : "upcoming "}${noun}${day ? ` ${day}` : ""}`.replace(/\s+/g, " ") : `There ${total === 1 ? "is" : "are"} ${total} ${label ? `${label} ` : ""}${noun}${day ? ` ${day}` : ""}`;
-  const picks = games.slice(0, 2).map((g) => clause(g, tz)).filter(Boolean);
+  const picks = highlightGames(games, when).map((g) => clause(g, tz, !day)).filter(Boolean);
   if (picks.length === 0) return `${head}.`;
   const list = picks.length >= 2 ? `${picks[0]}, and ${picks[1]}` : picks[0];
   return `${head}: ${list}.`;
 }
 function templateSlate(result, query, opts) {
   const tz = opts?.timezone;
-  const all = Array.isArray(result?.games) ? result.games : [];
-  if (all.length === 0) return { voice: "", structured_data: null };
+  const raw = Array.isArray(result?.games) ? result.games : [];
+  if (raw.length === 0) return { voice: "", structured_data: null };
+  const all = dedupeGames(raw);
   const sorted = all.slice().sort(compareGames);
   const card2 = {
     type: "sports",
@@ -2683,6 +2717,8 @@ function resolveWhen(query) {
 }
 function deriveState(g) {
   const s = (g.status || "").toLowerCase();
+  const d = (g.detail || "").toLowerCase();
+  if (/postpon|suspend|cancel/.test(s) || /postpon|suspend|cancel/.test(d)) return "pre";
   if (g.winner || s.includes("final") || s.includes("full")) return "post";
   if (g.homeScore == null && g.awayScore == null || s.includes("scheduled") || s.includes("pre")) return "pre";
   return "in";
@@ -3938,6 +3974,11 @@ function weatherResultToReading(w) {
       low: d.low,
       condition: wmoToCondition(d.weatherCode),
       precipProbability: d.precipProbability
+    })),
+    hourly: (w.hourly || []).map((h) => ({
+      time: h.time,
+      precipProb: h.precipProb,
+      condition: wmoToCondition(h.weatherCode)
     }))
   };
 }
@@ -3980,6 +4021,45 @@ function findDay(daily, name) {
 function weekendDays(daily) {
   return daily.filter((d) => WEEKEND.has(String(d.dayName || "").toLowerCase())).slice(0, 2);
 }
+var WET_CONDITIONS = /* @__PURE__ */ new Set(["rainy", "pouring", "snowy", "snowy-rainy", "lightning-rainy", "hail"]);
+function hourIsWet(h) {
+  const prob = Number(h?.precipProb) || 0;
+  return prob >= 50 || WET_CONDITIONS.has(String(h?.condition || "").toLowerCase());
+}
+function hourLabel(t) {
+  const s = String(t || "").trim();
+  const lbl = /^(\d{1,2})\s*(AM|PM)$/i.exec(s);
+  if (lbl) return `${parseInt(lbl[1], 10)} ${lbl[2].toUpperCase()}`;
+  const iso = /T(\d{2})/.exec(s);
+  if (iso) {
+    let h = parseInt(iso[1], 10);
+    const ap = h < 12 ? "AM" : "PM";
+    h %= 12;
+    if (h === 0) h = 12;
+    return `${h} ${ap}`;
+  }
+  return "";
+}
+function precipWord(hours) {
+  const w = hours.find(hourIsWet);
+  return String(w?.condition || "").toLowerCase().startsWith("snow") ? "snow" : "rain";
+}
+function precipTimingLine(data) {
+  const hrs = (Array.isArray(data.hourly) ? data.hourly : []).slice(0, 18);
+  if (hrs.length === 0) return currentLine(data);
+  const word = precipWord(hrs);
+  if (hourIsWet(hrs[0])) {
+    const stop = hrs.findIndex((h, i) => i > 0 && !hourIsWet(h));
+    if (stop === -1) return `The ${word} should stick around for the next several hours.`;
+    const when2 = hourLabel(hrs[stop].time);
+    return when2 ? `The ${word} should let up around ${when2}.` : `The ${word} should let up soon.`;
+  }
+  const start = hrs.findIndex(hourIsWet);
+  if (start === -1) return `No ${word} in the forecast for the next several hours.`;
+  const when = hourLabel(hrs[start].time);
+  const Cap = word.charAt(0).toUpperCase() + word.slice(1);
+  return when ? `${Cap} looks likely around ${when}.` : `${Cap} is possible later.`;
+}
 function currentLine(data) {
   const c = data.current || {};
   const place = data.location?.city ? ` in ${data.location.city}` : "";
@@ -4010,6 +4090,11 @@ function templateWeather(data, query = {}) {
   } else if (tf === "today") {
     const today = daily[0];
     voice = today ? `Today: ${dayLine(today)}.` : currentLine(data);
+  } else if (tf === "tomorrow") {
+    const t = daily[1];
+    voice = t ? `Tomorrow: ${dayLine(t)}.` : currentLine(data);
+  } else if (tf === "precip_timing") {
+    voice = precipTimingLine(data);
   } else if (tf && tf !== "current" && tf !== "this_week") {
     const d = findDay(daily, tf);
     voice = d ? `${d.dayName}: ${dayLine(d)}.` : currentLine(data);
@@ -4400,17 +4485,20 @@ async function orchestrate(deps, io, voiceCtx) {
     }
     const sportsCard = providedSports && p1Parsed?.type === "response" ? templateSports(providedSports, providedSports.query || {}, { timezone: req.timezone }).structured_data : void 0;
     const imageHint = !sportsCard && retrievePictures && p1Parsed?.type === "response" ? p1Parsed.image : void 0;
-    const imageCard = imageHint?.searchTerms ? await resolveImageHint(p1Parsed, token, sessionId, io.toolConn) : void 0;
+    const salvagedTerms = !imageHint?.searchTerms && !sportsCard && retrievePictures && p1Parsed?.type === "response" ? promisedPictureQuery(p1Parsed?.voice, req.text) : null;
+    const effImageHint = imageHint?.searchTerms ? imageHint : salvagedTerms ? { searchTerms: salvagedTerms } : void 0;
+    if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field \u2192 searching "${salvagedTerms}"`);
+    const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn) : void 0;
     const card2 = sportsCard ?? imageCard;
     const calendarUsed = !!(providedCalendar && !sportsCard && !imageCard && p1Parsed?.type === "response");
     const logMeta = sportsCard ? {
       tool_used: "get_sports_scores",
       response_type: p1Parsed?.type ?? null,
       tool_trace: { route: "sports", tool: "get_sports_scores", args: providedSports?.query ?? null, caps }
-    } : imageHint?.searchTerms ? {
+    } : effImageHint?.searchTerms ? {
       tool_used: "show_image",
       response_type: p1Parsed?.type ?? null,
-      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: imageHint.searchTerms, criteria: imageHint.criteria ?? null, resolved: !!imageCard }, caps }
+      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: effImageHint.searchTerms, criteria: effImageHint.criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms }, caps }
     } : calendarUsed ? {
       tool_used: "calendar_context",
       response_type: p1Parsed?.type ?? null,
@@ -4532,8 +4620,16 @@ async function orchestrate(deps, io, voiceCtx) {
     if ((sports?.games?.length || 0) === 0 && groundingAvailable) {
       return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
+    const cardForGames = () => {
+      const n = sports?.games?.length ?? 0;
+      if (n === 0) return void 0;
+      if (wantsSlate && n !== 1) {
+        return templateSlate(sports, sportsQuery, { timezone: req.timezone }).structured_data ?? void 0;
+      }
+      return templateSports(sports, sportsQuery, { timezone: req.timezone }).structured_data ?? void 0;
+    };
     if ((sports?.games?.length || 0) > 0 && (wantsGameDetail(req.text) || !templateCanAnswer(req.text))) {
-      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const synth = templateSports(sports, sportsQuery, { timezone: req.timezone });
     if ((wantsSlate || synth.fallback) && (sports?.games?.length ?? 0) !== 1) {
@@ -4569,7 +4665,7 @@ async function orchestrate(deps, io, voiceCtx) {
           route
         });
       }
-      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const parsed = { type: "response", voice: synth.voice, text: synth.text, action: null };
     const templatePass = {
@@ -4930,7 +5026,7 @@ function routeOf(parsed) {
   if (parsed.type === "info_request") return parsed.tool || "unknown";
   return "direct";
 }
-async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false) {
+async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false, card2 = void 0) {
   const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
   deps.onStage?.({ stage: "synthesizing", status: "Finalizing", elapsed_ms: Date.now() - t0 });
   const kind = inquiryType === "home-assistant" ? "decide" : "narrate";
@@ -4964,7 +5060,22 @@ async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages,
   const usage = sumUsage([pass1.raw?.usage, pass2.raw.usage]);
   const imageHint = parsed?.image;
   const imageCard = inquiryType === "web-search" && context?.retrievePicturesEnabled !== false && parsed?.type === "response" && imageHint?.searchTerms ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn) : void 0;
-  return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: pass1.latency_ms + pass2.latency_ms, retain, sessionId, route, structured_data: imageCard ?? void 0 });
+  return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: pass1.latency_ms + pass2.latency_ms, retain, sessionId, route, structured_data: card2 ?? imageCard ?? void 0 });
+}
+function promisedPictureQuery(voice, userText) {
+  const v = String(voice || "");
+  const promises = /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) || // "a picture of X"
+  /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
+  /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) || // "here he is"
+  /\btake a look\b/i.test(v);
+  if (!promises) return null;
+  const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
+  let subject = m?.[1]?.trim();
+  if (!subject) {
+    subject = String(userText || "").replace(/^(?:hey dashie[,\s]*)?(?:can you |could you |please |will you )?(?:show me|show us|pull up|find|display|get me|let me see|i want to see|can i see)\s+/i, "").replace(/\b(?:a |an |the )?(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?/i, "").replace(/[?.!]+$/, "").trim();
+  }
+  subject = subject.replace(/\b(?:please|for me|right now)\b/gi, "").replace(/\s+/g, " ").trim();
+  return subject && subject.length >= 2 ? subject : null;
 }
 async function resolveImageHint(parsed, token, sessionId, conn) {
   const hint = parsed?.image;
@@ -5189,10 +5300,11 @@ function toolMeta(parsed, route, caps) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   looksLikeSportsAsk,
+  promisedPictureQuery,
   resolvePersonality,
   runOrchestration,
   runSports,
   templateCanAnswer,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "dda157e0da74e66bb3eadc29a9021e42764ea4e2";
+module.exports.BRAIN_SOURCE_SHA = "e9a242c316e500e0bb1c0724557f87b41ec0c4d1";

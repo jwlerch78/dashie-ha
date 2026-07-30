@@ -137,6 +137,11 @@ function resolveWhen(query: Record<string, unknown>): 'last' | 'next' | 'live' |
 
 export function deriveState(g: Game): State {
   const s = (g.status || '').toLowerCase();
+  const d = (g.detail || '').toLowerCase();
+  // A postponed/suspended/cancelled game isn't being played: ESPN sends it with 0–0 scores and
+  // no final/scheduled marker, so it fell to 'in' and the slate voiced it as "X and Y tied 0–0"
+  // (field 2026-07-28: yesterday's rained-out Reds–Guardians game read as a live tie).
+  if (/postpon|suspend|cancel/.test(s) || /postpon|suspend|cancel/.test(d)) return 'pre';
   if (g.winner || s.includes('final') || s.includes('full')) return 'post';
   if ((g.homeScore == null && g.awayScore == null) || s.includes('scheduled') || s.includes('pre')) return 'pre';
   return 'in';

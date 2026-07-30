@@ -82,11 +82,37 @@ const LEAGUE_LABELS: Record<string, string> = {
   'world-cup': 'World Cup', 'premier-league': 'Premier League', epl: 'Premier League',
   'champions-league': 'Champions League', ucl: 'Champions League', 'la-liga': 'La Liga',
 };
-function leagueLabel(league?: string): string {
-  const key = String(league || '').toLowerCase().trim().replace(/\s+/g, '-');
+function leagueLabel(league?: string, sport?: string): string {
+  // Fall back to the SPORT when no league is named ("what baseball games are on" sets
+  // sport, not league) so the head reads "3 baseball games" instead of a bare "3 games".
+  const raw = String(league || '').trim() || String(sport || '').trim();
+  const key = raw.toLowerCase().replace(/\s+/g, '-');
   if (LEAGUE_LABELS[key]) return LEAGUE_LABELS[key];
   if (!key) return '';
   return key.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/** Relative-day word for the spoken clause ("today" / "tomorrow" / "on Jun 27"), or ''. */
+function dayWord(g: Game, tz?: string): string {
+  const d = relativeDay(g.startTime, tz);
+  if (!d) return '';
+  if (d === 'Today') return 'today';
+  if (d === 'Tomorrow') return 'tomorrow';
+  if (d === 'Yesterday') return 'yesterday';
+  return `on ${d.replace(/^\w{3}, /, '')}`;   // "Sat, Jun 27" → "on Jun 27"
+}
+
+/** Drop provider-duplicate games (same matchup + start) before counting/phrasing — a doubled
+ *  entry rendered twice as the same "Team vs Team at TIME" string (field 2026-07-27). Two games
+ *  of a SERIES survive (distinct startTime) and the day suffix disambiguates them. */
+function dedupeGames(games: Game[]): Game[] {
+  const seen = new Set<string>();
+  return games.filter((g) => {
+    const key = `${g.away || ''}|${g.home || ''}|${g.startTime || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** A shared day label when every game falls on the same day ("today" / "tomorrow" /
@@ -101,11 +127,20 @@ function sharedDayLabel(games: Game[], tz?: string): string {
   return `on ${d.replace(/^\w{3}, /, '')}`;   // "Sat, Jun 27" → "on Jun 27"
 }
 
-/** One game → a short spoken clause for the highlight names. */
-function clause(g: Game, tz?: string): string {
+/** One game → a short spoken clause for the highlight names. [withDay] appends the relative day
+ *  to a scheduled matchup when the slate spans multiple days (so a two-game series doesn't render
+ *  as two byte-identical "Team vs Team at TIME" strings). */
+function clause(g: Game, tz?: string, withDay = false): string {
   const state = deriveState(g);
   const away = g.away || 'TBD', home = g.home || 'TBD';
-  if (state === 'in') return `${away} ${g.awayScore ?? 0}, ${home} ${g.homeScore ?? 0}`;
+  if (state === 'in') {
+    // Leader-first reads naturally ("Rangers lead Mariners 7–2") — a bare "Mariners 2, Rangers 7"
+    // in a "what's on" list felt like a raw stat dump (field 2026-07-27).
+    const hs = g.homeScore ?? 0, as = g.awayScore ?? 0;
+    if (hs === as) return `${away} and ${home} tied ${as}–${hs}`;
+    const [ln, ls, tn, ts] = hs > as ? [home, hs, away, as] : [away, as, home, hs];
+    return `${ln} lead ${tn} ${ls}–${ts}`;
+  }
   if (state === 'post') {
     const hs = g.homeScore ?? 0, as = g.awayScore ?? 0;
     if (hs === as && !g.winner) return `${away} and ${home} tied ${as}–${hs}`;
@@ -114,19 +149,33 @@ function clause(g: Game, tz?: string): string {
     return `${w} beat ${l} ${ws}–${ls}`;
   }
   const t = clockTime(g.startTime, tz);
-  return `${away} vs ${home}${t ? ` at ${t}` : ''}`;
+  const day = withDay ? dayWord(g, tz) : '';
+  return `${away} vs ${home}${t ? ` at ${t}` : ''}${day ? ` ${day}` : ''}`;
+}
+
+/** Which 1–2 games to name aloud. A forward / "what's on" slate reads cleaner as SCHEDULED
+ *  matchups than a live score, so prefer upcoming games; a "last" (scores) ask keeps the finals.
+ *  Falls back to the sorted top-2 when there are no upcoming games (an all-live/all-final slate). */
+function highlightGames(games: Game[], when: string): Game[] {
+  if (when !== 'last') {
+    const pre = games.filter((g) => deriveState(g) === 'pre');
+    if (pre.length) return pre.slice(0, 2);
+  }
+  return games.slice(0, 2);
 }
 
 function slateVoice(games: Game[], query: Record<string, unknown>, tz?: string): string {
   const total = games.length;
   const team = String(query?.team ?? '').trim();
-  const label = leagueLabel(query?.league as string | undefined);
+  const label = leagueLabel(query?.league as string | undefined, query?.sport as string | undefined);
   const day = sharedDayLabel(games, tz);
+  const when = String(query?.when ?? '').toLowerCase();
   const noun = `game${total === 1 ? '' : 's'}`;
   const head = team
     ? `${team} have ${total} ${day ? '' : 'upcoming '}${noun}${day ? ` ${day}` : ''}`.replace(/\s+/g, ' ')
     : `There ${total === 1 ? 'is' : 'are'} ${total} ${label ? `${label} ` : ''}${noun}${day ? ` ${day}` : ''}`;
-  const picks = games.slice(0, 2).map((g) => clause(g, tz)).filter(Boolean);
+  // Show the day per-pick only when the slate spans multiple days (no shared day label).
+  const picks = highlightGames(games, when).map((g) => clause(g, tz, !day)).filter(Boolean);
   if (picks.length === 0) return `${head}.`;
   const list = picks.length >= 2 ? `${picks[0]}, and ${picks[1]}` : picks[0];
   return `${head}: ${list}.`;
@@ -142,9 +191,10 @@ export function templateSlate(
   opts?: { timezone?: string },
 ): SportsSlateSynthesis {
   const tz = opts?.timezone;
-  const all = (Array.isArray(result?.games) ? result.games : []) as Game[];
-  if (all.length === 0) return { voice: '', structured_data: null };
+  const raw = (Array.isArray(result?.games) ? result.games : []) as Game[];
+  if (raw.length === 0) return { voice: '', structured_data: null };
 
+  const all = dedupeGames(raw);
   const sorted = all.slice().sort(compareGames);
   const card: SportsSlateCard = {
     type: 'sports',

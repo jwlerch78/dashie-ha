@@ -29,6 +29,10 @@ export interface WeatherReading {
     condition?: string;
     precipProbability?: number;
   }>;
+  // Next ~18 hours from NOW (index 0 = current hour). `time` is either a spoken label
+  // ("3 PM"/"3PM") or a location-local ISO ("…T15:00"); the template reads the hour off
+  // either. Absent → the "when will it stop/start" branch falls back to current conditions.
+  hourly?: Array<{ time?: string; precipProb?: number; condition?: string }>;
 }
 
 export interface WeatherQuery {
@@ -72,6 +76,11 @@ export function weatherResultToReading(w: WeatherResult): WeatherReading {
       low: d.low,
       condition: wmoToCondition(d.weatherCode),
       precipProbability: d.precipProbability,
+    })),
+    hourly: (w.hourly || []).map((h) => ({
+      time: h.time,
+      precipProb: h.precipProb,
+      condition: wmoToCondition(h.weatherCode),
     })),
   };
 }
@@ -126,6 +135,52 @@ function weekendDays(daily: Day[]): Day[] {
   return daily.filter((d) => WEEKEND.has(String(d.dayName || '').toLowerCase())).slice(0, 2);
 }
 
+// ── precip timing ("when will the rain stop/start") ─────────────────────────
+type Hour = NonNullable<WeatherReading['hourly']>[number];
+const WET_CONDITIONS = new Set(['rainy', 'pouring', 'snowy', 'snowy-rainy', 'lightning-rainy', 'hail']);
+/** An hour counts as "wet" at ≥50% precip chance OR an outright precip condition code. */
+function hourIsWet(h: Hour | undefined): boolean {
+  const prob = Number(h?.precipProb) || 0;
+  return prob >= 50 || WET_CONDITIONS.has(String(h?.condition || '').toLowerCase());
+}
+/** Spoken hour label from a "3 PM"/"3PM" label OR a "…T15:00" ISO — else ''. */
+function hourLabel(t: string | undefined): string {
+  const s = String(t || '').trim();
+  const lbl = /^(\d{1,2})\s*(AM|PM)$/i.exec(s);
+  if (lbl) return `${parseInt(lbl[1], 10)} ${lbl[2].toUpperCase()}`;
+  const iso = /T(\d{2})/.exec(s);
+  if (iso) {
+    let h = parseInt(iso[1], 10);
+    const ap = h < 12 ? 'AM' : 'PM';
+    h %= 12; if (h === 0) h = 12;
+    return `${h} ${ap}`;
+  }
+  return '';
+}
+/** "rain" or "snow" from the first wet hour's condition (defaults to rain). */
+function precipWord(hours: Hour[]): string {
+  const w = hours.find(hourIsWet);
+  return String(w?.condition || '').toLowerCase().startsWith('snow') ? 'snow' : 'rain';
+}
+/** "When will it stop/start" from the hourly window. Falls back to current conditions
+ *  when no hourly data is present (e.g. a device path that doesn't fetch hourly yet). */
+function precipTimingLine(data: WeatherReading): string {
+  const hrs = (Array.isArray(data.hourly) ? data.hourly : []).slice(0, 18);
+  if (hrs.length === 0) return currentLine(data);
+  const word = precipWord(hrs);
+  if (hourIsWet(hrs[0])) {
+    const stop = hrs.findIndex((h, i) => i > 0 && !hourIsWet(h));
+    if (stop === -1) return `The ${word} should stick around for the next several hours.`;
+    const when = hourLabel(hrs[stop].time);
+    return when ? `The ${word} should let up around ${when}.` : `The ${word} should let up soon.`;
+  }
+  const start = hrs.findIndex(hourIsWet);
+  if (start === -1) return `No ${word} in the forecast for the next several hours.`;
+  const when = hourLabel(hrs[start].time);
+  const Cap = word.charAt(0).toUpperCase() + word.slice(1);
+  return when ? `${Cap} looks likely around ${when}.` : `${Cap} is possible later.`;
+}
+
 function currentLine(data: WeatherReading): string {
   const c = data.current || {};
   const place = data.location?.city ? ` in ${data.location.city}` : '';
@@ -168,6 +223,16 @@ export function templateWeather(
   } else if (tf === 'today') {
     const today = daily[0];
     voice = today ? `Today: ${dayLine(today)}.` : currentLine(data);
+  } else if (tf === 'tomorrow') {
+    // daily[0] is today, so tomorrow is daily[1]. Without this branch "tomorrow" fell through
+    // to the weekday matcher (findDay), missed, and defaulted to currentLine → "…today" (the
+    // 2026-07 field bug: "weather tomorrow" answered with today's conditions).
+    const t = daily[1];
+    voice = t ? `Tomorrow: ${dayLine(t)}.` : currentLine(data);
+  } else if (tf === 'precip_timing') {
+    // "When will the rain stop/start" — scan the hourly window (2026-07 field bug: this
+    // answered with a generic current snapshot because no hourly data was fetched).
+    voice = precipTimingLine(data);
   } else if (tf && tf !== 'current' && tf !== 'this_week') {
     const d = findDay(daily, tf);
     voice = d ? `${d.dayName}: ${dayLine(d)}.` : currentLine(data);
