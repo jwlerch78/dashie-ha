@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Account/sharing bridge — the LAN-sharing lane to the Chickadee add-on.
+"""Account/sharing bridge — the LAN-sharing lane to the Dashie for Home Assistant add-on.
 
 Ported from the Dashie integration's addon_bridge account helpers. The add-on
 holds the household account JWT and the sharing opt-in; this module is the only
@@ -149,13 +149,13 @@ async def authorize_device(hass: HomeAssistant, user_code: str) -> tuple[dict, i
         )
         return body, status
     except AddonUnavailable as err:
-        return {"error": "addon_unavailable", "message": f"Chickadee add-on unreachable: {err}"}, 503
+        return {"error": "addon_unavailable", "message": f"Dashie for Home Assistant add-on unreachable: {err}"}, 503
 
 
 async def converse_local(hass: HomeAssistant, payload: dict) -> tuple[dict, int]:
     """Run a transcript through the add-on's own brain (/api/voice/converse-local).
 
-    On the Chickadee add-on this routes per ITS config: Configuration-tab engines
+    On the Dashie for Home Assistant add-on this routes per ITS config: Configuration-tab engines
     first, signed-in cloud fallback. Raises SharingDisabled on 403, AddonUnavailable
     when unreachable.
     """

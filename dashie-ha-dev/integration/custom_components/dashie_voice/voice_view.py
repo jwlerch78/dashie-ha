@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Chickadee voice gateway — the /api/chickadee/voice/* views for LAN devices.
+"""Dashie Voice gateway — the /api/dashie_voice/voice/* views for LAN devices.
 
 Ported from the Dashie integration's voice_view.py. A satellite on the LAN
 (any device holding an HA token — Dashie tablets in kiosk mode today) reaches
-household voice through these views; they proxy to the Chickadee add-on's
+household voice through these views; they proxy to the Dashie for Home Assistant add-on's
 /api/internal/* (account credential, sharing gate) and to the cloud brain on
 the account's behalf.
 
-Every view serves TWO paths: the canonical `/api/chickadee/...` and a
+Every view serves TWO paths: the canonical `/api/dashie_voice/...` and a
 `/api/dashie/...` legacy alias. The alias is a compatibility contract with
 shipped Dashie APKs (a path is a wire value — same rule as the `dashie_cloud`
 engine id) and must never be removed while those apps are in the field; both
-paths hit the same handler. Ownership: when the Chickadee integration is
+paths hit the same handler. Ownership: when the Dashie Voice integration is
 configured it registers these views and the Dashie integration cedes (its
 __init__ checks our config entries); see async_register_voice_views.
 
@@ -147,12 +147,12 @@ async def call_cloud_brain(hass: HomeAssistant, payload: dict, cred: str | None 
         return turn, (200 if resp.status < 400 else resp.status)
 
 
-class ChickadeeVoiceConverseView(HomeAssistantView):
+class DashieVoiceConverseView(HomeAssistantView):
     """Authed by the HA token; calls the brain on the account's behalf."""
 
-    url = "/api/chickadee/voice/converse"
+    url = "/api/dashie_voice/voice/converse"
     extra_urls = ["/api/dashie/voice/converse"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:converse"
+    name = "api:dashie_voice:voice:converse"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -172,10 +172,10 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         # Authoritative account route stamped on every response so a device with
         # a stale cached route self-corrects next turn (brain-route strand fix).
         authoritative_route = (await get_voice_config(hass)).get("route", "cloud")
-        # Both header names carry the same value: X-Chickadee-Brain-Route is
+        # Both header names carry the same value: X-Dashie-Voice-Brain-Route is
         # canonical, X-Dashie-Brain-Route stays for shipped Dashie APKs.
         route_header = {
-            "X-Chickadee-Brain-Route": authoritative_route,
+            "X-Dashie-Voice-Brain-Route": authoritative_route,
             "X-Dashie-Brain-Route": authoritative_route,
         }
 
@@ -241,12 +241,12 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         return downstream
 
 
-class ChickadeeVoiceStatusView(HomeAssistantView):
+class DashieVoiceStatusView(HomeAssistantView):
     """Capability probe — can this HA offer household cloud voice to LAN endpoints?"""
 
-    url = "/api/chickadee/voice/status"
+    url = "/api/dashie_voice/voice/status"
     extra_urls = ["/api/dashie/voice/status"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:status"
+    name = "api:dashie_voice:voice:status"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -276,7 +276,7 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
             # integration's copy of this view has no such field (absent =
             # dashie), so shared devices can brand their "manage in ..."
             # strings correctly. New nullable field — old APKs ignore it.
-            "hub": "chickadee",
+            "hub": "dashie_voice",
         }
         account_email = status.get("account_email")
         if isinstance(account_email, str) and account_email:
@@ -299,12 +299,12 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
         return web.json_response(body)
 
 
-class ChickadeeVoiceSessionView(HomeAssistantView):
+class DashieVoiceSessionView(HomeAssistantView):
     """Vend a short-lived STT token bundle to a LAN endpoint (sharing-gated)."""
 
-    url = "/api/chickadee/voice/session"
+    url = "/api/dashie_voice/voice/session"
     extra_urls = ["/api/dashie/voice/session"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:session"
+    name = "api:dashie_voice:voice:session"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -353,15 +353,15 @@ class ChickadeeVoiceSessionView(HomeAssistantView):
         return web.json_response(bundle, status=200)
 
 
-class ChickadeeAccountAuthorizeView(HomeAssistantView):
+class DashieVoiceAccountAuthorizeView(HomeAssistantView):
     """Authorize a LAN kiosk tablet into the household account (Kiosk Real Login).
 
     No credential is returned — the tablet polls the cloud for its own session.
     """
 
-    url = "/api/chickadee/account/authorize"
+    url = "/api/dashie_voice/account/authorize"
     extra_urls = ["/api/dashie/account/authorize"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:account:authorize"
+    name = "api:dashie_voice:account:authorize"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -403,12 +403,12 @@ class ChickadeeAccountAuthorizeView(HomeAssistantView):
         )
 
 
-class ChickadeeVoiceLiveTokenView(HomeAssistantView):
+class DashieVoiceLiveTokenView(HomeAssistantView):
     """Broker a Live-only Gemini ephemeral token from the box's stored key."""
 
-    url = "/api/chickadee/voice/live-token"
+    url = "/api/dashie_voice/voice/live-token"
     extra_urls = ["/api/dashie/voice/live-token"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:live-token"
+    name = "api:dashie_voice:voice:live-token"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -430,9 +430,9 @@ class ChickadeeVoiceLiveTokenView(HomeAssistantView):
 
 def register_voice_views(hass: HomeAssistant) -> None:
     """Register the gateway views (call only via async_register_voice_views)."""
-    hass.http.register_view(ChickadeeVoiceConverseView())
-    hass.http.register_view(ChickadeeVoiceStatusView())
-    hass.http.register_view(ChickadeeVoiceSessionView())
-    hass.http.register_view(ChickadeeAccountAuthorizeView())
-    hass.http.register_view(ChickadeeVoiceLiveTokenView())
-    _LOGGER.info("Registered Chickadee voice gateway views (/api/chickadee/voice/* + legacy /api/dashie/voice/* aliases)")
+    hass.http.register_view(DashieVoiceConverseView())
+    hass.http.register_view(DashieVoiceStatusView())
+    hass.http.register_view(DashieVoiceSessionView())
+    hass.http.register_view(DashieVoiceAccountAuthorizeView())
+    hass.http.register_view(DashieVoiceLiveTokenView())
+    _LOGGER.info("Registered Dashie Voice gateway views (/api/dashie_voice/voice/* + legacy /api/dashie/voice/* aliases)")

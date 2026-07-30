@@ -2,9 +2,9 @@
    LoginEmail — email/password sign-in on the add-on login screen.
 
    Only lights up when the add-on's runtime advertises `email_auth: true`
-   in GET /api/runtime (the Chickadee add-on does; the Dashie add-on and
+   in GET /api/runtime (the Dashie for HA add-on does; the Dashie Console add-on and
    the standalone web console don't yet — their button stays "Coming
-   soon"). Server contract (see the chickadee add-on's api/console-auth):
+   soon"). Server contract (see the Dashie for HA add-on's api/console-auth):
      POST api/auth/email-signin  { email, password }        → { ok } | { ok:false, error, message }
      POST api/auth/email-signup  { email, password, name }  → same
    On ok the JWT is already persisted server-side — we just reload so

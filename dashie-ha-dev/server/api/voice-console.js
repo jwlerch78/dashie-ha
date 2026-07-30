@@ -103,7 +103,7 @@ router.post('/probe', express.json(), async (req, res) => {
 
 // POST /api/voice/preview  { url, voice, text? }  → audio/wav
 // "Hear this voice" — proxied for the same mixed-content reason as the probe.
-const PREVIEW_TEXT = "Hi, I'm your Chickadee voice. Tomorrow looks sunny with a high of seventy five.";
+const PREVIEW_TEXT = "Hi, I'm your Dashie voice. Tomorrow looks sunny with a high of seventy five.";
 const PREVIEW_TIMEOUT_MS = 20000;   // a cold high-quality voice can take a few seconds
 
 router.post('/preview', express.json(), async (req, res) => {
@@ -158,7 +158,7 @@ router.post('/discover', express.json(), async (req, res) => {
 
 // POST /api/voice/converse-local — one brain turn for the Console's chat/test
 // card. Same route logic as the bridge's /api/voice/converse (converse.js:
-// add-on options endpoint → signed-in Chickadee Cloud → setup guidance), just
+// add-on options endpoint → signed-in Dashie Cloud → setup guidance), just
 // Ingress-trusted instead of secret-gated.
 router.post('/converse-local', express.json(), async (req, res) => {
     const body = req.body || {};
@@ -181,8 +181,8 @@ router.get('/local-status', (req, res) => {
         endpoint: endpoint || null,
         model: model || null,
         signed_in: signedIn,
-        stt: opts.stt_url || (signedIn ? 'chickadee_cloud' : null),
-        tts: opts.tts_url || (signedIn ? 'chickadee_cloud' : null),
+        stt: opts.stt_url || (signedIn ? 'dashie_cloud' : null),
+        tts: opts.tts_url || (signedIn ? 'dashie_cloud' : null),
     });
 });
 

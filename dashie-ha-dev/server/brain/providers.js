@@ -138,7 +138,7 @@ function resolveByokTarget(model) {
                 chatUrl: OPENAI_COMPAT.openrouter.chatUrl, key: entry.key, provider: 'openrouter',
                 label: 'OpenRouter', model: orModel,
                 // OpenRouter's app-attribution headers (optional, but they rank/allow-list on them).
-                headers: { 'HTTP-Referer': 'https://github.com/jwlerch78/chickadee', 'X-Title': 'Chickadee' },
+                headers: { 'HTTP-Referer': 'https://github.com/jwlerch78/dashie-ha-console', 'X-Title': 'Dashie' },
             };
         }
     }

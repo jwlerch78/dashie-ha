@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Dashie Voice",
+        "description": "Dashie Voice routes your Assist pipeline to a pluggable brain — your own API keys, a local model, or Dashie Cloud — configured in the Dashie for Home Assistant add-on. A ready-to-use Assist pipeline is created for you.",
+        "data": {
+          "assistant_name": "Assistant name",
+          "ignore_addon": "Set up anyway (I'll install the add-on later)"
+        }
+      },
+      "hassio_confirm": {
+        "title": "Dashie for Home Assistant add-on discovered",
+        "description": "The Dashie for Home Assistant add-on is running on this Home Assistant. Add the Dashie Voice pipeline? A ready-to-use Assist pipeline is created for you."
+      }
+    },
+    "error": {
+      "addon_unreachable": "The Dashie for Home Assistant add-on isn't reachable. Install and start it, or choose 'Set up anyway'."
+    },
+    "abort": {
+      "already_configured": "Dashie Voice is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Dashie Voice options",
+        "description": "Dashie for Home Assistant add-on: {addon_status}\n\nRenaming updates the assistant's display name. Engine settings (brain, STT, TTS) live in the add-on's console.",
+        "data": {
+          "assistant_name": "Assistant name"
+        }
+      }
+    }
+  }
+}

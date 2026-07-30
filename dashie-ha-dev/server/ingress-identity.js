@@ -20,7 +20,7 @@
 //      console API already trusts exactly this signal — see index.js's route map:
 //      "CONSOLE (HA Ingress authenticates the user; no bridge secret)".
 //
-//   2. It is NOT authorization for a Chickadee ACCOUNT. It grants nothing
+//   2. It is NOT authorization for a Dashie ACCOUNT. It grants nothing
 //      cloud-side: no household, no credits, no hosted engines. Those still need
 //      a real signed JWT. All this decides is whether the UI has any business
 //      showing a sign-in wall to someone who only wants their own local engines.

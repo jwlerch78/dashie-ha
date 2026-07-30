@@ -1,6 +1,12 @@
 /* ============================================================
-   Feature Gate — per-build visibility rules for the console
-   (open-core Chickadee build and the Dashie delta build share it).
+   Feature Gate — per-EDITION visibility rules for the console.
+   One shared console, two editions: the PUBLISHED build (the
+   inspectable core that ships in the Dashie for Home Assistant
+   add-on) and the FULL build (published core + the closed family
+   delta: calendar, chores, family, photos, …).
+
+   Renamed from a brand axis to an edition axis on 2026-07-30 —
+   same boundary, correct name. See CONSOLE_ISOLATION.md.
 
    Rules (composable, per-feature key):
 
@@ -40,35 +46,62 @@ const FeatureGate = {
     },
 
     /**
-     * Truthy in the open-core Chickadee console build (the Chickadee add-on
-     * vendors this SPA and generates a brand.js with `build: 'chickadee'`).
-     * The Dashie brand.js has no `build` field, so every Chickadee branch
-     * below is a no-op for Dashie builds.
+     * Truthy in the PUBLISHED console build — the inspectable core shipped by
+     * the Dashie for Home Assistant add-on, whose brand.js declares
+     * `build: 'published'`. The full (family) build declares `build: 'full'`.
+     *
+     * FAILS CLOSED. Before 2026-07-30 the full build's brand.js simply had no
+     * `build` field, so "unknown" resolved to false → full-build behaviour →
+     * every family page visible. That is the wrong direction to fail on the one
+     * invariant that matters most here (I1: no family pages in the published
+     * build), and it made a typo or a half-generated brand.js indistinguishable
+     * from a deliberate full build. Both brand.js files now state it, and
+     * anything unrecognised is treated as published (restrictive) with a loud
+     * DROP so it can't be silent.
      */
-    isChickadeeBuild() {
-        return typeof BRAND !== 'undefined' && BRAND?.build === 'chickadee';
+    isPublishedBuild() {
+        const build = (typeof BRAND !== 'undefined' && BRAND?.build) || null;
+        if (build === 'published') return true;
+        if (build === 'full') return false;
+        if (!this._warnedUnknownBuild) {
+            this._warnedUnknownBuild = true;
+            console.warn(
+                `DROP: unknown BRAND.build ${JSON.stringify(build)} — expected ` +
+                `'published' or 'full'. Treating this as the PUBLISHED build, so the ` +
+                `closed family pages stay hidden. Fix the brand.js this console was ` +
+                `built with; do not rely on this fallback.`
+            );
+        }
+        return true;
     },
 
+    /** One-shot latch so the unknown-build DROP doesn't spam every re-render. */
+    _warnedUnknownBuild: false,
+
     /**
-     * Pages that don't exist in the Chickadee console: the closed Dashie
-     * family product (and Dashie device management). Checked FIRST in
-     * isPageEnabled — a Chickadee build never shows these regardless of
-     * account tier/entitlement.
+     * The CLOSED DELTA: pages that do not exist in the published console at all
+     * — the family product (and Dashie device management). Checked FIRST in
+     * isPageEnabled, so a published build never shows these regardless of
+     * account tier or entitlement.
+     *
+     * "Closed delta", not "hidden": in the published build these page modules
+     * are ABSENT from the tree (check-console-tree.sh enforces it), and absent
+     * is the stronger claim.
      */
-    CHICKADEE_HIDDEN_PAGES: new Set([
+    CLOSED_DELTA_PAGES: new Set([
         'devices', 'family', 'calendar', 'chores', 'rewards',
         'locations', 'photos', 'video-feeds',
         // Preferences duplicates what HA already knows (language/time/units) —
-        // the Chickadee stack derives from HA config instead (John, 2026-07-27).
+        // the published stack derives from HA config instead (John, 2026-07-27).
         'preferences',
     ]),
 
     /**
-     * FEATURE_RULES overrides for the Chickadee build. Voice/AI and the
-     * Chickadee Cloud credits meter ARE the product there — the Dashie
-     * beta-cohort gate ('beta-only') doesn't apply to Chickadee accounts.
+     * FEATURE_RULES overrides for the published build. Voice/AI and the
+     * Dashie Cloud credits meter ARE the product there, so the family
+     * beta-cohort gate ('beta-only') doesn't apply.
      */
-    CHICKADEE_RULE_OVERRIDES: {
+    PUBLISHED_RULE_OVERRIDES: {
         voiceAi: true,
         credits: true,
     },
@@ -182,8 +215,8 @@ const FeatureGate = {
 
     shouldShow(key) {
         let rule = this.FEATURE_RULES[key];
-        if (this.isChickadeeBuild() && key in this.CHICKADEE_RULE_OVERRIDES) {
-            rule = this.CHICKADEE_RULE_OVERRIDES[key];
+        if (this.isPublishedBuild() && key in this.PUBLISHED_RULE_OVERRIDES) {
+            rule = this.PUBLISHED_RULE_OVERRIDES[key];
         }
         if (rule === undefined) return true;        // unknown key → visible (safer)
         if (rule === true)  return true;
@@ -270,8 +303,8 @@ const FeatureGate = {
 
     /** True if the given page route should be visible in the current env. */
     isPageEnabled(page) {
-        if (this.isChickadeeBuild()) {
-            if (this.CHICKADEE_HIDDEN_PAGES.has(page)) return false;
+        if (this.isPublishedBuild()) {
+            if (this.CLOSED_DELTA_PAGES.has(page)) return false;
             const key = this.PAGE_FEATURE[page];
             // Dashie plan/trial entitlement gating doesn't exist in the open
             // build — visibility is the feature rules only; credits are

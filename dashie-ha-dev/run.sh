@@ -1,5 +1,5 @@
 #!/bin/sh
-# Chickadee add-on entrypoint.
+# Dashie for Home Assistant add-on entrypoint.
 set -e
-echo "[chickadee] starting brain runtime"
+echo "[dashie-ha] starting brain runtime"
 exec node /app/server/index.js

@@ -331,6 +331,35 @@ Deno.test('image salvage: a plain answer with no promise does NOT trigger an ima
   assertEquals(m.logs.at(-1)!.tool_used, null);   // no show_image
 });
 
+// ── I4: no published code path calls a metered cloud tool when self-hosted ──────────────
+// The claim a hostile reader tests first, and until now it was backed by code-reading
+// only (T2 plan: "manual and never run"). These are the automated half.
+//
+// The self-hosted shell (chickadee-io / addon-io) fails checkSpendable OPEN so a BYOK
+// turn can run on the user's own endpoint. That same signal used to be the ONLY gate on
+// the Dashie-funded tools, so `retrieve_pictures: true` from the caller re-enabled image
+// search on a box with no account — it missed us only because that shell's toolConn is
+// empty, making the URL relative so fetch threw. Off by rule now; these pin it.
+
+Deno.test('I4: paidTools:false → request retrieve_pictures:true CANNOT re-enable image search', async () => {
+  const m = makeIO(['{"type":"response","voice":"Here is a picture of a chickadee for you."}']);
+  const io: OrchestratorIO = { ...m.io, billing: 'byok', paidTools: false };
+  await runOrchestration(deps({ retrieve_pictures: true }), io);
+  const log = m.logs.at(-1)!;
+  const caps = (log.tool_trace as { caps?: { web_search: boolean; retrieve_pictures: boolean } }).caps!;
+  assertEquals(caps.retrieve_pictures, false);   // the request override does NOT win here
+  assertEquals(caps.web_search, false);          // same gate covers the other funded tool
+  assertEquals(log.tool_used, null);             // and no image search was even attempted
+});
+
+Deno.test('I4: paidTools absent (cloud shell) leaves the request override working', async () => {
+  // Guards the fix against over-reach: the metered cloud path is unchanged.
+  const m = makeIO(['{"type":"response","voice":"hi"}']);
+  await runOrchestration(deps({ retrieve_pictures: true }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { retrieve_pictures: boolean } }).caps!;
+  assertEquals(caps.retrieve_pictures, true);
+});
+
 Deno.test('capability snapshot: every terminal row carries tool_trace.caps (toggles + offered tools)', async () => {
   // Default account: web search ON, gemini model → native grounding, no web_search tool offered.
   const m = makeIO(['{"type":"response","voice":"It is sunny"}']);

@@ -166,8 +166,58 @@ const DashieAuth = {
         entry.handlers[ticket.event] = entry.handlers[ticket.event].filter(h => h !== ticket.handler);
     },
 
+    // =========================================================
+    //  Settings transport — cloud account, or the box itself
+    //
+    //  loadUserSettings / saveUserSettings are THE seam every settings
+    //  consumer bottoms out in (EnginesStore, VoiceAiApi, the pages). Routing
+    //  the account-less case here serves all of them with no call-site change.
+    // =========================================================
+
+    /** Set from /api/auth/status — did the ADD-ON report a stored session?
+     *  Distinct from isAuthenticated, which is false during the window between
+     *  init() starting and the JWT arriving. Falling back to local settings in
+     *  that window would silently show a signed-in user the box's blob instead
+     *  of their account's, so the local path requires this to be explicitly
+     *  false, not merely "no JWT yet". */
+    _addonAuthenticated: false,
+
+    /** True when settings must persist to the ADD-ON's own /data rather than
+     *  Dashie cloud: the published HA build, inside the add-on, no account.
+     *
+     *  Gated on the build as well as auth so this cannot change behaviour in
+     *  the family console, which shares this source and is an account product
+     *  (`check-console-tree.sh` catches file/string leaks, not behavioural
+     *  ones — this gate is the behavioural half). The family add-on's server
+     *  has no /api/settings/local either, so an ungated fallback would 404. */
+    get _useLocalSettings() {
+        if (!this.isAddonMode) return false;
+        if (this.isAuthenticated || this._addonAuthenticated) return false;
+        return typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild() === true;
+    },
+
+    /** Read the account-less blob from the add-on. */
+    async _loadLocalSettings() {
+        const resp = await fetch(this._addonUrl('/api/settings/local'), { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`local settings load failed: ${resp.status}`);
+        const data = await resp.json();
+        return data.settings || {};
+    },
+
+    /** Deep-merge a nested partial into the account-less blob on the add-on. */
+    async _saveLocalSettings(partial) {
+        const resp = await fetch(this._addonUrl('/api/settings/local'), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial || {}),
+        });
+        if (!resp.ok) throw new Error(`local settings save failed: ${resp.status}`);
+        return resp.json();
+    },
+
     /** Load account-level user_settings (via jwt-auth edge function) */
     async loadUserSettings() {
+        if (this._useLocalSettings) return this._loadLocalSettings();
         const data = await this._authRequest({ operation: 'load' });
         const settings = data.settings || {};
         console.log('[DashieAuth] loadUserSettings:',
@@ -194,6 +244,10 @@ const DashieAuth = {
      *  without waiting for their next boot. Channel naming matches
      *  js/data/sync/settings-sync.js (underscore, not dash). */
     async saveUserSettings(fullSettings) {
+        // No account → the box's own store. Same deep-merge semantics, so the
+        // partials patchUserSetting sends behave identically either way. No
+        // broadcast: there is no account channel to broadcast on.
+        if (this._useLocalSettings) return this._saveLocalSettings(fullSettings);
         const result = await this._authRequest({ operation: 'save', data: fullSettings });
         this._broadcastSettingsChanged().catch(() => {});
         return result;
@@ -488,6 +542,10 @@ const DashieAuth = {
     async _initAddonMode() {
         try {
             const status = await fetch(this._addonUrl('/api/auth/status')).then(r => r.json());
+            // Record the add-on's own view of whether a session exists, before
+            // the JWT fetch that may lag or fail. Gates the local-settings
+            // fallback (see _useLocalSettings).
+            this._addonAuthenticated = status?.authenticated === true;
 
             // Always capture the add-on's Supabase config (even when not authenticated)
             // so subsequent edge-function calls target the right project.
@@ -836,6 +894,8 @@ const DashieAuth = {
         if (this.isAddonMode) {
             try { await fetch(this._addonUrl('/api/auth/sign-out'), { method: 'POST' }); } catch (e) {}
         }
+        // The add-on no longer holds a session, so settings go local from here.
+        this._addonAuthenticated = false;
         this.clearJWT();
         this._stopAddonPolling();
         this._addonPendingLink = null;

@@ -3,9 +3,9 @@
 //
 // The PROPER credential channel (the same one the MQTT broker/Wyoming add-ons
 // use): POST http://supervisor/discovery {service, config} with SUPERVISOR_TOKEN;
-// the Supervisor delivers it to HA Core, which fires the chickadee integration's
+// the Supervisor delivers it to HA Core, which fires the dashie_voice integration's
 // async_step_hassio with the config. Replaces the interim world-readable
-// <ha-config>/.chickadee/bridge_secret file as the primary channel (the file
+// <ha-config>/.dashie_voice/bridge_secret file as the primary channel (the file
 // copies remain for older integrations — CONTRACTS.md).
 
 'use strict';
@@ -13,7 +13,7 @@
 const os = require('os');
 
 const SUPERVISOR = 'http://supervisor';
-const SERVICE = 'chickadee';
+const SERVICE = 'dashie_voice';
 const RETRY_MS = [2000, 10000, 30000];
 
 async function publish(secret, log = console.log) {
@@ -26,8 +26,8 @@ async function publish(secret, log = console.log) {
         service: SERVICE,
         config: {
             // Our OWN container hostname on the hassio network — correct for
-            // ANY channel (prod `62f754e2-chickadee`, dev `62f754e2-chickadee-dev`,
-            // local `local-chickadee`). Was hardcoded 'local-chickadee', which
+            // ANY channel (prod `62f754e2-dashie-ha`, dev `62f754e2-dashie-ha-dev`,
+            // local `local-dashie-ha`). Was hardcoded 'local-dashie-ha', which
             // is unreachable from the dev slug → the integration reported
             // addon_unreachable and kiosks never picked up the shared account.
             // The integration still falls back to its Supervisor lookup / static

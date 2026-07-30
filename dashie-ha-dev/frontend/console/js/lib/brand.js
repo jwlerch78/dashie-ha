@@ -1,80 +1,70 @@
 /* ============================================================
-   Brand — Chickadee (open-core build).
+   Brand — the PUBLISHED build (Dashie for Home Assistant).
    CANONICAL since the 2026-07-27 repo inversion: the console is
-   developed in this repo; this file IS the Chickadee brand (the
-   Dashie build keeps its own brand.js as part of its delta —
-   see PROVENANCE.md for the relationship).
+   developed in this repo; the full (family) build keeps its own
+   brand.js as part of its delta.
 
-   Wire values deliberately stay Dashie's (shared-backend
+   Since the 2026-07-30 brand consolidation there is ONE brand.
+   This file and the full build's brand.js now differ in exactly
+   one meaningful field — `build` — plus whatever the family
+   product legitimately names that this edition has no page for.
+   Resist re-growing a second identity here: name proliferation is
+   what that consolidation existed to undo.
+
+   Wire values deliberately stay as they are (shared-backend
    contracts, not brand): the `dashie_cloud` engine ID,
    localStorage keys, dashie-* CSS classes, and option/wake-word
    IDs. Only display identity lives here.
    ============================================================ */
 
 const BRAND = {
-    // 'chickadee' flips FeatureGate's open-build rules (family pages off,
-    // voice/AI + credits ungated). Absent in the Dashie brand.js.
-    build: 'chickadee',
+    // EDITION, not brand. 'published' = this inspectable core on its own;
+    // 'full' = published core + the closed family delta. FeatureGate reads
+    // exactly these two values and treats anything else as 'published' (the
+    // restrictive case) with a loud DROP — see feature-gate.js isPublishedBuild.
+    // Both brand.js files MUST state it; a missing value is a defect, not a
+    // default. Registered in .reference/JS_KOTLIN_CONTRACTS.md.
+    build: 'published',
 
     // Product + assistant naming
-    productName: 'Chickadee',
-    consoleName: 'Chickadee Console',
-    assistantName: 'Chickadee',
-    wakePhrase: 'your wake word',    // HA pipelines bring their own wake word
-    cloudName: 'Chickadee Cloud',    // display label for the `dashie_cloud` engine
-    teamName: 'the Chickadee team',
+    productName: 'Dashie',           // the product/account ("Your Dashie account")
+    consoleName: 'Dashie Console',   // tab title + login heading
+    assistantName: 'Dashie',         // the voice persona ("Dashie said …", "Ask Dashie")
+    wakePhrase: 'Hey Dashie',        // display only — wake-word IDs stay 'hey_dashie'
+    cloudName: 'Dashie Cloud',       // display label for the `dashie_cloud` engine
 
-    // Web presence — first-party Chickadee surfaces now live on
-    // getchickadee.org (landing + legal). Accounts/billing still ride the
-    // Dashie backend; the footerNote below keeps that disclosure in plain
-    // sight (the Dashie connection is documented, not hidden).
-    domain: 'getchickadee.org',
-    supportEmail: 'support@getchickadee.org',
-    // Rendered under the legal links on the login card — the plain-sight
-    // disclosure that the account system is shared with Dashie.
-    footerNote: 'Accounts &amp; billing are provided by Dashie (dashieapp.com), the makers of Chickadee.',
+    teamName: 'the Dashie team',
+
+    // Web presence
+    domain: 'dashieapp.com',
+    supportEmail: 'support@dashieapp.com',
 
     // Brand assets (paths relative to the console root)
-    logo: 'assets/chickadee-logo.png',
-    icon: 'assets/chickadee-icon.png',
+    logo: 'assets/dashie-logo-orange.png',
+    icon: 'assets/dashie-icon.png',
 
-    // Docs / legal — Chickadee's own policies on getchickadee.org
+    // Docs / legal
     urls: {
-        privacy: 'https://getchickadee.org/privacy',
-        terms: 'https://getchickadee.org/terms',
+        privacy: 'https://dashieapp.com/privacy-policy.html',
+        terms: 'https://dashieapp.com/terms-of-service.html',
     },
+
+    // No footerNote: it used to disclose that Chickadee accounts were really
+    // Dashie accounts. One brand, so there is nothing left to disclose — and a
+    // disclosure of a relationship that no longer exists is just confusing.
+    // (app.js renders it only when present.)
 };
 
 // Keep the tab identity brand-driven (defensive — the statics already
-// ship Chickadee values in this tree).
+// ship these values in this tree).
 try {
     document.title = BRAND.consoleName;
     const fav = document.querySelector('link[rel="icon"]');
     if (fav) fav.href = BRAND.icon;
 } catch (_) { /* non-browser */ }
 
-// Chickadee theme: brand wing-blue accent (#2C6ECE, sampled from the logo's
-// wing) replaces Dashie orange. The console is fully accent-var driven, so
-// four variable overrides re-skin everything (preset outlines/checkmarks,
-// toggles, tabs, active nav, primary buttons); the one exception is the
-// active nav-icon tint, which is a CSS filter (filters can't read vars) —
-// overridden with a blue-producing chain. Injected AFTER the stylesheets
-// (brand.js is the first <script>, below the <link>s) so equal-specificity
-// rules win by order; the vendored CSS stays byte-identical to upstream.
-try {
-    const theme = document.createElement('style');
-    theme.textContent = [
-        ':root {',
-        '  --accent: #2C6ECE;',
-        '  --accent-hover: #2559A8;',
-        '  --accent-bg: rgba(44, 110, 206, 0.08);',
-        '  --accent-bg-hover: rgba(44, 110, 206, 0.14);',
-        '}',
-        '.sidebar-nav-item.active .nav-icon img {',
-        '  filter: brightness(0) saturate(100%) invert(36%) sepia(78%) saturate(1350%) hue-rotate(203deg) brightness(94%) contrast(92%);',
-        '}',
-    ].join('\n');
-    document.head.appendChild(theme);
-} catch (_) { /* non-browser */ }
+// No theme override. Until 2026-07-30 this file injected a wing-blue accent to
+// re-skin the console for the Chickadee brand; both editions are Dashie now, so
+// the base stylesheet's orange stands and there is nothing to override.
 
 window.BRAND = BRAND;

@@ -76,7 +76,7 @@ const App = {
 
             // Add-on funnel banner: the add-on installed/updated its HA
             // integration and core needs a restart to load it. Only renders
-            // when the runtime advertises the flag (the Chickadee add-on
+            // when the runtime advertises the flag (the Dashie for HA add-on
             // does) — absent field = no-op for every other build.
             this._renderIntegrationRestartBanner();
 
@@ -441,7 +441,7 @@ const App = {
 
     /** Signed-out router — ONE decision point, on purpose.
      *
-     *  On the Chickadee build reached over HA ingress, "no Chickadee account" is
+     *  On the published build reached over HA ingress, "no Dashie account" is
      *  a normal operating mode (your own engines, nothing hosted), not a locked
      *  door — so show the local-mode panel. Home Assistant already authenticated
      *  this person; a second login here was identity for billing, demanded of
@@ -456,11 +456,11 @@ const App = {
     _showSignedOut() {
         try {
             const rt = DashieAuth.runtimeInfo;
-            const isChickadee = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
-            if (isChickadee && rt.ingress && typeof LocalMode !== 'undefined') {
+            const isPublished = typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild();
+            if (isPublished && rt.ingress && typeof LocalMode !== 'undefined') {
                 document.getElementById('sidebar').innerHTML = '';
                 document.getElementById('top-bar').innerHTML = '';
-                LocalMode.show(rt.ha_user || null, rt.addon_slug || null);
+                LocalMode.show(rt.ha_user || null);
                 return;
             }
         } catch (e) {
@@ -495,15 +495,15 @@ const App = {
             ? `Connect your Home Assistant to your ${BRAND.productName} account.`
             : purchase ? purchase.subtitle
             : 'Manage your devices, household, and account from any browser.';
-        const chickadeeBuild = typeof FeatureGate !== 'undefined' && FeatureGate.isChickadeeBuild();
+        const publishedBuild = typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild();
         const googleDesc = purchase
             ? purchase.googleDesc
-            : chickadeeBuild
+            : publishedBuild
             ? `Sign in — or create your ${BRAND.productName} account`
             : `Use your ${BRAND.productName} account`;
 
         // Email/password path — live only when the add-on's runtime advertises
-        // it (email_auth in /api/runtime; the Chickadee add-on does, the Dashie
+        // it (email_auth in /api/runtime; the Dashie for HA add-on does, the Dashie
         // add-on and the standalone web console don't yet).
         const emailAvailable = addonMode
             && typeof LoginEmail !== 'undefined' && LoginEmail.isAvailable();
@@ -687,7 +687,7 @@ const App = {
         }
 
         // The 'devices' boot default may itself be hidden in this build
-        // (Chickadee console) — resolve the real home before hash handling.
+        // (published console) — resolve the real home before hash handling.
         if (!this._isRoutable(this._currentPage)) {
             this._currentPage = this._homePage();
         }
@@ -751,7 +751,7 @@ const App = {
         return typeof FeatureGate === 'undefined' || FeatureGate.isPageEnabled(slug);
     },
 
-    /** The default landing page — 'devices' unless this build hides it (Chickadee). */
+    /** The default landing page — 'devices' unless this build hides it (published). */
     _homePage() {
         return this._isRoutable('devices') ? 'devices' : 'voice-ai';
     },

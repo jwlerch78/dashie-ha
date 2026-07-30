@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Bridge to the Chickadee add-on — discovery, auth, and the single brain POST site.
+"""Bridge to the Dashie for Home Assistant add-on — discovery, auth, and the single brain POST site.
 
 Ported from the Dashie integration's addon_bridge (subset). The add-on owns engine
 routing and key custody; this module is the only place the integration reaches it.
@@ -44,7 +44,7 @@ _base_cache: tuple[str, float] | None = None
 
 
 class AddonUnavailable(Exception):
-    """The Chickadee add-on can't be reached (not installed, stopped, or no bridge secret)."""
+    """The Dashie for Home Assistant add-on can't be reached (not installed, stopped, or no bridge secret)."""
 
 
 _secret_cache: str | None = None
@@ -65,19 +65,19 @@ def set_bridge_config(secret: str | None, host: str | None, port: int | None) ->
 def _read_bridge_secret_sync(hass: HomeAssistant) -> str | None:
     """Read the shared secret the add-on drops in its addon_config folder.
 
-    Primary (works on HAOS, verified 2026-07-25): `.chickadee/bridge_secret`
+    Primary (works on HAOS, verified 2026-07-25): `.dashie_voice/bridge_secret`
     inside the HA config dir — the add-on writes it via its homeassistant_config
     mount, because HA Core does NOT see /addon_configs on HAOS. INTERIM channel
     (other add-ons with a config mount can read it); replace with Supervisor
     discovery (CONTRACTS.md).
 
     Fallbacks: the addon_config folder, named after the INSTALLED slug, which
-    carries an install-dependent prefix (`local_chickadee` from /addons,
-    `<repo-hash>_chickadee` from a repo channel) — so glob for *chickadee.
+    carries an install-dependent prefix (`local_dashie_ha` from /addons,
+    `<repo-hash>_dashie_ha` from a repo channel) — so glob for *dashie_ha.
     """
-    candidates: list[str] = [hass.config.path(".chickadee/bridge_secret")]
+    candidates: list[str] = [hass.config.path(".dashie_voice/bridge_secret")]
     for root in (hass.config.path("addon_configs"), "/addon_configs"):
-        candidates.extend(sorted(glob.glob(os.path.join(root, "*chickadee", "bridge_secret"))))
+        candidates.extend(sorted(glob.glob(os.path.join(root, "*dashie_ha", "bridge_secret"))))
     for path in candidates:
         try:
             with open(path, encoding="utf-8") as fh:
@@ -96,12 +96,12 @@ async def _read_bridge_secret(hass: HomeAssistant) -> str | None:
         return _secret_cache
     _secret_cache = await hass.async_add_executor_job(_read_bridge_secret_sync, hass)
     if _secret_cache:
-        _LOGGER.info("Chickadee bridge secret loaded from addon_config")
+        _LOGGER.info("Dashie Voice bridge secret loaded from addon_config")
     return _secret_cache
 
 
 async def _discover_via_supervisor(session) -> list[str]:
-    """Ask the Supervisor for the chickadee add-on's hostname (supervised installs only)."""
+    """Ask the Supervisor for the Dashie for Home Assistant add-on's hostname (supervised installs only)."""
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
         return []
@@ -117,11 +117,11 @@ async def _discover_via_supervisor(session) -> list[str]:
     bases = []
     for addon in (data.get("data") or {}).get("addons") or []:
         slug = addon.get("slug") or ""
-        # Match every Chickadee channel, not just the prod slug: the dev add-on's
-        # slug is `<hash>_chickadee_dev`, which does NOT end with "chickadee" —
+        # Match every Dashie-for-HA channel, not just the prod slug: the dev add-on's
+        # slug is `<hash>_dashie_ha_dev`, which does NOT end with "dashie_ha" —
         # so the old check skipped it and the integration could never reach the
         # dev add-on (addon_unreachable; kiosks never picked up the account).
-        if "chickadee" in slug and addon.get("state") == "started":
+        if "dashie_ha" in slug and addon.get("state") == "started":
             hostname = addon.get("hostname") or slug.replace("_", "-")
             bases.append(f"http://{hostname}:8099")
     return bases
@@ -145,7 +145,7 @@ async def _resolve_base(hass: HomeAssistant) -> str:
                     return base
         except Exception:  # noqa: BLE001 — unreachable candidate, try the next
             continue
-    raise AddonUnavailable(f"no reachable Chickadee add-on (tried {len(candidates)} bases)")
+    raise AddonUnavailable(f"no reachable Dashie for Home Assistant add-on (tried {len(candidates)} bases)")
 
 
 async def call_addon_brain(hass: HomeAssistant, payload: dict) -> tuple[dict, int]:
@@ -157,7 +157,7 @@ async def call_addon_brain(hass: HomeAssistant, payload: dict) -> tuple[dict, in
     global _base_cache  # noqa: PLW0603
     secret = await _read_bridge_secret(hass)
     if not secret:
-        raise AddonUnavailable("bridge secret not found — is the Chickadee add-on installed?")
+        raise AddonUnavailable("bridge secret not found — is the Dashie for Home Assistant add-on installed?")
 
     base = await _resolve_base(hass)
     session = async_get_clientsession(hass)
@@ -192,7 +192,7 @@ async def call_addon_raw(
     global _base_cache  # noqa: PLW0603
     secret = await _read_bridge_secret(hass)
     if not secret:
-        raise AddonUnavailable("bridge secret not found — is the Chickadee add-on installed?")
+        raise AddonUnavailable("bridge secret not found — is the Dashie for Home Assistant add-on installed?")
 
     base = await _resolve_base(hass)
     session = async_get_clientsession(hass)
@@ -229,7 +229,7 @@ async def call_addon_json(
     global _base_cache  # noqa: PLW0603
     secret = await _read_bridge_secret(hass)
     if not secret:
-        raise AddonUnavailable("bridge secret not found — is the Chickadee add-on installed?")
+        raise AddonUnavailable("bridge secret not found — is the Dashie for Home Assistant add-on installed?")
 
     base = await _resolve_base(hass)
     session = async_get_clientsession(hass)

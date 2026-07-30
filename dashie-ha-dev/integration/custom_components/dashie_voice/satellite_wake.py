@@ -8,7 +8,7 @@ unmodified on the official `rhasspy/wyoming-microwakeword` add-on — the box-si
 wake engine for satellites that don't do wake detection themselves. Model
 provenance and license: see `wake_models/README.md` next to the weights.
 
-Pattern parity: Chickadee never installs third-party add-ons (Piper/Whisper/
+Pattern parity: Dashie never installs third-party add-ons (Piper/Whisper/
 Ollama/Hermes are all detect-and-guide). The one thing STT/TTS don't need is
 model deployment — those add-ons ship their own models; ours are custom, so we
 place the manifest + tflite where the add-on's `--custom-model-dir` reads them.
@@ -82,7 +82,7 @@ async def async_deploy_wake_model(hass: HomeAssistant, wake_id: str | None) -> b
         )
         return False
     _LOGGER.info(
-        "CHICKADEE-WAKE deployed '%s' -> %s (point the wyoming-microwakeword "
+        "DASHIE-WAKE deployed '%s' -> %s (point the wyoming-microwakeword "
         "add-on's --custom-model-dir at %s)",
         wake_id,
         path,

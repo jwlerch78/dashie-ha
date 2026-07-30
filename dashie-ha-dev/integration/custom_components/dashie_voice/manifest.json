@@ -1,6 +1,6 @@
 {
-  "domain": "chickadee",
-  "name": "Chickadee",
+  "domain": "dashie_voice",
+  "name": "Dashie Voice",
   "codeowners": [
     "@jwlerch78"
   ],
@@ -12,10 +12,10 @@
     "stt",
     "tts"
   ],
-  "documentation": "https://github.com/jwlerch78/chickadee-integration",
+  "documentation": "https://github.com/jwlerch78/dashie-voice-integration",
   "integration_type": "service",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/jwlerch78/chickadee-integration/issues",
+  "issue_tracker": "https://github.com/jwlerch78/dashie-voice-integration/issues",
   "requirements": [],
-  "version": "0.6.0"
+  "version": "0.7.0"
 }

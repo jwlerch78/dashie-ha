@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// api/internal.js — endpoints for the trusted in-HA caller (the Chickadee
+// api/internal.js — endpoints for the trusted in-HA caller (the Dashie Voice
 // integration), reached over the hassio Docker network. Ported from the Dashie
 // add-on's api/internal.js — this is the LAN-sharing lane: a Dashie tablet in
 // kiosk mode gets household voice through the integration's /api/dashie/voice/*
 // views, which proxy here.
 //
-// 🔐 Every call must carry X-Chickadee-Bridge-Secret (enforced from birth —
+// 🔐 Every call must carry X-Dashie-Voice-Bridge-Secret (enforced from birth —
 // no observe mode; same posture as /api/voice/converse). The account
 // credential is only vended when the account holder has opted into household
 // sharing (voice.householdSharing in user_settings — account-scoped, fails

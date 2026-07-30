@@ -1,10 +1,10 @@
 /* ============================================================
-   LocalMode — the panel you get when you have no Chickadee account.
+   LocalMode — the panel you get when you have no Dashie account.
    ------------------------------------------------------------
-   Chickadee runs fully on your own engines with no account, and PRIVACY.md and
+   Dashie for Home Assistant runs fully on your own engines with no account, and PRIVACY.md and
    the README both say so. The panel used to contradict that: signed out, the
-   only screen was "Sign in to Chickadee — connect your Home Assistant to your
-   Chickadee account". Someone who never intends to buy hosted compute installed
+   only screen was "Sign in — connect your Home Assistant to your
+   account". Someone who never intends to buy hosted compute installed
    the add-on and the first thing it did was ask them to create an account with
    the vendor. Whatever the docs said, that screen was the product's answer.
 
@@ -24,8 +24,8 @@
    and drops you straight on settings. Frigate and Immich both use LOCAL
    accounts. None of them gate the app behind a vendor account.
 
-   Chickadee-build only — the Dashie build IS an account product, so it keeps
-   its login. Gated on FeatureGate.isChickadeeBuild() by the caller in app.js.
+   Published-build only — the full build IS an account product, so it keeps
+   its login. Gated on FeatureGate.isPublishedBuild() by the caller in app.js.
    ============================================================ */
 
 (function () {
@@ -38,21 +38,20 @@
     function row(label, value, hint) {
         const set = !!value;
         return `
-            <div class="chickadee-local-row">
-                <span class="chickadee-local-dot ${set ? 'on' : 'off'}" aria-hidden="true"></span>
-                <span class="chickadee-local-label">${esc(label)}</span>
-                <span class="chickadee-local-value ${set ? '' : 'muted'}">
+            <div class="dashie-local-row">
+                <span class="dashie-local-dot ${set ? 'on' : 'off'}" aria-hidden="true"></span>
+                <span class="dashie-local-label">${esc(label)}</span>
+                <span class="dashie-local-value ${set ? '' : 'muted'}">
                     ${set ? esc(value) : 'not configured'}
                 </span>
-                ${hint ? `<span class="chickadee-local-hint">${esc(hint)}</span>` : ''}
+                ${hint ? `<span class="dashie-local-hint">${esc(hint)}</span>` : ''}
             </div>`;
     }
 
     const LocalMode = {
         /** Render into #content. `haUser` is runtime.ha_user (may be null, and its
-         *  display_name may be null — X-Remote-User-Name is not guaranteed).
-         *  `addonSlug` is runtime.addon_slug, used to deep-link the settings page. */
-        async show(haUser, addonSlug) {
+         *  display_name may be null — X-Remote-User-Name is not guaranteed). */
+        async show(haUser) {
             const el = document.getElementById('content');
             if (!el) return;
 
@@ -61,28 +60,28 @@
             // Where engine settings ACTUALLY live. Not "the Configuration tab" —
             // this panel is HA's sidebar ingress view and has no tabs; the tab is on
             // the add-on's own page. Field report 2026-07-30: "There's no
-            // configuration tab though." So name the full path, and link straight
-            // there when we know our slug.
+            // configuration tab though."
             //
-            // target="_top" is required: the panel runs in an iframe, and without it
-            // HA's add-on page would render INSIDE this card.
-            const cfgPath = addonSlug ? `/hassio/addon/${encodeURIComponent(addonSlug)}/config` : null;
-            const cfgLink = cfgPath
-                ? `<a href="${esc(cfgPath)}" target="_top" class="chickadee-local-cfg">Open the Configuration page →</a>`
-                : '';
+            // NO DEEP LINK. The obvious one, /hassio/addon/<slug>/config, is DEAD:
+            // HA moved the supervisor panel and /hassio/* now 404s at the HTTP level
+            // (verified on HA 2026-07: /hassio/dashboard and /hassio/store both 404
+            // while /config/addons is 200). A hardcoded frontend route has already
+            // broken once, so don't ship a second guess — the written path below is
+            // stable, and HA's own /_my_redirect/supervisor_addon is the version-proof
+            // mechanism if a link is ever wanted back.
             el.innerHTML = `
                 <div class="dashie-login-overlay">
-                    <div class="dashie-login-card chickadee-local-card">
+                    <div class="dashie-login-card dashie-local-card">
                         <img src="${esc(BRAND.logo)}" alt="${esc(BRAND.productName)}" class="dashie-login-logo">
                         <div class="dashie-login-title">Running in local mode</div>
                         <div class="dashie-login-subtitle">
                             You're signed in to Home Assistant${esc(who)} — that's all
                             ${esc(BRAND.productName)} needs. No account required.
                         </div>
-                        <div class="chickadee-local-rows" id="chickadee-local-rows">
-                            <div class="chickadee-local-loading">Checking your engines…</div>
+                        <div class="dashie-local-rows" id="dashie-local-rows">
+                            <div class="dashie-local-loading">Checking your engines…</div>
                         </div>
-                        <div class="chickadee-local-note">
+                        <div class="dashie-local-note">
                             Engine settings aren't on this page. They live on the add-on's
                             own page — <strong>Settings → Add-ons →
                             ${esc(BRAND.productName)} → Configuration</strong>. Point
@@ -90,7 +89,6 @@
                             <code>tts_url</code> at your own servers and everything runs
                             from your box, with no ${esc(BRAND.productName)} service
                             involved.
-                            ${cfgLink}
                         </div>
                         <div class="dashie-login-buttons">
                             <button class="dashie-path-btn secondary" onclick="App._handleAddonSignIn()">
@@ -117,7 +115,7 @@
         /** /api/voice/local-status is ingress-trusted already and needs no account.
          *  Failure is non-fatal: the view still explains where to configure. */
         async _loadStatus() {
-            const host = document.getElementById('chickadee-local-rows');
+            const host = document.getElementById('dashie-local-rows');
             if (!host) return;
             try {
                 const r = await fetch('api/voice/local-status');
@@ -132,7 +130,7 @@
                     row('Voices', s.tts);
             } catch (_) {
                 // Don't invent a status we couldn't read.
-                host.innerHTML = `<div class="chickadee-local-loading">
+                host.innerHTML = `<div class="dashie-local-loading">
                     Couldn't read engine status — check the add-on log.</div>`;
             }
         },

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Chickadee add-on — Express server: bridge surface + Chickadee console.
+// Dashie for Home Assistant add-on — Express server: bridge surface + Dashie console.
 //
 // Two audiences on one port (8099, ports:{} — hassio network + Ingress only):
 //
-//   BRIDGE (the integration; X-Chickadee-Bridge-Secret enforced from birth):
+//   BRIDGE (the integration; X-Dashie-Voice-Bridge-Secret enforced from birth):
 //     GET  /api/ping             liveness for discovery/config-flow probes
 //     POST /api/voice/converse   one brain turn (converse.js)
 //     POST /api/voice/stt|tts    engine routing (engines.js)
@@ -17,7 +17,7 @@
 //     /api/voice/engines|probe|preview|discover|local-status|converse-local
 //     /api/keys/*                on-box BYO provider keys
 //     /api/settings/*            add-on-local settings
-//     /                          the vendored Chickadee console SPA
+//     /                          the vendored Dashie console SPA
 
 'use strict';
 
@@ -94,7 +94,7 @@ app.use((req, res, next) => {
 // ── Bridge surface (secret-gated; raw bodies; BEFORE any parser) ──────────────
 
 app.get('/api/ping', (req, res) => {
-    sendJson(res, 200, { ok: true, service: 'chickadee', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
+    sendJson(res, 200, { ok: true, service: 'dashie_ha', runtime: 'brain', version: VERSION, brain_sha: brainMeta.shortSha || null });
 });
 
 app.post('/api/voice/converse', (req, res) => {
@@ -174,7 +174,7 @@ app.get('/api/runtime', async (req, res) => {
     }
     // Ingress identity. HA has ALREADY authenticated whoever is reading this
     // panel, which is why the console API below needs no bridge secret — and it
-    // is also why the UI must not demand a Chickadee account from someone who
+    // is also why the UI must not demand a Dashie account from someone who
     // only wants their own local engines. Identity, never authorization: see
     // ingress-identity.js. Cloud surfaces still require a real signed JWT.
     const haUser = ingressIdentity.ingressUser(req);
@@ -184,7 +184,7 @@ app.get('/api/runtime', async (req, res) => {
     const addonSlug = await supervisor.getSelfSlug();
     res.json({
         addon: true,
-        chickadee: true,
+        dashie_ha: true,
         version: VERSION,
         supabase_env: CLOUD_ENV,
         email_auth: true,
@@ -214,10 +214,10 @@ app.post('/api/system/restart-core', async (req, res) => {
 app.post('/api/system/configure-integration', async (req, res) => {
     const flowId = await supervisor.getPendingIntegrationFlowId();
     if (!flowId) {
-        console.warn('[system] configure-integration: no pending chickadee discovery flow');
+        console.warn('[system] configure-integration: no pending dashie_voice discovery flow');
         return res.status(409).json({ ok: false, error: 'no_pending_flow' });
     }
-    console.log(`[system] completing chickadee discovery flow ${flowId} from the console`);
+    console.log(`[system] completing dashie_voice discovery flow ${flowId} from the console`);
     const result = await supervisor.completeIntegrationFlow(flowId);
     res.status(result.ok ? 200 : 502).json(result);
 });
@@ -229,7 +229,7 @@ app.use('/api/settings', settingsRouter);
 // Bridge-secret gated (LAN-sharing lane for the integration's /api/dashie/voice/* views).
 app.use('/api/internal', internalRouter);
 
-// ── Frontend: the vendored Chickadee console ──────────────────────────────────
+// ── Frontend: the vendored Dashie console ──────────────────────────────────
 
 app.use('/', express.static(FRONTEND_DIR));
 
@@ -253,7 +253,7 @@ app.use((err, req, res, next) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 console.log('='.repeat(60));
-console.log(`Chickadee add-on v${VERSION}`);
+console.log(`Dashie for Home Assistant add-on v${VERSION}`);
 console.log(`Node: ${process.version} · data: ${DATA_DIR} · cloud: ${CLOUD_ENV} (${CLOUD.url})`);
 console.log(`Console: ${FRONTEND_DIR} (${fs.existsSync(FRONTEND_DIR) ? 'present' : 'MISSING'})`);
 console.log(`Brain: @ ${brainMeta.shortSha || '?'}`);
@@ -267,11 +267,11 @@ haWs.start();
 // "All at once" onboarding: install/update the vendored integration into
 // /config/custom_components (option-gated; HACS installs never touched).
 installer.ensureIntegration();
-// Put the Chickadee panel in the HA sidebar without hunting for the toggle.
+// Put the Dashie panel in the HA sidebar without hunting for the toggle.
 supervisor.ensureSidebarPanel();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[chickadee] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);
+    console.log(`[dashie-ha] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);
 });
 server.on('error', (err) => {
     console.error('[fatal] Server error:', err?.stack || err);

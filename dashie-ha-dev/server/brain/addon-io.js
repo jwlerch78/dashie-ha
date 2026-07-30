@@ -1,7 +1,7 @@
-// brain/chickadee-io.js — Chickadee's implementation of the brain's OrchestratorIO.
+// brain/addon-io.js — The add-on's implementation of the brain's OrchestratorIO.
 //
 // The brain CORE is shared (voice-brain.bundle.js, generated from the same TS the
-// Dashie cloud edge fn runs — see src/). This file is the Chickadee add-on's I/O
+// Dashie cloud edge fn runs — see src/). This file is the Dashie for Home Assistant add-on's I/O
 // SHELL, ported from the Dashie add-on's node-io.js and trimmed for the open,
 // no-account posture:
 //
@@ -14,7 +14,7 @@
 //                     services; without an account there is nothing to bill them to).
 //   - logging       → local console only; no cloud interaction log without an account.
 //
-// Hosted mode (Chickadee Cloud credits) re-enables the account-backed pieces later.
+// Hosted mode (Dashie Cloud credits) re-enables the account-backed pieces later.
 
 'use strict';
 
@@ -32,7 +32,7 @@ const TEMPERATURE = { decide: 0, narrate: 0.7 };
  * @param {string} [opts.providerLabel] Human name prefixed onto HTTP errors.
  * @param {function} [opts.log]
  */
-function createChickadeeIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', providerLabel = '', extraHeaders = {}, extraBody = {}, log = console.log }) {
+function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', providerLabel = '', extraHeaders = {}, extraBody = {}, log = console.log }) {
     // endpoint may be a base URL (we append /v1/chat/completions — Ollama/llama.cpp/vLLM)
     // or a FULL chat-completions URL for providers whose compat path differs
     // (Gemini: .../v1beta/openai/chat/completions, OpenRouter: .../api/v1/chat/completions).
@@ -89,8 +89,16 @@ function createChickadeeIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', pro
         // Hosted, account-billed tools — inert without an account. The core's tool
         // branches degrade on a throw / empty result; the toggles below keep it from
         // offering them in the first place.
-        runWebSearch: async () => { throw new Error('web search is not available without a Chickadee account'); },
+        runWebSearch: async () => { throw new Error('web search is not available without a Dashie account'); },
         runSports: async (query) => ({ provider: 'none', query, games: [], result_count: 0, latency: 0 }),
+        // Image search has no hook here — the core resolves it inline — so the refusal
+        // must be DECLARED. Without this, a caller passing retrieve_pictures:true
+        // re-enabled it (the request override beats the account default by design, and
+        // checkSpendable below fails open so a BYOK turn can run), and the only thing
+        // that kept the call away from Dashie was the empty toolConn making the URL
+        // relative so fetch threw at parse. Off by rule now, not by coincidence.
+        // Runbook F / invariant I4; regression-tested in orchestrator.test.ts.
+        paidTools: false,
         resolvePersonality: async () => null,   // base prompt until personas are ported
         checkSpendable: async () => ({ spendable: true, balance: Number.POSITIVE_INFINITY, floor: 0, low: false }),
         readAccountAiConfig: async () => ({ model: null, webSearchEnabled: false, retrievePicturesEnabled: false, zipCode: null }),
@@ -106,4 +114,4 @@ function createChickadeeIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', pro
     };
 }
 
-module.exports = { createChickadeeIO };
+module.exports = { createAddonIO };

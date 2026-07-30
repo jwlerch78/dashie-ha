@@ -202,7 +202,7 @@ async function getAccountVoiceConfig() {
     if (cached) {
       value = { ...cached, configSource: 'cache' };
       console.warn('[account-config] using last-known-good config from /data'
-        + ` (model=${cached.model || 'none'}) — Chickadee Cloud unreachable, local setup unaffected.`);
+        + ` (model=${cached.model || 'none'}) — Dashie Cloud unreachable, local setup unaffected.`);
     } else {
       value = { ...SAFE_DEFAULT, configSource: 'default' };
       console.warn('[account-config] no cached config on this box — defaulting to cloud route.');

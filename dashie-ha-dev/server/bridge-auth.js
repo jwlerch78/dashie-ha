@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// bridge-auth.js — the integration↔add-on bridge secret (chickadee CONTRACTS.md).
+// bridge-auth.js — the integration↔add-on bridge secret (dashie-voice-integration CONTRACTS.md).
 //
 // Extracted from index.js when the server became Express (console port); the
 // behavior is unchanged: generate-or-load the secret in /data, mirror it where
 // the integration can read it (legacy file channels), and verify the
-// X-Chickadee-Bridge-Secret header on bridge calls. The PRIMARY channel is
+// X-Dashie-Voice-Bridge-Secret header on bridge calls. The PRIMARY channel is
 // Supervisor discovery (discovery.js) — the file copies remain for older
 // integrations.
 
@@ -20,12 +20,12 @@ const SECRET_FILE = path.join(DATA_DIR, 'bridge_secret.txt');
 // Where to surface the secret for the integration. HA Core does NOT see
 // /addon_configs on HAOS (verified 2026-07-25), so the addon_config copy alone
 // is unreadable by the integration — we ALSO drop it inside the HA config dir
-// (homeassistant_config:rw mount) at .chickadee/bridge_secret. INTERIM channel:
+// (homeassistant_config:rw mount) at .dashie_voice/bridge_secret. INTERIM channel:
 // any add-on with a config mount can read it; Supervisor discovery is primary.
 const ADDON_CONFIG_CANDIDATES = ['/addon_config', '/config'];
 const HA_CONFIG_CANDIDATES = ['/homeassistant'];
-const HA_CONFIG_SUBDIR = '.chickadee';
-const BRIDGE_HEADER = 'x-chickadee-bridge-secret';
+const HA_CONFIG_SUBDIR = '.dashie_voice';
+const BRIDGE_HEADER = 'x-dashie-voice-bridge-secret';
 
 let _secret = null;
 
