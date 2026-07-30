@@ -1,5 +1,5 @@
 name: Dashie for Home Assistant (Dev)
-version: "0.9.2"
+version: "0.9.3"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). This is the DEV channel — born `dashie_ha_dev`, separate
 # from prod's `dashie_ha` so it installs alongside with its own /data + login.
