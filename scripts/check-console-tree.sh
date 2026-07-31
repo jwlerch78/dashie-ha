@@ -30,6 +30,9 @@ say()  { echo "check-console-tree: $*"; }
 bad()  { echo "check-console-tree: ❌ $*" >&2; fail=1; }
 
 # ---- 1. Delta-only files must not exist here ------------------------------
+# video-feeds*.js and preferences.js LEFT this list on 2026-07-31 — they moved
+# into the published core (single-add-on collapse). They are now core-owned and
+# MUST be present; listing them here would fail every release.
 DELTA_FILES=(
   js/lib/subscribe-gate.js js/lib/subscription-status.js js/lib/dashboard-trial.js
   js/components/external-link-modal.js js/pages/account-plan.js
@@ -37,8 +40,6 @@ DELTA_FILES=(
   js/pages/calendar.js js/pages/calendar-edit.js js/pages/calendar-options.js js/pages/calendar-add.js
   js/pages/chores.js js/pages/rewards.js js/pages/locations.js
   js/pages/photos.js js/pages/photos-upload.js js/pages/photos-album-edit.js
-  js/pages/video-feeds.js js/pages/video-feeds-edit.js js/pages/video-feeds-discover.js
-  js/pages/preferences.js
 )
 for f in "${DELTA_FILES[@]}"; do
   [ -e "$CONSOLE/$f" ] && bad "delta file present in public tree: $f"
@@ -61,7 +62,7 @@ done
 DELTA_GLOBALS=(
   SubscribeGate SubscriptionStatus DashboardTrial ExternalLinkModal AccountPlan
   FamilyPage CalendarPage ChoresPage RewardsPage LocationsPage
-  PhotosPage VideoFeedsPage PreferencesPage
+  PhotosPage
 )
 for g in "${DELTA_GLOBALS[@]}"; do
   hits=$(grep -RIn --include='*.js' "\b$g\b" "$CONSOLE" 2>/dev/null \
@@ -127,25 +128,11 @@ if ! command -v node >/dev/null 2>&1; then
 else
   if node "$ROOT/scripts/check-console-endpoints.mjs"; then
     say "✅ every route the published console calls is served by the published server"
-  elif [ "${DASHIE_HA_ENDPOINTS_INTERIM:-0}" = "1" ]; then
-    # INTERIM ESCAPE — delete this branch at step 6 of 20260731_SERVER_MERGE_MAP.md.
-    #
-    # This gate is deliberately RED from the day it was written (2026-07-31): it
-    # was built BEFORE the server merge so that turning it green is what proves
-    # the merge complete. But release.sh gates on this script, and step 3 of that
-    # merge cannot be verified without cutting a dev release — so a hard failure
-    # here would block the very release the merge needs.
-    #
-    # This escape exists for exactly that window. It does not silence anything:
-    # the full unserved list prints above, every time.
-    say "⚠️  console↔server endpoint check FAILED, allowed by DASHIE_HA_ENDPOINTS_INTERIM=1"
-    say "⚠️  This escape is for the server-merge window ONLY. Remove it (and this"
-    say "⚠️  branch) at step 6 of 20260731_SERVER_MERGE_MAP.md. Do not cut a PROD"
-    say "⚠️  release with it set — the routes above genuinely 404 on the box."
   else
     bad "console↔server endpoint check FAILED — see the unserved routes above.
-       During the server merge only, DASHIE_HA_ENDPOINTS_INTERIM=1 downgrades this
-       to a warning so a dev release can be cut (20260731_SERVER_MERGE_MAP.md §8)."
+       (The DASHIE_HA_ENDPOINTS_INTERIM escape was retired on 2026-07-31 when the
+       server merge landed and this gate went green. It is not coming back: a page
+       whose routes 404 must not reach a release.)"
   fi
 fi
 

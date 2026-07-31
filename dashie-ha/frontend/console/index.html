@@ -104,6 +104,19 @@
     <script src="js/pages/credits.js?v=20260712a"></script>
     <script src="js/pages/api-keys.js?v=20260725b"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
+    <!-- Video feeds. Published core since 2026-07-31 (was the closed family
+         delta): HA camera feeds are a core HA capability, and every operation
+         proxies to the integration's feed_registry over the add-on's own HA
+         token — no Dashie account is involved. Load order: the list page first,
+         its editor/discovery after. -->
+    <script src="js/pages/video-feeds.js?v=20260731a"></script>
+    <script src="js/pages/video-feeds-edit.js?v=20260731a"></script>
+    <script src="js/pages/video-feeds-discover.js?v=20260731a"></script>
+    <!-- Preferences. Published core since 2026-07-31. Account-wide Dashie
+         settings shared across devices, so unlike video feeds it needs a signed-in
+         account (it is deliberately NOT in LOCAL_MODE_PAGES) — but it works in
+         both the add-on and the standalone console. -->
+    <script src="js/pages/preferences.js?v=20260731a"></script>
 
     <!-- DELTA-SCRIPTS-BEGIN
          Open-core build: this block is EMPTY by design. In the Dashie build

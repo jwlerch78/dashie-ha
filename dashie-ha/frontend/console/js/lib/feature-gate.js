@@ -93,10 +93,12 @@ const FeatureGate = {
         // devices too. Its family-only OPTIONS (theme, the widgets layout, cloud
         // photo sources) are gated by FAMILY_ONLY_OPTIONS instead, a finer grain.
         'family', 'calendar', 'chores', 'rewards',
-        'locations', 'photos', 'video-feeds',
-        // Preferences duplicates what HA already knows (language/time/units) —
-        // the published stack derives from HA config instead (John, 2026-07-27).
-        'preferences',
+        'locations', 'photos',
+        // 'video-feeds' and 'preferences' LEFT this set on 2026-07-31 (single
+        // add-on collapse). Both are now core-owned page modules in this tree.
+        // Their visibility rules differ and are deliberate — see LOCAL_MODE_PAGES:
+        // video feeds is an HA capability (no account), Preferences is
+        // account-wide Dashie settings (account required, either build).
     ]),
 
     /**
@@ -114,7 +116,20 @@ const FeatureGate = {
      * DEFINITION; `scheduled-actions` renders but every operation is a cloud
      * dbRequest (contract #31), so it would show a feature that cannot save.
      */
-    LOCAL_MODE_PAGES: new Set(['voice-ai', 'local-engines', 'api-keys']),
+    LOCAL_MODE_PAGES: new Set([
+        'voice-ai', 'local-engines', 'api-keys',
+        // video-feeds (2026-07-31): HA camera feeds belong to the HA user, not to
+        // a Dashie account. Every /api/feeds/* route proxies to the integration's
+        // feed_registry over the add-on's OWN HA token and touches no account —
+        // which is why `requireSignedIn` came off those routes in the same change.
+        // Listing it here without that server change would render the page for a
+        // signed-out user and 401 all six calls.
+        //
+        // NOT here, deliberately: 'preferences'. It reads/writes account-wide
+        // Dashie settings via DashieAuth (user_settings), so signed out there is
+        // nothing to show or save. Visible in BOTH builds once signed in.
+        'video-feeds',
+    ]),
 
     /**
      * FAMILY-ONLY OPTIONS — a finer grain than CLOSED_DELTA_PAGES.

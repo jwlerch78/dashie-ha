@@ -10,19 +10,27 @@
 // their existing pullFeedsFromHa() sync — no push needed from here.
 
 const express = require('express');
-const auth = require('../auth');
 const haClient = require('../ha-client');
 
 const router = express.Router();
 
-/** Same in-process auth check as ha.js — confirm an authed session exists. */
-function requireSignedIn(req, res, next) {
-    const stored = auth.readStoredJwt();
-    if (!stored) {
-        return res.status(401).json({ error: 'add_on_not_signed_in' });
-    }
-    next();
-}
+// NO requireSignedIn on these routes, deliberately (2026-07-31).
+//
+// Every route here proxies to the Dashie Voice integration's feed_registry using
+// the add-on's OWN HA credential (haClient.getConfig()). Not one of them reads or
+// writes a Dashie account: household camera feeds belong to the HA user.
+//
+// Gating them on a Dashie sign-in made Video Feeds unusable for exactly the user
+// this edition is for — someone running HA who never made a Dashie account. The
+// page is in FeatureGate.LOCAL_MODE_PAGES for that reason, and leaving the guard
+// here would render it and then 401 all six calls.
+//
+// The gate is INGRESS: HA has already authenticated whoever can reach this panel
+// (see ingress-identity.js — identity, never authorization), the same reasoning
+// that leaves /api/ha/status open. The add-on publishes no host port.
+//
+// If a route here ever needs the ACCOUNT, it must bring its own guard back — do
+// not re-blanket the router.
 
 /** Fetch a Dashie-integration HTTP view path and relay status + JSON body. */
 async function haFetchJson(path, opts = {}) {
@@ -58,7 +66,7 @@ function handleError(res, e, label) {
 
 /** GET /api/feeds — all household feed definitions, annotated by the
  *  integration with availability, rtsp_url, and Frigate camera info. */
-router.get('/', requireSignedIn, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         relay(res, await haFetchJson('/api/dashie/feeds'), 'list');
     } catch (e) { handleError(res, e, 'list'); }
@@ -66,7 +74,7 @@ router.get('/', requireSignedIn, async (req, res) => {
 
 /** POST /api/feeds — create or update a feed definition. Body is the feed
  *  object in the registry's canonical shape (same payload tablets send). */
-router.post('/', requireSignedIn, express.json(), async (req, res) => {
+router.post('/', express.json(), async (req, res) => {
     const feed = req.body;
     if (!feed || typeof feed !== 'object') {
         return res.status(400).json({ error: 'feed body required' });
@@ -78,7 +86,7 @@ router.post('/', requireSignedIn, express.json(), async (req, res) => {
 
 /** DELETE /api/feeds/:feedId — delete a feed definition (the registry also
  *  removes it from every device's subscription). */
-router.delete('/:feedId', requireSignedIn, async (req, res) => {
+router.delete('/:feedId', async (req, res) => {
     const feedId = req.params.feedId;
     if (!feedId) return res.status(400).json({ error: 'feed_id required' });
     try {
@@ -90,7 +98,7 @@ router.delete('/:feedId', requireSignedIn, async (req, res) => {
 /** GET /api/feeds/meta/frigate-cameras — Frigate camera names for the
  *  override picker. 502 from the integration means Frigate isn't reachable;
  *  soften to an empty list so the Console picker just shows auto/none. */
-router.get('/meta/frigate-cameras', requireSignedIn, async (req, res) => {
+router.get('/meta/frigate-cameras', async (req, res) => {
     try {
         const result = await haFetchJson('/api/dashie/frigate/cameras');
         if (!result.ok) return res.json({ cameras: [] });
@@ -102,7 +110,7 @@ router.get('/meta/frigate-cameras', requireSignedIn, async (req, res) => {
  *  minus existing feeds, minus cameras that can't stream right now). 502 from
  *  the integration softens to an empty list so the picker shows "nothing to
  *  add" rather than an error. */
-router.get('/meta/discover', requireSignedIn, async (req, res) => {
+router.get('/meta/discover', async (req, res) => {
     try {
         const result = await haFetchJson('/api/dashie/feeds/discover');
         if (!result.ok) return res.json({ cameras: [] });
@@ -114,7 +122,7 @@ router.get('/meta/discover', requireSignedIn, async (req, res) => {
  *  feed editor pickers. Cameras feed the source picker; binary_sensor +
  *  input_boolean feed the trigger picker (mirrors the Kotlin editor's
  *  entity filters in VideoFeedEditorFragment). */
-router.get('/meta/entities', requireSignedIn, async (req, res) => {
+router.get('/meta/entities', async (req, res) => {
     try {
         const states = await haClient.getStates();
         const pick = (prefixes) => states
