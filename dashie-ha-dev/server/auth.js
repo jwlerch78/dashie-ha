@@ -132,20 +132,21 @@ async function createDeviceCode() {
     } catch {
         verification_url = `${CLOUD.verificationBase}/auth.html?code=${encodeURIComponent(result.user_code || '')}&type=${DEVICE_TYPE}`;
     }
-    // Skin for the approval pages (brand-config.js there; unknown param = no-op
-    // on older deploys, so this is safe to send unconditionally).
+    // Skin for the approval page (brand-config.js in the Dashie webapp).
     //
-    // ⚠️ `chickadee` is a WIRE VALUE, deliberately NOT renamed with the rest of
-    // the 2026-07-30 brand consolidation. It keys a brand entry in the Dashie
-    // webapp (js/data/auth/mobile-auth/brand-config.js) that owns its own Google
-    // OAuth client, whose secret lives in Supabase as GOOGLE_CHICKADEE_CLIENT_SECRET.
-    // Renaming it needs a coordinated webapp deploy + secret rename — that's T2c.
-    // Until then, changing it here breaks sign-in. Same rule as `dashie_cloud`.
-    verification_url += '&brand=chickadee';
-    // Single-origin env selection: the auth origin's auth-config reads ?env=
-    // (beta→staging, stable→prod) since one origin can't sniff env by host.
-    // Ignored by the legacy dashieapp.com pages, so safe to send always.
-    verification_url += '&env=' + CLOUD_ENV;
+    // NOT cosmetic — the brand entry also decides the GOOGLE SCOPES. `dashie_ha`
+    // requests identity only (openid email profile); the plain `dashie` default
+    // requests the full family set including Calendar and Drive. Dropping this
+    // param would therefore make a voice add-on ask for your Google Drive, so it
+    // must always be sent, and must name a brand that EXISTS — resolveBrand()
+    // falls back to `dashie` for an unknown id, which is exactly that failure.
+    //
+    // ⚠️ Requires the webapp deploy that adds the `dashie_ha` entry. Until that
+    // is live, this falls back to the full-scope Dashie brand.
+    verification_url += '&brand=dashie_ha';
+    // No `&env=`: verificationBase is now per-channel (dev./app.dashieapp.com)
+    // and those pages select their Supabase project by HOST. The param existed
+    // only for the retired single-origin getchickadee.org.
     return {
         device_code: result.device_code,
         user_code: result.user_code,
