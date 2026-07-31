@@ -78,7 +78,7 @@ run without us and two don't:
 | **Add-on** — server, console, AI brain | AGPL-3.0, in this repo | **Yes, completely.** In local mode nothing contacts a Dashie service — no account, no telemetry, not even a version ping. |
 | **HA integration** | AGPL-3.0, [separate repo](https://github.com/jwlerch78/dashie-voice-integration) | **Yes.** |
 | **`kiosk-overlay/`** — the Home-Assistant-facing web layer inside the tablet app | AGPL-3.0, in this repo | **Readable, not independently buildable.** It imports from Dashie's private app tree, so it is published to be inspected, not compiled. |
-| **The tablet/TV app itself** | Closed. Built APK in [Releases](../../releases) | **No.** It signs in to Dashie's hosted backend, and its cloud voice path calls our endpoints at fixed addresses. |
+| **The tablet/TV app itself** | Closed, and paid. Built APK in [Releases](../../releases) | **No.** It signs in to Dashie's hosted backend, and its cloud voice path calls our endpoints at fixed addresses. |
 
 Put plainly: **the voice add-on is genuinely self-hostable. The tablet app is
 not.** If "open" means "I can run all of this on my own hardware forever," that
