@@ -31,7 +31,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRegistry,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRegistry, haWorker,
     supervisor, installer, ingressIdentity;
 try {
     path = require('path');
@@ -49,6 +49,7 @@ try {
     settingsRouter = require('./api/settings');
     internalRouter = require('./api/internal');
     haRegistry = require('./ha-registry');
+    haWorker = require('./ha-worker');
     supervisor = require('./supervisor');
     installer = require('./integration-installer');
     ingressIdentity = require('./ingress-identity');
@@ -297,6 +298,12 @@ discovery.publishWithRetry(bridgeAuth.loadOrCreateSecret());
 // THE HA WebSocket client — one socket, shared by engine detection, LAN
 // discovery and the config-flow probe. No-op without a token.
 haRegistry.start();
+// Device-metrics poller (HA states → user_devices.metrics via database-operations).
+// It is the ONLY writer of that data anywhere, which is why a published add-on
+// without it showed the Devices page with empty cards. Degrades to an idle loop
+// on a box with no HA token or no Dashie account — see runPoll's logSkip guards,
+// which dedupe by reason so an unconfigured box logs once, not every 5s.
+haWorker.start();
 // "All at once" onboarding: install/update the vendored integration into
 // /config/custom_components (option-gated; HACS installs never touched).
 installer.ensureIntegration();
