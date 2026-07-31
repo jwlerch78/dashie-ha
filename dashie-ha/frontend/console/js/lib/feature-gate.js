@@ -89,9 +89,19 @@ const FeatureGate = {
      * is the stronger claim.
      */
     CLOSED_DELTA_PAGES: new Set([
-        // 'devices' left this set on 2026-07-30 — the HA edition manages Dashie
-        // devices too. Its family-only OPTIONS (theme, the widgets layout, cloud
-        // photo sources) are gated by FAMILY_ONLY_OPTIONS instead, a finer grain.
+        // 'devices' left this set on 2026-07-30 (b84d77d) and came BACK on
+        // 2026-07-31 — a STOPGAP, not a policy reversal. The HA edition should
+        // manage Dashie devices; the page was simply published ~2 weeks ahead of
+        // the server that answers it. Of the ELEVEN /api/ha/* routes the Devices
+        // pages call, this server serves zero, and the card metrics come from
+        // Supabase user_devices.metrics — written only by ha-worker.js, which
+        // this add-on does not run. _fetchAddonStatus swallows the 404, so the
+        // page silently under-reports rather than failing visibly.
+        // Its family-only OPTIONS (theme, the widgets layout, cloud photo
+        // sources) stay gated by FAMILY_ONLY_OPTIONS — a finer grain, unaffected.
+        // REMOVE THIS AGAIN at step 8 of 20260731_SERVER_MERGE_MAP.md, once
+        // lint:console-endpoints is green.
+        'devices',
         'family', 'calendar', 'chores', 'rewards',
         'locations', 'photos', 'video-feeds',
         // Preferences duplicates what HA already knows (language/time/units) —
