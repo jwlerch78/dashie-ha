@@ -414,6 +414,22 @@ const DevicesPage = {
             console.warn('[DevicesPage] /api/ha/status unavailable:', e.message);
             this._haStatus = null;
         } finally {
+            // Stamp the attempt on FAILURE too, not just success.
+            //
+            // _maybeRefreshAddonStatus() gates on `Date.now() - _haStatusFetchedAt`.
+            // While this only advanced on success, a failing endpoint left it at 0 —
+            // permanently "stale" — and the render path is circular:
+            //   _renderList → _maybeRefreshAddonStatus → _fetchAddonStatus
+            //     → .then(App.renderPage) → _renderList → …
+            // _haStatusFetching is cleared in this finally, BEFORE that .then() runs,
+            // so it serialized nothing. The result was a tight loop bounded only by
+            // localhost RTT: ~20,000 requests in seconds, which buried the add-on log
+            // (2000/2000 lines were the same DROP marker) on 2026-07-31.
+            //
+            // Not merge-specific — any transient 500, or the add-on restarting under
+            // a open Devices tab, hits the same loop. Backing off on failure the same
+            // 15s we back off on success is the fix.
+            this._haStatusFetchedAt = Date.now();
             this._haStatusFetching = false;
         }
     },

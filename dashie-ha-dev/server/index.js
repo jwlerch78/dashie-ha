@@ -233,11 +233,43 @@ app.use('/api/internal', internalRouter);
 
 app.use('/', express.static(FRONTEND_DIR));
 
+// Unhandled-route DROP logging, deduped.
+//
+// CLAUDE.md rule 2 says every dispatch fallthrough logs a distinctive DROP. It does
+// NOT say log it unboundedly, and on 2026-07-31 that distinction became load-bearing:
+// a client retry loop hit one unserved route hard enough that 2000/2000 lines of the
+// add-on log were the same DROP marker, hiding the boot banner and every other line.
+// A drop nobody can find in the noise is functionally a silent one.
+//
+// So: log the FIRST hit on a route immediately (never delay the signal), then at most
+// once a minute with the suppressed count. The marker still greps.
+const DROP_LOG_INTERVAL_MS = 60 * 1000;
+const dropSeen = new Map();     // "METHOD /path" → { count, lastLoggedAt }
+function logRouteDrop(method, path) {
+    const key = `${method} ${path}`;
+    const now = Date.now();
+    let rec = dropSeen.get(key);
+    if (!rec) {
+        // Distinct unhandled paths are attacker/param controlled (/api/ha/image/<id>/…),
+        // so bound the map rather than let it grow with traffic.
+        if (dropSeen.size > 200) dropSeen.clear();
+        rec = { count: 0, lastLoggedAt: 0 };
+        dropSeen.set(key, rec);
+    }
+    rec.count++;
+    if (now - rec.lastLoggedAt < DROP_LOG_INTERVAL_MS) return;
+    const suppressed = rec.count - 1;
+    rec.lastLoggedAt = now;
+    rec.count = 0;
+    console.warn(`[http] DROP: unhandled route ${key}`
+        + (suppressed > 0 ? ` (${suppressed} more in the last ${DROP_LOG_INTERVAL_MS / 1000}s)` : ''));
+}
+
 // SPA fallback — non-API, extension-less paths get index.html.
 app.get('*', (req, res, next) => {
     const normalizedPath = req.path.replace(/^\/+/, '/');
     if (normalizedPath.startsWith('/api/')) {
-        console.warn(`[http] DROP: unhandled route ${req.method} ${normalizedPath}`);
+        logRouteDrop(req.method, normalizedPath);
         return res.status(404).json({ error: 'not_found' });
     }
     if (req.path.includes('.')) return next();
