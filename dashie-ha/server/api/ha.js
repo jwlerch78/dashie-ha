@@ -630,6 +630,21 @@ router.get('/image/:deviceId/:role', requireSignedIn, async (req, res) => {
             headers: { Authorization: `Bearer ${config.token}` },
         });
         if (!upstream.ok) {
+            // "The device has no current frame" is a NORMAL state, not a gateway failure.
+            // A tablet that is asleep, or awake but between captures, leaves HA serving a
+            // 404 for the entity_picture it just advertised -- so the Console's polling was
+            // logging a steady stream of 502s for devices that were working perfectly.
+            // (It read as a 404 before 0.9.9 mounted this router, which is why it only
+            // became visible then; the underlying condition is not new.)
+            //
+            // 204 says exactly that: nothing to render right now, ask again later. The
+            // client is an <img src>, which fails to paint on 204 and 502 alike, so this
+            // is a pure signal-quality change -- the card behaves as it already did.
+            //
+            // 5xx is kept as 502 deliberately: that one IS an upstream fault and should
+            // stay loud. Collapsing everything to 204 would hide a genuinely broken HA.
+            if (upstream.status < 500) return res.status(204).end();
+            console.warn(`[api/ha/image] ${deviceId}/${role}: HA returned ${upstream.status}`);
             return res.status(502).json({ error: `HA returned ${upstream.status}` });
         }
         const ctype = upstream.headers.get('content-type') || 'image/jpeg';
