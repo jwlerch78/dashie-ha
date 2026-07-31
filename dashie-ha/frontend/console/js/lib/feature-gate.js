@@ -89,7 +89,10 @@ const FeatureGate = {
      * is the stronger claim.
      */
     CLOSED_DELTA_PAGES: new Set([
-        'devices', 'family', 'calendar', 'chores', 'rewards',
+        // 'devices' left this set on 2026-07-30 — the HA edition manages Dashie
+        // devices too. Its family-only OPTIONS (theme, the widgets layout, cloud
+        // photo sources) are gated by FAMILY_ONLY_OPTIONS instead, a finer grain.
+        'family', 'calendar', 'chores', 'rewards',
         'locations', 'photos', 'video-feeds',
         // Preferences duplicates what HA already knows (language/time/units) —
         // the published stack derives from HA config instead (John, 2026-07-27).
@@ -112,6 +115,53 @@ const FeatureGate = {
      * dbRequest (contract #31), so it would show a feature that cannot save.
      */
     LOCAL_MODE_PAGES: new Set(['voice-ai', 'local-engines', 'api-keys']),
+
+    /**
+     * FAMILY-ONLY OPTIONS — a finer grain than CLOSED_DELTA_PAGES.
+     *
+     * Publishing the Devices pages (2026-07-30) surfaced a case the page-level
+     * gate can't express: sections that belong in BOTH editions but offer an
+     * option that only exists in the family product. The section stays; the
+     * option goes. Registered here rather than as four ad-hoc isPublishedBuild()
+     * branches, for the same reason CLOSED_DELTA_PAGES is a Set and not four
+     * scattered checks — one place to read, one place to audit.
+     *
+     *   '*'      → the whole control is family-only
+     *   [values] → those option values are family-only; the rest stay
+     */
+    FAMILY_ONLY_OPTIONS: {
+        // Seasonal theme families (Halloween, Christmas). Decided family-only
+        // 2026-07-06. NOTE Dark/Light is a SEPARATE control (device card Quick
+        // Controls) and is unaffected.
+        'display.themeFamily': '*',
+        // 'widgets' IS the family dashboard — calendar/chores/photos widgets.
+        // The Layout row itself stays: the HA edition uses single_panel/kiosk.
+        'display.layoutMode': ['widgets'],
+        // supabase = Dashie Cloud photo albums (family product).
+        // google_drive = needs the Google Drive OAuth scope, which the HA
+        // edition deliberately does NOT request (brand `dashie_ha` asks for
+        // identity only) — so it could not work here even if offered.
+        // HA Media / Immich / Unsplash stay: screensaver albums are core here.
+        'photos.sourceType': ['supabase', 'google_drive'],
+    },
+
+    /**
+     * Is `value` of setting `key` offered in this build? `value` omitted asks
+     * about the whole control. True in the family build always — this gate only
+     * ever REMOVES options from the published one.
+     */
+    optionAllowed(key, value) {
+        if (!this.isPublishedBuild()) return true;
+        const rule = this.FAMILY_ONLY_OPTIONS[key];
+        if (rule === undefined) return true;
+        if (rule === '*') return false;
+        return !rule.includes(value);
+    },
+
+    /** Filter a [value, label] option list down to what this build offers. */
+    filterOptions(key, options) {
+        return (options || []).filter(o => this.optionAllowed(key, Array.isArray(o) ? o[0] : o));
+    },
 
     /**
      * True when `page` needs an account that the current session doesn't have.

@@ -11,7 +11,7 @@ PUBLISHED CORE  (inspectable — this tree)
         │ vendored downstream (never upstream)
         ▼
 CLOSED FAMILY DELTA  (calendar, chores, family, rewards, locations,
-                      photos, video-feeds, devices, preferences)
+                      photos, video-feeds, preferences)
         ├── Dashie Console add-on (full)  → HA users with a Dashie account
         └── web console                   → consumer families
 ```
@@ -28,6 +28,27 @@ Dashie). It is the same boundary; it is now named for what it actually is — an
 | `FeatureGate.CLOSED_DELTA_PAGES` | `js/lib/feature-gate.js` | enumerates the closed delta |
 | `DELTA-SCRIPTS` block | `index.html` | the seam where the full build injects its private pages |
 | vendoring direction | published repo is canonical since 2026-07-27 | the family console vendors this core and overlays its delta |
+
+## Two grains of gating
+
+`CLOSED_DELTA_PAGES` removes whole pages. Since 2026-07-30 there is also
+`FAMILY_ONLY_OPTIONS`, which removes individual **options** from sections that
+belong in both editions — the case publishing the Devices pages surfaced:
+
+| Setting | Published build |
+|---|---|
+| `display.themeFamily` | whole control hidden (seasonal families are family-only) |
+| `display.layoutMode` | `widgets` dropped — that option *is* the family dashboard |
+| `photos.sourceType` | `supabase` (cloud albums) and `google_drive` dropped |
+
+`google_drive` is worth its own note: it needs the Google **Drive** OAuth scope,
+and the HA edition's sign-in brand (`dashie_ha`) requests identity only. So it is
+not merely withheld — it could not work here. If that scope decision is ever
+revisited, this option comes back with it.
+
+Applied at the two chokepoints rather than per caller: `renderPickerModal()`
+filters every picker by `category.key`, and `_photoSourceOptions()` filters the
+source list. A new picker is gated automatically.
 
 ## Invariants
 

@@ -26,9 +26,6 @@ bad()  { echo "check-console-tree: ❌ $*" >&2; fail=1; }
 DELTA_FILES=(
   js/lib/subscribe-gate.js js/lib/subscription-status.js js/lib/dashboard-trial.js
   js/components/external-link-modal.js js/pages/account-plan.js
-  js/pages/devices.js js/pages/devices-rename.js js/pages/devices-camera.js
-  js/pages/devices-events.js js/pages/devices-card.js js/pages/devices-detail.js
-  js/pages/devices-detail-modals.js js/pages/devices-claim.js
   js/pages/family.js
   js/pages/calendar.js js/pages/calendar-edit.js js/pages/calendar-options.js js/pages/calendar-add.js
   js/pages/chores.js js/pages/rewards.js js/pages/locations.js
@@ -56,7 +53,7 @@ done
 # ---- 3. Delta globals only in guarded form --------------------------------
 DELTA_GLOBALS=(
   SubscribeGate SubscriptionStatus DashboardTrial ExternalLinkModal AccountPlan
-  DevicesPage FamilyPage CalendarPage ChoresPage RewardsPage LocationsPage
+  FamilyPage CalendarPage ChoresPage RewardsPage LocationsPage
   PhotosPage VideoFeedsPage PreferencesPage
 )
 for g in "${DELTA_GLOBALS[@]}"; do
