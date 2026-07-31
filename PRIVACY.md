@@ -38,10 +38,17 @@ this is the panel's HTML in your browser.
 ## Bring-your-own-key
 
 Audio and text go to **the providers you configured** (e.g. Google, OpenAI,
-OpenRouter) under **your** API key, directly from your box. Dashie's
-servers are not involved. Your keys are stored on-box only
-(`/data/api-keys.json`, file mode 600), are masked in the console UI, and
-are excluded from HA backups (`backup_exclude`).
+OpenRouter) under **your** API key, directly from your box. Your keys are stored
+on-box only (`/data/api-keys.json`, file mode 600), are masked in the console UI,
+and are excluded from HA backups (`backup_exclude`). Saving a key needs no Dashie
+account — that is the point of it.
+
+**With no account, Dashie's servers are not involved at all**: the turn is your
+box talking to your provider. **If you are signed in**, the AI still runs entirely
+on your key (we never bill tokens for it), but the turn is recorded in your
+account's usage history like any other — and the optional extras that *are* ours,
+web search and image lookup, become available and are billed to your credits when
+the assistant uses them. Signing out returns you to the first sentence.
 
 One credential this does **not** cover: the add-on↔integration bridge secret
 is also mirrored to `<config>/.dashie_voice/bridge_secret`, which is in your HA

@@ -3,16 +3,38 @@
 //
 // The integration POSTs a VoiceRequest (CONTRACTS.md: pass-through philosophy — unknown
 // fields must survive) and executes any HA actions in the returned Turn itself. This
-// handler owns the route decision; v0 routes every turn to the configured
-// OpenAI-compatible endpoint (add-on options llm_url / llm_model / llm_api_key).
-// Hosted (Dashie Cloud) routing arrives with the account machinery.
+// handler owns the ROUTE DECISION, in this precedence:
+//
+//   1. llm_url + llm_model in the add-on's Configuration tab  → this box's own endpoint
+//   2. a stored BYO provider key that covers the CHOSEN AI model → that provider, on the
+//      user's own key (brain/providers.js resolveByokTarget)
+//   3. a signed-in Dashie account                              → Dashie Cloud (metered)
+//   4. nothing                                                 → spoken setup guidance
+//
+// Rule 2 landed 2026-07-31 (Step 7). It had TWO consumers waiting on it and zero
+// implementations:
+//   - the console tells the user "a BYO provider key unlocks a cloud-AI preset in EVERY
+//     mode, including local … the brain runs BYOK without an account" (voice-ai.js
+//     _hasCreditsOrKey). That was simply false — `resolveByokTarget` had no callers.
+//   - /api/internal/voice-config ALREADY answers `route: 'local'` for a BYOK account
+//     (account-config withRoute → resolveBrainRoute), so the integration duly sent the
+//     turn here — and this handler then forwarded it to the metered cloud brain anyway.
+//     A stored key validated green, routed "local", and still billed credits: the exact
+//     silent degradation WS-I.8 exists to forbid.
+//
+// The account JWT is resolved ONCE per turn and threaded into the brain shell
+// (`accountToken`) and the orchestration deps (`token`/`userId`). That one value is what
+// switches addon-io between its no-account and account-backed postures — see
+// brain/addon-io.js. Signed out, nothing on this path contacts a Dashie service.
 
 'use strict';
 
 const auth = require('./auth');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
+const settingsStore = require('./settings-store');
 const { createAddonIO } = require('./brain/addon-io');
+const { resolveByokTarget } = require('./brain/providers');
 const brain = require('./brain/voice-brain.bundle.js');
 
 const CLOUD_TIMEOUT_MS = 60000;
@@ -59,6 +81,31 @@ function speak(text) {
     return { status: 200, body: { ok: true, type: 'chat', text } };
 }
 
+/** The add-on's own Dashie account, or nulls when signed out. Never throws:
+ *  "not signed in" is a normal, supported state on this edition. */
+async function resolveAccount() {
+    try {
+        const { jwt, userId } = (await auth.getValidJwt()) || {};
+        return { jwt: jwt || '', userId: userId || '' };
+    } catch (e) {
+        if (e.message !== 'not_signed_in') console.warn('DROP-averted: account resolve failed, continuing signed-out:', e.message);
+        return { jwt: '', userId: '' };
+    }
+}
+
+/** Which AI model has this box been told to use? Signed in that's the ACCOUNT's
+ *  ai.model (user_settings); signed out it's the account-less console blob the
+ *  Voice & AI page writes to /api/settings/local. Either way it's just a model
+ *  ID — the only question rule 2 asks is "does a stored key cover it?". */
+async function chosenModel(signedIn) {
+    if (signedIn) {
+        try { return (await require('./account-config').getAccountVoiceConfig()).model || ''; }
+        catch { return ''; }
+    }
+    try { return String(settingsStore.readUserSettings()?.ai?.model || ''); }
+    catch { return ''; }
+}
+
 /**
  * Run one turn. Auth (bridge secret) is checked by the caller (index.js).
  * @param {object} payload parsed VoiceRequest body
@@ -69,28 +116,46 @@ async function converse(payload) {
     if (!text) return { status: 400, body: { error: 'bad_request', message: 'text is required' } };
 
     const opts = readOptions();
+    const { jwt, userId } = await resolveAccount();
     const endpoint = String(opts.llm_url || '').trim();
-    const model = String(opts.llm_model || '').trim();
-    // Route: a configured endpoint (BYO/local) wins; otherwise a signed-in
-    // account runs on Dashie Cloud; otherwise speak setup guidance.
-    if (!endpoint || !model) {
-        try {
-            const { jwt } = await auth.getValidJwt();
+    const optModel = String(opts.llm_model || '').trim();
+
+    // ── Route (see the file header for the precedence and why) ──────────────────
+    let shell = null;      // createAddonIO options for an on-box/BYOK turn
+    let routeTag = '';     // for the DASHIE-TURN log line
+    if (endpoint && optModel) {
+        shell = { endpoint, model: optModel, key: String(opts.llm_api_key || '') };
+        routeTag = 'local';
+    } else {
+        const byok = resolveByokTarget(await chosenModel(!!jwt));
+        if (byok) {
+            // `byok.model` is the WIRE id (our catalog id direct, `vendor/model` via
+            // OpenRouter) — send THAT, not the catalog id the account stored.
+            shell = {
+                chatUrl: byok.chatUrl,
+                model: byok.model,
+                key: byok.key,
+                providerLabel: byok.label,
+                extraHeaders: byok.headers || {},
+            };
+            routeTag = `byok:${byok.provider}`;
+        }
+    }
+
+    if (!shell) {
+        if (jwt) {
             const nCloud = ((payload.provided_context || {}).ha_entities || []).length;
             console.log(`DASHIE-TURN route=cloud text="${text}" entities=${nCloud}`);
             return await converseCloud({ ...payload, text }, jwt);
-        } catch (e) {
-            if (e.message !== 'not_signed_in') throw e;
         }
-        console.warn('DROP: converse with no brain configured (sign in, or set llm_url + llm_model in the add-on Configuration tab)');
+        console.warn('DROP: converse with no brain configured (sign in, add a provider API key, or set llm_url + llm_model in the add-on Configuration tab)');
         return speak("The Dashie brain isn't set up yet. Sign in to Dashie Cloud from the add-on's panel, or point me at an A.I. model server in its configuration.");
     }
 
-    const io = createAddonIO({
-        endpoint,
-        model,
-        key: String(opts.llm_api_key || ''),
-    });
+    const model = shell.model;
+    // accountToken is THE gate: present → the account-backed shell (tools, credit-aware
+    // gating, console History); absent → the no-account shell (no Dashie service contacted).
+    const io = createAddonIO({ ...shell, accountToken: jwt });
 
     // Pass-through: forward the request as received, defaulting only what the brain
     // requires. options.model pins the turn to the configured model.
@@ -105,13 +170,18 @@ async function converse(payload) {
     };
 
     const nEntities = ((payload.provided_context || {}).ha_entities || []).length;
-    console.log(`DASHIE-TURN text="${text}" endpoint_id=${brainReq.endpoint_id} ` +
-        `conversation_id=${brainReq.conversation_id || '-'} entities=${nEntities} model=${model}`);
+    console.log(`DASHIE-TURN route=${routeTag} account=${jwt ? 'yes' : 'no'} text="${text}" ` +
+        `endpoint_id=${brainReq.endpoint_id} conversation_id=${brainReq.conversation_id || '-'} ` +
+        `entities=${nEntities} model=${model}`);
 
     const t0 = Date.now();
     try {
         const turn = await brain.runOrchestration(
-            { req: brainReq, userId: 'local', token: '', supabase: null },
+            // token/userId carry the ACCOUNT when there is one: the core threads `token`
+            // into logInteraction, the web-search/sports gateways and image-search
+            // attribution. Signed out they stay ''/'local' — the pre-Step-7 shape, and the
+            // shell refuses every account-backed call anyway.
+            { req: brainReq, userId: userId || 'local', token: jwt || '', supabase: null },
             io,
         );
         console.log(`DASHIE-BRAIN type=${turn?.type || '?'} ok=${turn?.ok !== false} ` +
