@@ -1,28 +1,39 @@
-# Provenance — who builds Chickadee, and how it relates to Dashie
+# Provenance — what this repo is, and how it relates to the rest of Dashie
 
-Chickadee is built and operated by the maker of
-[Dashie](https://dashieapp.com), a (closed-source, commercial) family
-dashboard for Home Assistant. This page states the relationship plainly so
-you don't have to reverse-engineer it from the code.
+This is **Dashie for Home Assistant**, built and operated by the maker of
+[Dashie](https://dashieapp.com). One product, two editions — this page states
+the relationship plainly so you don't have to reverse-engineer it from the code.
 
-## The split
+Until 2026-07-30 this repo carried a second brand name, "Chickadee", and was
+framed as an open core with Dashie as a closed product on top. That framing is
+retired. The brand is gone; the **boundary it described is unchanged** — the same
+code is published, the same code is withheld, on the same seam. Only the name and
+the story about it moved. Git history still says Chickadee throughout, and it is
+left that way deliberately: the disclosure trail below depends on that history
+being intact and unrewritten.
 
-**Chickadee** is the open core: the voice/AI pipeline — add-on, console,
-brain runtime, and HA integration — licensed AGPL-3.0. Every capability
-works fully self-hosted with your own engines and keys, forever.
+## The two editions
 
-**Dashie** is a closed product built *on top of* this open core: family
-dashboard clients (tablets/TVs) whose private console pages (calendar,
-photos, chores, subscriptions) overlay the open console.
+**Dashie for Home Assistant** — this repo. The voice/AI pipeline: add-on,
+console, brain runtime, and the HA integration. Every capability works fully
+self-hosted, with your own engines and your own keys, forever. No account is
+required for any of it.
 
-The money flow is the [Nabu Casa](https://www.nabucasa.com/) shape:
-the open project is funded by an optional hosted convenience —
-**Chickadee Cloud**, metered credits, no subscription — plus the separate
-Dashie product. Nothing in Chickadee is feature-gated on paying.
+**Dashie** (the family product) — tablet/TV dashboard clients whose private
+console pages (calendar, photos, chores, family, subscriptions) overlay this
+console as a **delta**. Those pages are not published. In this build they are
+not hidden — they are **absent**, and a release gate proves it (see
+`scripts/check-console-tree.sh`, and `dashie-ha/frontend/console/CONSOLE_ISOLATION.md`
+for the full set of invariants).
 
-## What Chickadee Cloud runs — and what isn't published
+The money flow is the [Nabu Casa](https://www.nabucasa.com/) shape: the free
+edition is funded by an optional hosted convenience — **Dashie Cloud**, metered
+credits, no subscription — plus the separate paid family product. **Nothing in
+this edition is feature-gated on paying.**
 
-Chickadee Cloud is a paid hosted service, and this repo is AGPL. That
+## What Dashie Cloud runs — and what isn't published
+
+Dashie Cloud is a paid hosted service and this repo is published source. That
 combination deserves a straight answer rather than a shrug, so here it is.
 
 **What the cloud runs: the same brain core that's in this repo.** The
@@ -55,40 +66,31 @@ clients of unpublished proxies. `_shared/tools/image_search.ts` and
 the self-hosted path those tools are **off**, not silently proxied through us —
 `addon-io.js` disables the metered tools and says so in its header comment.
 
-**Why this isn't an AGPL §13 dodge.** §13, the network-use clause, exists
-specifically to close the "run it as a service, publish nothing" gap that GPL
-leaves open, so picking AGPL and then running a hosted service on unpublished
-code is a fair thing to interrogate. Two answers, and the first is the real
-one:
+**That refusal is now tested, not just asserted.** It was probed adversarially
+on 2026-07-30 with a stub endpoint returning brain-shaped responses that
+*demand* each metered tool — a stronger instrument than a real model, which only
+tests whether it happens to *ask*. Sports and web search refused structurally.
+Image search **did not**: a caller sending `retrieve_pictures: true` could
+re-enable it, because the request override beats the account default by design
+and the self-hosted shell's spend check fails open so that a bring-your-own-key
+turn can run. The call missed our servers only by accident — an unset base URL
+made it throw at parse, before DNS or any socket. **Nothing leaked, and the
+local-mode claim in [PRIVACY.md](PRIVACY.md) was never false**, but the refusal
+was an accident rather than a decision. It is now an explicit flag on the
+self-hosted shell, with regression tests, one of which was confirmed to fail
+without the fix. Still owed: the same probes driven on a real HA box.
 
-- **We are the sole copyright holder.** AGPL is a license we *grant*; it does
-  not bind us for our own code. A copyright holder may run a private, modified
-  build of their own program as a service and owes nobody source. That is the
-  same position MongoDB, Elastic, Grafana, and Sentry occupy. It isn't a
-  loophole in AGPL — it's how copyright works, and §13 was never aimed at the
-  author.
-- **Independently, none of the withheld code would help you self-host.** Every
-  piece above is a binding to *our* Supabase project, *our* billing tables, or
-  *our* vendor keys. The add-on ships its own equivalent of each, in this repo,
-  and those are the ones you'd actually run. Publishing our HTTP shell would
-  give you a file you'd delete.
+**On licensing.** The terms that apply are whatever [LICENSE](LICENSE) says;
+that file is authoritative and this page is not a licence. Earlier versions of
+this document argued at length for a particular licence choice as part of the
+open-core story. That argument is withdrawn along with the story — it was
+reasoning about a two-brand structure that no longer exists, and licence
+lawyering is not what this page is for.
 
-**If that ever stops being true, we'll say so.** The sole-copyright-holder
-answer has an expiry date: the first time outside code lands in this repo, it
-reaches us under AGPL like everyone else's, and a cloud build containing a
-modified version of it *would* carry §13 obligations. That's why
-[CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md) exist and why the CLA
-is a broad-grant CLA rather than a DCO — a DCO wouldn't cover it, and the
-honest time to work that out is before a merge, not after.
-
-**The Nabu Casa parallel, stated precisely.** The *funding model* is Nabu
-Casa's: an open project, an optional paid hosted convenience, nothing
-feature-gated on paying. The *licenses* differ, and it's worth stating rather
-than letting someone catch it — Home Assistant is Apache-2.0 with a closed
-Nabu Casa backend; we chose the more restrictive copyleft for the open part.
-That makes withheld glue more conspicuous, not less. We'd still rather have it
-that way than a permissive license that lets anyone — us included — close the
-core later.
+**What does not depend on the licence is the boundary above.** Published is
+published; the four withheld items are withheld; the seam between them is a
+single named interface you can read. If that ever changes, this page changes with
+it — the commitment here is disclosure, not a specific licence.
 
 **One claim on this page rests on trust.** "The cloud runs the same core" is
 not currently verifiable from outside. The bundle header and
@@ -102,47 +104,50 @@ fix and we'd rather be pushed into it than assumed trustworthy.
 
 | Piece | Canonical home | Notes |
 |---|---|---|
-| Add-on server + brain runtime | this repo (`dashie-ha/server/`) | The brain core (`server/brain/`) is a generated bundle **with its TypeScript source vendored alongside**; the generator lives in the Dashie monorepo, where the same core is built for Dashie's clients |
-| Console SPA | this repo (`dashie-ha/frontend/console/`) — **canonical since 2026-07-27** | The Dashie build vendors this core and overlays its private pages (a "delta"). The empty `DELTA-SCRIPTS` block in `index.html` is that seam. Historical note: before 2026-07-27 the direction was reversed (the console was vendored *from* Dashie's private repo) — the inversion made the public repo the source of truth |
+| Add-on server + brain runtime | this repo (`dashie-ha/server/`) | The brain core (`server/brain/`) is a generated bundle **with its TypeScript source vendored alongside**; the generator lives in the Dashie monorepo, where the same core is built for the family edition's clients |
+| Console SPA | this repo (`dashie-ha/frontend/console/`) — **canonical since 2026-07-27** | The family build vendors this core and overlays its private pages (the "delta"). The empty `DELTA-SCRIPTS` block in `index.html` is that seam. Historical note: before 2026-07-27 the direction was reversed (the console was vendored *from* the private repo) — the inversion made this repo the source of truth |
 | HA integration | [dashie-voice-integration](https://github.com/jwlerch78/dashie-voice-integration) | Vendored into the add-on image at release (the add-on's auto-installer ships it); also installable via HACS |
 
-## Why some identifiers say "dashie"
+## Why identifiers, wake words and support links all say "dashie"
 
-Chickadee shares its account/billing backend with Dashie (one account
-system — a Chickadee account is the same account a Dashie user has, minus
-the family-product data). Because shipped Dashie apps already speak this
-protocol, several **wire values keep the `dashie` name for compatibility**:
-the `dashie_cloud` engine id, some `/api/dashie/voice/*` HTTP routes served
-for Dashie satellite devices, localStorage keys, and `dashie-*` CSS class
-names. These are compatibility contracts, not hidden branding — display
-identity is centralized in `js/lib/brand.js`.
+Because it is all one product now. This is worth a heading only because it used
+to require an explanation: two brands sharing one account system meant a pile of
+`dashie`-named wire values inside a differently-named project. One brand makes
+most of that unremarkable.
 
-One `dashie` name is deliberately **user-facing**, and it isn't a wire value:
-the **`hey_dashie` wake word**. Chickadee ships two custom microWakeWord
-models — `hey_dashie` and `chickadee` — and offers them in the same picker as
-the community words (Okay Nabu, Hey Jarvis, Alexa). Shipping a wake word
-named after a product is the ecosystem norm, not a funnel: openWakeWord ships
-`alexa` and `hey_mycroft`, microWakeWord ships `okay_nabu`. `hey_dashie` is
-there so Dashie satellites work out of the box; nothing selects it for you
-(the default is `hey_dashie` on every build since 2026-07-30), and picking it changes nothing
-about where your audio goes. Its manifest credits Dashie as the model's
-author because Dashie trained it — attribution, not advertising.
+Two things are still worth knowing:
+
+- **Some wire values are compatibility contracts, not branding.** The
+  `dashie_cloud` engine id, the `/api/dashie/voice/*` HTTP routes served for
+  Dashie satellite devices, localStorage keys, and `dashie-*` CSS class names
+  are spoken by shipped apps in the field and cannot be renamed unilaterally.
+  Display identity is centralized in `js/lib/brand.js`.
+- **One wake word is named `chickadee`.** It is a real trained microWakeWord
+  model from the previous brand, still shipped and still selectable — it simply
+  isn't any build's default (`hey_dashie` is, on every build since 2026-07-30).
+  It stays because the id keys the model file and is persisted on devices that
+  chose it; renaming it would stop those devices waking. Shipping wake words
+  named after products is the ecosystem norm — openWakeWord ships `alexa` and
+  `hey_mycroft`, microWakeWord ships `okay_nabu`. Nothing selects one for you,
+  and picking either changes nothing about where your audio goes. The
+  `hey_dashie` manifest credits Dashie as the model's author because Dashie
+  trained it — attribution, not advertising.
 
 ### What that means for this repo's history
 
 Say the quiet part: this repo is an **extraction from a commercial codebase**,
 not a clean-room build. Until 2026-07-27 the console tree here still contained
-Dashie's subscription/paywall modules and its family-product pages, and they
-were removed in a single commit (`ea2f9d3`, "REPO INVERSION"), with the Dashie
-logo assets going in `59167e6`. Git keeps deleted content, so all of it is
-still recoverable from this repo's history — `git show
-ea2f9d3^:chickadee/frontend/console/js/lib/subscribe-gate.js (pre-rename path)` works, and we're
-not going to rewrite history to hide that.
+the family edition's subscription/paywall modules and its family-product pages,
+and they were removed in a single commit (`ea2f9d3`, "REPO INVERSION"), with the
+logo assets going in `59167e6`. Git keeps deleted content, so all of it is still
+recoverable from this repo's history — the tree was named `chickadee/` at that
+commit, so `git show "ea2f9d3^:chickadee/frontend/console/js/lib/subscribe-gate.js"`
+works — and we're not going to rewrite history to hide that.
 
 Nothing sensitive is in there: a full-history secret scan finds only the two
 Supabase **anon** keys that are public by design. What's in there is the fact
-above — that the open project was made by subtraction. That's how open-core
-extractions look, and it's the same shape Nabu Casa's is; we'd rather you read
+above — that the published edition was made by subtraction. That is how these
+extractions look, and it is the same shape Nabu Casa's is; we'd rather you read
 it here than discover it and wonder what else wasn't said.
 
 The maintainer's own HA hostname also appears in early history (scrubbed at
@@ -150,43 +155,49 @@ HEAD in `a5e36b6` in favor of a `DASHIE_HA_HOST` env var). It's a
 Cloudflare-fronted address with no credential attached, so the scrub was
 hygiene, not damage control.
 
-## Known Dashie residue (being generalized)
+## Where the family edition still shows through
 
-Full candor about what's still Dashie-shaped in the current beta:
+Full candor about what is still shaped by the family product in the current
+beta. Under one brand these are less strange than they were under two — a shared
+core that names the shared product is expected — but a self-hosted user is
+entitled to know which parts of what they're running were written for someone
+else's use case:
 
 - **The assistant's built-in help knowledge base** (`dashie_help` tool,
   `server/brain/src/_shared/tools/dashie-kb.generated.ts`) currently covers
-  the Dashie app family — ask the assistant for product help and some
-  answers describe Dashie features. It's 67 chunks, including questions like
-  "How is Dashie different from Fully Kiosk Browser?" and "How do chores
-  work?". It's generated from the shared docs pipeline and is on the list to
-  generalize per-brand.
-- **The base system prompt is still Dashie-shaped, in every mode** —
+  the whole Dashie app family — ask the assistant for product help and some
+  answers describe family-edition features you don't have. It's 67 chunks,
+  including questions like "How is Dashie different from Fully Kiosk Browser?"
+  and "How do chores work?". It's generated from the shared docs pipeline and
+  is on the list to scope per edition.
+- **The base system prompt is written for the family product, in every mode** —
   including a fully local, account-less one. `server/brain/src/
   voice-conversation/templates.ts` opens with "You are {{ASSISTANT_NAME}},
   the voice assistant for a family dashboard — calendar, photos, weather,
-  chores, timers, and smart-home control" (the name is substituted, and is
-  "Chickadee" here), and instructs the model to suggest emailing
-  **support@dashieapp.com** when it can't answer. So a self-hosted user
-  running Ollama can be pointed at a commercial product's support address by
-  their own local model. Same root cause as the KB above — one shared prompt
-  core — and on the same list. Until then it's worth knowing the prompt you
-  are running; it's readable at that path, and in the shipped
-  `voice-brain.bundle.js`.
+  chores, timers, and smart-home control", and instructs the model to suggest
+  emailing **support@dashieapp.com** when it can't answer. So a self-hosted user
+  running Ollama can be pointed at our support address by their own local model.
+  That is now the correct address for this software rather than a different
+  company's, which is most of what used to be wrong with it — but being told to
+  email us about software you are running yourself is still presumptuous, and
+  it's on the list. Meanwhile it's worth knowing the prompt you are running:
+  it's readable at that path, and in the shipped `voice-brain.bundle.js`.
 - **The image-search tool** hardcodes a Dashie logo URL and a `photographer:
   'Dashie'` attribution for its own-brand result
   (`_shared/tools/image_search.ts`).
 - **`scripts/check-console-tree.sh`** (wired into `release.sh`) is a release
-  gate whose job is proving the Dashie delta hasn't leaked back into this
-  tree: it fails the release if any module on a hardcoded list of private
-  paths appears (28 of them today), or if
-  the tree contains paywall strings it greps for by phrase ("trial has
-  ended", "Subscribe to unlock", "Manage Subscription", …). It exists because
-  the console is shared source with a commercial build, and it is the
+  gate whose job is proving the closed family delta hasn't leaked back into this
+  tree: it fails the release if any module on a hardcoded list of private paths
+  appears (28 of them today), or if the tree contains paywall strings it greps
+  for by phrase ("trial has ended", "Subscribe to unlock", "Manage
+  Subscription", …). Since 2026-07-30 it also **executes** the console's feature
+  gate to prove that family-only *options* — not just whole pages — are
+  unreachable here, because string checks cannot see a runtime branch. It exists
+  because this console is shared source with a commercial build, and it is the
   mechanism that keeps this repo free of that build's commerce. Named here
-  because a gate that scrubs subscription phrases out of an "open" tree
-  should be something you read about in the disclosure, not something you
-  find in `scripts/`.
+  because a gate that scrubs subscription phrases out of a published tree should
+  be something you read about in the disclosure, not something you find in
+  `scripts/`.
 - **Generated files** (headers say `AUTO-GENERATED`): several console lib
   files and the brain bundle are built by the shared tooling in the private
   Dashie monorepo. Their vendored output here is the readable source you
@@ -207,4 +218,4 @@ in production on real households since 2025) and is heavily AI-assisted,
 human-reviewed. The public history starts 2026-07-25 because that's when
 the repos were split out and opened — not when the code was born.
 
-Questions about any of this: open an issue, or hello@getchickadee.org.
+Questions about any of this: open an issue, or support@dashieapp.com.
