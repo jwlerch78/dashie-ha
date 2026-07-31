@@ -271,10 +271,17 @@ const FeatureGate = {
         // Voice / AI features (Dashie Cloud token spend) — the hand-selected BETA
         // cohort. Moved alpha→beta in the 2026-07-03 access-tier restructure.
         voiceAi:    'beta-only',
-        // Video Feeds — STANDARD access (2026-07-22): HA camera feeds are a core HA
-        // capability, not a metered cloud product, so it's visible to all users (an
-        // account without HA simply has no feeds to show). Was 'beta-only'.
-        videoFeeds: true,
+        // Video Feeds — ADD-ON ONLY (2026-07-31, John). Same shape as apiKeys and
+        // localEngines: every operation goes through the add-on. FeedsApi._request
+        // throws outright when !DashieAuth.isAddonMode, so on the standalone console
+        // this page could only ever render an error.
+        //
+        // Supersedes the 2026-07-22 `true` and its reasoning ("an account without HA
+        // simply has no feeds to show"). That framing was about ACCOUNTS; the real
+        // constraint is the TRANSPORT — no add-on, no feed registry to reach. Access
+        // tier does not enter into it: inside the add-on this is free to every HA
+        // user, signed in or not (see LOCAL_MODE_PAGES).
+        videoFeeds: 'addon',
 
         // Credits / token-bank / BYOK — the beta cohort meters cloud voice/AI and
         // gets starter credits, so it's a beta gate now (was alpha).
