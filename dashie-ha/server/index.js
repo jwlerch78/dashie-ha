@@ -31,7 +31,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRegistry, haWorker,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRouter, haRegistry, haWorker,
     supervisor, installer, ingressIdentity;
 try {
     path = require('path');
@@ -48,6 +48,7 @@ try {
     keysRouter = require('./api/keys');
     settingsRouter = require('./api/settings');
     internalRouter = require('./api/internal');
+    haRouter = require('./api/ha');
     haRegistry = require('./ha-registry');
     haWorker = require('./ha-worker');
     supervisor = require('./supervisor');
@@ -225,6 +226,10 @@ app.post('/api/system/configure-integration', async (req, res) => {
 
 app.use('/api/auth', consoleAuthRouter);
 app.use('/api/voice', voiceConsoleRouter);   // engines/probe/preview/discover/… (bridge routes matched above)
+// HA data plane: device metrics/status, control, images, SSE, adopt.
+// Mounted with the console routers — i.e. AFTER the raw-body bridge
+// handlers above, which must keep seeing unparsed bodies.
+app.use('/api/ha', haRouter);
 app.use('/api/keys', keysRouter);
 app.use('/api/settings', settingsRouter);
 // Bridge-secret gated (LAN-sharing lane for the integration's /api/dashie/voice/* views).
