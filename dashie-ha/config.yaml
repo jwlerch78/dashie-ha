@@ -1,4 +1,4 @@
-name: Dashie for Home Assistant
+name: Dashie
 version: "0.8.6"
 # Slug is IMMUTABLE once shipped (a slug change = a different add-on with an
 # orphaned /data). Born `chickadee`, renamed to `dashie_ha` on
