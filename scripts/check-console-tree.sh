@@ -114,6 +114,41 @@ else
   fi
 fi
 
+# ---- 7. Every published page's server routes actually EXIST ----------------
+# 1–6 all look at the FRONTEND. None of them can see a page published ahead of
+# the server that answers it — which is exactly what happened on 2026-07-30 when
+# `devices` left CLOSED_DELTA_PAGES and its eleven /api/ha/* routes 404'd.
+#
+# Same hard-fail posture as 6: a missing runtime is a failure, not a skip.
+if ! command -v node >/dev/null 2>&1; then
+  bad "node not on PATH — cannot run the console↔server endpoint check.
+       Install node; do not skip this. It is the only check that can see a page
+       published ahead of its server routes."
+else
+  if node "$ROOT/scripts/check-console-endpoints.mjs"; then
+    say "✅ every route the published console calls is served by the published server"
+  elif [ "${DASHIE_HA_ENDPOINTS_INTERIM:-0}" = "1" ]; then
+    # INTERIM ESCAPE — delete this branch at step 6 of 20260731_SERVER_MERGE_MAP.md.
+    #
+    # This gate is deliberately RED from the day it was written (2026-07-31): it
+    # was built BEFORE the server merge so that turning it green is what proves
+    # the merge complete. But release.sh gates on this script, and step 3 of that
+    # merge cannot be verified without cutting a dev release — so a hard failure
+    # here would block the very release the merge needs.
+    #
+    # This escape exists for exactly that window. It does not silence anything:
+    # the full unserved list prints above, every time.
+    say "⚠️  console↔server endpoint check FAILED, allowed by DASHIE_HA_ENDPOINTS_INTERIM=1"
+    say "⚠️  This escape is for the server-merge window ONLY. Remove it (and this"
+    say "⚠️  branch) at step 6 of 20260731_SERVER_MERGE_MAP.md. Do not cut a PROD"
+    say "⚠️  release with it set — the routes above genuinely 404 on the box."
+  else
+    bad "console↔server endpoint check FAILED — see the unserved routes above.
+       During the server merge only, DASHIE_HA_ENDPOINTS_INTERIM=1 downgrades this
+       to a warning so a dev release can be cut (20260731_SERVER_MERGE_MAP.md §8)."
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check-console-tree: FAILED — the public console tree is not open-core clean." >&2
   exit 1
