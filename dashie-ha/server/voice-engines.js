@@ -16,7 +16,7 @@
 // it in the `debug` block. scripts/probe-voice-engines.js dumps raw shapes for
 // validation against a real HA before the native clients depend on them.
 
-const haWs = require('./ha-ws');
+const haRegistry = require('./ha-registry');
 const keyStore = require('./key-store');
 const { getAccountVoiceConfig } = require('./account-config');
 
@@ -46,7 +46,7 @@ function _providers(listResult) {
 async function _detectTts(debug) {
     let listResult;
     try {
-        listResult = await haWs.listTtsEngines();
+        listResult = await haRegistry.listTtsEngines();
     } catch (e) {
         if (debug) debug.tts_list_error = e.message;
         return [];
@@ -61,7 +61,7 @@ async function _detectTts(debug) {
         const language = _preferredLanguage(languages);
         let voices = [];
         try {
-            const vres = await haWs.getTtsVoices(engineId, language);
+            const vres = await haRegistry.getTtsVoices(engineId, language);
             if (debug && !debug.tts_voices_raw) debug.tts_voices_raw = { engineId, language, vres };
             const arr = Array.isArray(vres?.voices) ? vres.voices : (Array.isArray(vres) ? vres : []);
             voices = arr
@@ -78,7 +78,7 @@ async function _detectTts(debug) {
 async function _detectStt(debug) {
     let listResult;
     try {
-        listResult = await haWs.listSttEngines();
+        listResult = await haRegistry.listSttEngines();
     } catch (e) {
         if (debug) debug.stt_list_error = e.message;
         return [];
@@ -267,7 +267,7 @@ async function _detectBrain(debug) {
  *  what this household speaks. Best-effort: '' just means "don't narrow". */
 async function _detectHaLanguage(debug) {
     try {
-        const cfg = await haWs.getHaConfig();
+        const cfg = await haRegistry.getHaConfig();
         const lang = String(cfg?.language || '').trim();          // 'en'
         const country = String(cfg?.country || '').trim();        // 'US'
         if (debug) debug.ha_config_locale = { language: lang, country };
@@ -280,7 +280,7 @@ async function _detectHaLanguage(debug) {
 }
 
 async function detectVoiceEngines({ refresh = false, debug = false } = {}) {
-    if (!haWs.isAvailable()) {
+    if (!haRegistry.isAvailable()) {
         return { available: false, tts: [], stt: [], kokoro: { installed: false, reason: 'ha_unavailable' }, hermes: { installed: false, reason: 'ha_unavailable' }, brain: { configured: false } };
     }
     if (!refresh && !debug && _cache && (Date.now() - _cache.fetchedAt) < CACHE_TTL_MS) {

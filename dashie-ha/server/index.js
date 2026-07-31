@@ -31,7 +31,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haWs,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRegistry,
     supervisor, installer, ingressIdentity;
 try {
     path = require('path');
@@ -48,7 +48,7 @@ try {
     keysRouter = require('./api/keys');
     settingsRouter = require('./api/settings');
     internalRouter = require('./api/internal');
-    haWs = require('./ha-ws');
+    haRegistry = require('./ha-registry');
     supervisor = require('./supervisor');
     installer = require('./integration-installer');
     ingressIdentity = require('./ingress-identity');
@@ -262,8 +262,9 @@ console.log('='.repeat(60));
 bridgeAuth.provisionSecret();
 // Primary secret channel: Supervisor discovery → integration async_step_hassio.
 discovery.publishWithRetry(bridgeAuth.loadOrCreateSecret());
-// HA WebSocket (engine detection / LAN discovery) — no-op without a token.
-haWs.start();
+// THE HA WebSocket client — one socket, shared by engine detection, LAN
+// discovery and the config-flow probe. No-op without a token.
+haRegistry.start();
 // "All at once" onboarding: install/update the vendored integration into
 // /config/custom_components (option-gated; HACS installs never touched).
 installer.ensureIntegration();
