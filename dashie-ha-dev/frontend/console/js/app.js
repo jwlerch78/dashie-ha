@@ -813,6 +813,13 @@ const App = {
 
     /** The default landing page — 'devices' unless this build hides it (published). */
     _homePage() {
+        // The published (HA) edition lands on Voice & AI, not Devices. Devices
+        // used to be absent here so this resolved to voice-ai by accident;
+        // publishing the Devices pages on 2026-07-30 would have silently flipped
+        // the landing page for every HA user. Voice/AI IS the product in that
+        // edition — and it is the only home that works signed out, so this also
+        // keeps local mode and the signed-in console landing in the same place.
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isPublishedBuild()) return 'voice-ai';
         return this._isRoutable('devices') ? 'devices' : 'voice-ai';
     },
 
