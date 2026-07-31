@@ -4,3 +4,7 @@ dashie-ha/data/
 dashie-ha-dev/data/
 node_modules/
 __pycache__/
+
+# deno test drops a lockfile next to the suite it runs; release.sh refuses to
+# start with untracked files under dashie-ha/, so an unignored one blocks releases.
+deno.lock
