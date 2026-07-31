@@ -31,7 +31,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRouter, haRegistry, haWorker,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRouter, feedsRouter, transcriptsRouter, haRegistry, haWorker,
     supervisor, installer, ingressIdentity;
 try {
     path = require('path');
@@ -49,6 +49,8 @@ try {
     settingsRouter = require('./api/settings');
     internalRouter = require('./api/internal');
     haRouter = require('./api/ha');
+    feedsRouter = require('./api/feeds');
+    transcriptsRouter = require('./api/transcripts');
     haRegistry = require('./ha-registry');
     haWorker = require('./ha-worker');
     supervisor = require('./supervisor');
@@ -230,6 +232,10 @@ app.use('/api/voice', voiceConsoleRouter);   // engines/probe/preview/discover/â
 // Mounted with the console routers â€” i.e. AFTER the raw-body bridge
 // handlers above, which must keep seeing unparsed bodies.
 app.use('/api/ha', haRouter);
+// Household camera feeds (proxies the integration's feed_registry views).
+app.use('/api/feeds', feedsRouter);
+// HA-local kiosk voice transcripts (.storage/dashie.voice_transcripts).
+app.use('/api/transcripts', transcriptsRouter);
 app.use('/api/keys', keysRouter);
 app.use('/api/settings', settingsRouter);
 // Bridge-secret gated (LAN-sharing lane for the integration's /api/dashie/voice/* views).
