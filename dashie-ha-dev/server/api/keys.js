@@ -1,30 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // server/api/keys.js
 // Console-facing endpoints for add-on-local BYO API keys (Open Brain plan
-// 20260710_OPEN_BRAIN_BYOK_PRESETS_UI.md §4). Mirrors api/settings.js:
-// ingress-protected reads; writes additionally require the add-on to be
-// signed into a Dashie account.
+// 20260710_OPEN_BRAIN_BYOK_PRESETS_UI.md §4). Ingress-protected, like
+// /api/settings/local.
 //
 //   GET /api/keys         → masked per-provider view (for the console UI)
 //   PUT /api/keys         → { provider, value } — set or clear (value: null)
 //   GET /api/keys/status  → booleans only (which providers are configured);
 //                           the device reads this to route the brain (Phase 2)
+//
+// NO requireSignedIn anywhere in this file, deliberately (2026-07-31, Step 7).
+// PUT / used to require a Dashie account, which was the feeds finding a third
+// time: `api-keys` is in FeatureGate.LOCAL_MODE_PAGES, so a box with no account
+// rendered the page, loaded it, validated a key against the provider — and then
+// 401'd on save. A signed-out user could not store their OWN key.
+//
+// Nothing here reads account state. The key is the USER'S, it is stored on the
+// USER'S box (/data/api-keys.json, mode 600, backup_exclude), it never leaves
+// the box, and it is the one credential that makes the brain work WITHOUT a
+// Dashie account — which is exactly what the console promises on the Voice & AI
+// page ("a BYO provider key unlocks a cloud-AI preset in every mode, including
+// local"). The gate is Ingress: HA has already authenticated whoever can reach
+// this panel, and the add-on publishes no host port.
 
 const express = require('express');
-const auth = require('../auth');
 const keyStore = require('../key-store');
 const providers = require('../brain/providers');
 const { mintEphemeralToken } = require('../live-token');
 
 const router = express.Router();
-
-function requireSignedIn(req, res, next) {
-    const stored = auth.readStoredJwt();
-    if (!stored) {
-        return res.status(401).json({ error: 'add_on_not_signed_in' });
-    }
-    next();
-}
 
 /** GET /api/keys → masked values + set flags. Full keys never leave the box. */
 router.get('/', (req, res) => {
@@ -64,7 +68,7 @@ router.post('/validate', express.json(), async (req, res) => {
  * Bedrock: value = { accessKeyId, secretAccessKey, region }.
  * value: null clears the provider. Responds with the new masked view.
  */
-router.put('/', requireSignedIn, express.json(), (req, res) => {
+router.put('/', express.json(), (req, res) => {
     const { provider, value } = req.body || {};
     if (!keyStore.isKnownProvider(provider)) {
         return res.status(400).json({ error: 'unknown_provider' });

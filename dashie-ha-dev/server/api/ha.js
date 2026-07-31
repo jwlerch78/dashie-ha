@@ -3,11 +3,17 @@
 // HA-side API endpoints used by the Console — namely renaming devices in
 // HA's device_registry from the Console's pencil-edit UI.
 //
-// Auth: requires the same JWT we minted via device-flow. We only allow renames
-// when the requester is the authenticated add-on user (matches what's stored
-// in /data/dashie_auth.json). This keeps the WS HA-rename surface from being
-// exposed to anyone hitting the Ingress URL — they must have signed in to
-// Dashie on this add-on.
+// Auth: MIXED, per route, and the split is deliberate — see the long rationale
+// block above `requireSignedIn` below.
+//   - Routes that read or write DASHIE ACCOUNT state (/adopt, and the device-
+//     management surfaces the Console's Devices page drives) keep
+//     `requireSignedIn`: they use the JWT we minted via device-flow, stored in
+//     /data/dashie_ha_auth.json.
+//   - Routes that are pure HA operations over the ADD-ON'S OWN HA credential
+//     (/status, /history, /refresh, /debug-device-metrics, /entities, /service,
+//     /conversation) are open. Their gate is Ingress: HA has already
+//     authenticated whoever can reach this panel, and the add-on publishes no
+//     host port.
 
 const express = require('express');
 const crypto = require('crypto');
@@ -75,6 +81,35 @@ function requireSignedIn(req, res, next) {
     }
     next();
 }
+
+// NO requireSignedIn on /entities, /service or /conversation, deliberately (2026-07-31,
+// Step 7). Same finding as api/feeds.js, same reasoning:
+//
+// Those three are HA-only operations over the add-on's OWN HA credential — getStates()
+// (REST), haRegistry.callService() (WS), and a proxy to HA's /api/conversation/process.
+// `auth.readStoredJwt()` appears in this file exactly twice: inside the guard itself, and
+// inside POST /adopt/:deviceId, which genuinely reads the account (it posts to Dashie's
+// database-operations under the stored JWT). /adopt KEEPS its guard. The other three read
+// no account state at all.
+//
+// The page that calls them — Voice & AI's chat — is in FeatureGate.LOCAL_MODE_PAGES, so a
+// box with no Dashie account rendered a chat that could not see one entity (the
+// providedContext fetch 401'd and was swallowed), could not act (`/service` 401'd), and
+// could not hand off to Assist (`/conversation` 401'd). The model said "I turned on the
+// kitchen light" and nothing happened.
+//
+// The gate is INGRESS, and it always was: `requireSignedIn` asks "does this BOX hold a
+// Dashie JWT?", a property of the box, not of the caller — two HA users on one box are
+// indistinguishable to it. Anyone who can reach this panel is an authenticated HA admin
+// who can already call any service from Developer Tools → Actions, read every state, and
+// type at Assist. The add-on publishes no host port (config.yaml `ports: {}`).
+//
+// ⚠️ /service is a GENERIC passthrough (any domain, any service, incl. lock.open and
+// alarm_control_panel.disarm) and always was — the guard never constrained it. Narrowing
+// it belongs to a domain allowlist (CONTROLLABLE_DOMAINS, ten lines below, already does
+// this for /entities), tracked as open hygiene in 20260731_BETA_ORCHESTRATION.md §2b.
+//
+// If a route here ever needs the ACCOUNT, it must bring its own guard — do not re-blanket.
 
 /**
  * GET /api/ha/history?entity_id=<id>&hours=<n>
@@ -276,7 +311,9 @@ const CONTROLLABLE_DOMAINS = [
     'input_boolean', 'automation', 'lock', 'media_player',
 ];
 
-router.get('/entities', requireSignedIn, async (req, res) => {
+// Open — see the rationale block above requireSignedIn. HA state read on the add-on's
+// own credential; no account is consulted.
+router.get('/entities', async (req, res) => {
     try {
         const all = await haClient.getStates();
         if (!Array.isArray(all)) {
@@ -332,16 +369,17 @@ router.get('/entities', requireSignedIn, async (req, res) => {
  * Used by the Console's test-chat to dispatch AI-emitted actions
  * (e.g. {domain:'light', service:'turn_on', data:{entity_id:'light.kitchen'}}).
  *
- * Trust model: caller must already be signed in to the add-on
- * (requireSignedIn). The add-on holds the supervisor / long-lived HA
- * token, so we never expose it to the frontend.
+ * Trust model: INGRESS (see the rationale block above requireSignedIn). The
+ * add-on holds the supervisor / long-lived HA token, so we never expose it to
+ * the frontend, and the caller is an authenticated HA admin who can already
+ * make this exact call from Developer Tools → Actions.
  *
  * Returns { success: true, result } on HA success; { success: false, error }
  * with an HTTP 500 on HA failure. (We return 200/success:false instead of
  * a hard 500 for normal HA-rejection cases like "entity not found" so the
  * Console chat can show the rejection inline rather than blowing up.)
  */
-router.post('/service', requireSignedIn, express.json(), async (req, res) => {
+router.post('/service', express.json(), async (req, res) => {
     const { domain, service, data } = req.body || {};
     if (!domain || !service || typeof domain !== 'string' || typeof service !== 'string') {
         return res.status(400).json({ success: false, error: 'domain and service are required' });
@@ -369,8 +407,11 @@ router.post('/service', requireSignedIn, express.json(), async (req, res) => {
  * Forwards a transcript to HA's Assist pipeline (/api/conversation/process).
  * Used when the AI emits action.command === 'forward_to_assist'. Mirrors
  * the mobile-app path haService.sendConversation() takes.
+ *
+ * Open — see the rationale block above requireSignedIn. A proxy to HA's own
+ * Assist, which the same caller can reach from the HA sidebar.
  */
-router.post('/conversation', requireSignedIn, express.json(), async (req, res) => {
+router.post('/conversation', express.json(), async (req, res) => {
     const { text, conversation_id, language } = req.body || {};
     if (!text || typeof text !== 'string') {
         return res.status(400).json({ success: false, error: 'text is required' });
@@ -630,6 +671,21 @@ router.get('/image/:deviceId/:role', requireSignedIn, async (req, res) => {
             headers: { Authorization: `Bearer ${config.token}` },
         });
         if (!upstream.ok) {
+            // "The device has no current frame" is a NORMAL state, not a gateway failure.
+            // A tablet that is asleep, or awake but between captures, leaves HA serving a
+            // 404 for the entity_picture it just advertised — so the Console's polling was
+            // logging a steady stream of 502s for devices that were working perfectly.
+            // (It read as a 404 before 0.9.9 mounted this router, which is why it only
+            // became visible then; the underlying condition is not new.)
+            //
+            // 204 says exactly that: nothing to render right now, ask again later. The
+            // client is an <img src>, which fails to paint on 204 and 502 alike, so this
+            // is a pure signal-quality change — the card behaves as it already did.
+            //
+            // 5xx is kept as 502 deliberately: that one IS an upstream fault and should
+            // stay loud. Collapsing everything to 204 would hide a genuinely broken HA.
+            if (upstream.status < 500) return res.status(204).end();
+            console.warn(`[api/ha/image] ${deviceId}/${role}: HA returned ${upstream.status}`);
             return res.status(502).json({ error: `HA returned ${upstream.status}` });
         }
         const ctype = upstream.headers.get('content-type') || 'image/jpeg';

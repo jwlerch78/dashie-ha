@@ -1,9 +1,11 @@
 {
   "name": "dashie-ha-addon",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "description": "Dashie for Home Assistant — brain runtime + console for the dashie_voice integration.",
   "main": "server/index.js",
   "private": true,
+  "//type": "Explicit, though it is also Node's default when absent — so this changes NOTHING at runtime. It is here for DENO: the brain's test suite loads server/brain/addon-io.js through createRequire, and Deno refuses to treat a .js file as CommonJS unless the nearest package.json says so.",
+  "type": "commonjs",
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "node server/index.js"

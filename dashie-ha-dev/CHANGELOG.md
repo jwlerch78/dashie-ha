@@ -1,8 +1,14 @@
 # Changelog
 
-Versions here are the ones released on this (`chickadee`) add-on channel.
-The `chickadee_dev` channel runs ahead of it; its changes land here when they
+Versions here are the ones released on this (`dashie_ha`) add-on channel.
+The `dashie_ha_dev` channel runs ahead of it; its changes land here when they
 ship to this channel.
+
+Entries below 0.8.6 were written before 2026-07-30, when this project carried a
+second brand name, "Chickadee". They are left as written — a changelog that
+retcons its own history is worth less than one that doesn't. Everything that
+name referred to is now "Dashie for Home Assistant"; the integration domain
+`chickadee` is now `dashie_voice`.
 
 ## 0.8.6 — 2026-07-28
 
