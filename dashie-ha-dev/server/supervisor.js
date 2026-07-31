@@ -11,7 +11,7 @@
 
 'use strict';
 
-const haWs = require('./ha-ws');
+const haRegistry = require('./ha-registry');
 
 const SUP = 'http://supervisor';
 const TOKEN = process.env.SUPERVISOR_TOKEN;
@@ -97,8 +97,8 @@ async function getPendingIntegrationFlowId() {
     if (now - _flowCache.at < 10000) return _flowCache.val;
     let val = null;
     try {
-        if (haWs.isAvailable()) {
-            const flows = await haWs.listConfigFlowsInProgress();
+        if (haRegistry.isAvailable()) {
+            const flows = await haRegistry.listConfigFlowsInProgress();
             const f = Array.isArray(flows) ? flows.find(x => x && x.handler === 'dashie_voice') : null;
             val = f ? f.flow_id : null;
         }

@@ -21,7 +21,7 @@
 // subnet), and nothing leaves the network.
 
 const net = require('net');
-const haWs = require('./ha-ws');
+const haRegistry = require('./ha-registry');
 
 const CONNECT_TIMEOUT_MS = 300;   // dead hosts RST/timeout fast; live ones answer instantly
 const FINGERPRINT_TIMEOUT_MS = 1500;
@@ -62,12 +62,12 @@ const slash24 = ip => ip.split('.').slice(0, 3).join('.');   // 192.168.86.48 â†
 async function deriveSubnet() {
     const candidates = [];   // { ip, from }
     try {
-        const cfg = await haWs.getHaConfig();
+        const cfg = await haRegistry.getHaConfig();
         const m = /(\d+\.\d+\.\d+\.\d+)/.exec(String(cfg?.internal_url || ''));
         if (m && isPrivate(m[1])) candidates.push({ ip: m[1], from: 'HA internal_url' });
     } catch { /* HA config optional */ }
     try {
-        const states = await haWs.getStates();
+        const states = await haRegistry.getStates();
         for (const s of states || []) {
             const ip = s?.attributes?.ip_address;
             if (ip && isPrivate(ip)) candidates.push({ ip, from: s.entity_id });
