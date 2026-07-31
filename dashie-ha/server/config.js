@@ -22,27 +22,25 @@ try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 // move to when the beta ends. `development`/`production` are accepted as
 // legacy aliases from pre-0.9 installs.
 const ENVIRONMENTS = {
-    // verificationBase is the first-party auth origin for BOTH channels (one
-    // origin serves both).
+    // verificationBase is the origin serving the device-approval page.
     //
-    // ⚠️ Still getchickadee.org after the 2026-07-30 brand consolidation, on
-    // purpose: these pages are LIVE and select their Supabase env from `?env=`
-    // on the URL. The dashieapp.com auth pages select by HOST instead and ignore
-    // `?env=`, so repointing this without the site work first breaks beta
-    // sign-in. Moving it belongs with the site split (T1) / staging refs (T2c).
-    // The auth pages
-    // there select their Supabase env from ?env= on the URL — auth.js appends
-    // `&env=${CLOUD_ENV}` (beta→staging, stable→prod), so one origin serves
-    // both channels. Old add-ons still point at dashieapp.com and keep working.
+    // PER-CHANNEL since 2026-07-30, and that is the point: these pages pick
+    // their Supabase project by HOST, so the host IS the environment selector.
+    // dev.dashieapp.com → staging, app.dashieapp.com → prod. (The retired
+    // getchickadee.org served both from one origin and disambiguated with
+    // `?env=`; that param is no longer sent — see auth.js.)
+    //
+    // Both hosts already serve /auth.html, which forwards to the mobile-auth
+    // page preserving the query string. Verified 2026-07-30: both HTTP 200.
     beta: {
         url: 'https://cwglbtosingboqepsmjk.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3Z2xidG9zaW5nYm9xZXBzbWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDY4NjYsImV4cCI6MjA3MzIyMjg2Nn0.VCP5DSfAwwZMjtPl33bhsixSiu_lHsM6n42FMJRP3YA',
-        verificationBase: 'https://getchickadee.org',
+        verificationBase: 'https://dev.dashieapp.com',
     },
     stable: {
         url: 'https://cseaywxcvnxcsypaqaid.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzZWF5d3hjdm54Y3N5cGFxYWlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDIxOTEsImV4cCI6MjA3MzE3ODE5MX0.Wnd7XELrtPIDKeTcHVw7dl3awn3BlI0z9ADKPgSfHhA',
-        verificationBase: 'https://getchickadee.org',
+        verificationBase: 'https://app.dashieapp.com',
     },
 };
 const ENV_ALIASES = { development: 'beta', production: 'stable' };
