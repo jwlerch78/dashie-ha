@@ -996,7 +996,7 @@ const VoiceAiPage = {
                             </div>
                         </div>
                         <button class="btn ${enabled ? 'btn-primary' : 'btn-secondary'}" id="household-sharing-btn"
-                            onclick="VoiceAiPage.toggleHouseholdSharing(${!enabled})" style="flex-shrink:0;">
+                            onclick="VoiceAiPage.toggleHouseholdSharing(${enabled})" style="flex-shrink:0;">
                             ${enabled ? 'Sharing On' : 'Sharing Off'}
                         </button>
                     </div>
@@ -1027,7 +1027,10 @@ const VoiceAiPage = {
                 confirmLabel: 'Enable now',
                 cancelLabel: 'Not now',
             });
-            if (ok) await this.toggleHouseholdSharing(true);
+            // setHouseholdSharing, NOT toggleHouseholdSharing: this modal carries an
+            // EXPLICIT intent ("Enable now"), so it states the value it wants rather than
+            // asserting what a button was rendered from.
+            if (ok) await this.setHouseholdSharing(true);
         } catch (e) {
             console.warn('[VoiceAiPage] household-sharing prompt failed (non-fatal):', e);
         }
@@ -1108,7 +1111,53 @@ const VoiceAiPage = {
         return { found: kiosks.length, removed, listed: true };
     },
 
-    async toggleHouseholdSharing(enabled) {
+    /**
+     * BUTTON entry point. `renderedAs` is an ASSERTION about the state this button was
+     * drawn from — deliberately NOT the value to write.
+     *
+     * It used to pass `${!enabled}`, i.e. the intended new value, computed at RENDER time.
+     * That makes a stale render invert the user's intent, and for this particular control
+     * that is a security bug rather than a cosmetic one: a page still holding
+     * `householdSharing:false` while the account holds `true` draws "Sharing Off" and wires
+     * the click to write TRUE — re-affirming sharing and skipping the D6 kiosk sweep (which
+     * only runs `if (!enabled)`). The user cannot turn sharing off from that screen at all,
+     * and nothing tells them. Observed 2026-07-31 on two accounts; kiosks had been
+     * provisioning against an account the console reported as not sharing.
+     *
+     * So: re-read the account value at CLICK time, and act only if reality still matches
+     * what the user was looking at. On a mismatch, correct the UI and stop — the click is
+     * not reinterpreted, because "the user clicked a button labelled X" tells us nothing
+     * about what they wanted once X turns out to have been wrong. Fails toward LESS
+     * sharing: this path can never enable sharing off a stale render.
+     */
+    async toggleHouseholdSharing(renderedAs) {
+        let current;
+        try {
+            const fresh = await VoiceAiApi.loadAiDefaults();
+            current = fresh['voice.householdSharing'] === true;
+            if (this._defaults) this._defaults['voice.householdSharing'] = current;
+        } catch (e) {
+            // Never guess on a security control — a failed read must not become a write.
+            console.warn('DROP: household-sharing re-read failed; not toggling:', e.message);
+            Toast.error('Could not confirm the current sharing setting — nothing was changed.');
+            return;
+        }
+
+        if (current !== (renderedAs === true)) {
+            App.renderPage();
+            Toast.error(
+                `This page was out of date — sharing is actually ${current ? 'ON' : 'OFF'}. ` +
+                `Nothing was changed; the button now shows the real setting.`
+            );
+            return;
+        }
+
+        return this.setHouseholdSharing(!current);
+    },
+
+    /** The actual writer. Explicit intent — callers state the value they want.
+     *  Reached from the verified button path above and from the first-open prompt. */
+    async setHouseholdSharing(enabled) {
         try {
             // D6: warn BEFORE flipping — the user is about to sign tablets out of the account.
             if (!enabled) {
