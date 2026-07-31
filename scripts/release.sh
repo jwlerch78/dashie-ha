@@ -121,6 +121,15 @@ trap rollback_on_failure EXIT
 # FROM this repo and overlays its private delta. check-console-tree.sh gates
 # the tree instead.
 echo "==> Checking console tree (canonical here since the repo inversion)"
+# DASHIE_HA_ENDPOINTS_INTERIM=1 lets a DEV release go out while the console↔server
+# endpoint gate is still red (the server-merge window — 20260731_SERVER_MERGE_MAP.md
+# §8). It must never reach a PROD cut: with the Devices stopgap declined, that gate
+# is the only thing keeping a knowingly-broken page away from users. Strip it here
+# rather than trusting whoever exported it to remember the difference.
+if [[ "$CHANNEL" == "prod" && "${DASHIE_HA_ENDPOINTS_INTERIM:-0}" == "1" ]]; then
+  echo "==> [prod] ignoring DASHIE_HA_ENDPOINTS_INTERIM — the endpoint gate is enforced for prod"
+  unset DASHIE_HA_ENDPOINTS_INTERIM
+fi
 "$ADDON_ROOT/scripts/check-console-tree.sh"
 
 # The disclosure gate: DOCS.md still lists every non-/data write path, the
