@@ -81,16 +81,53 @@ self-hosted shell, with regression tests, one of which was confirmed to fail
 without the fix. Still owed: the same probes driven on a real HA box.
 
 **On licensing.** The terms that apply are whatever [LICENSE](LICENSE) says;
-that file is authoritative and this page is not a licence. Earlier versions of
-this document argued at length for a particular licence choice as part of the
-open-core story. That argument is withdrawn along with the story — it was
-reasoning about a two-brand structure that no longer exists, and licence
-lawyering is not what this page is for.
+that file is authoritative and this page is not a license. But one question is
+fair enough that ducking it would itself be an answer, so:
 
-**What does not depend on the licence is the boundary above.** Published is
+**Why this isn't an AGPL §13 dodge.** §13 — the network-use clause — exists
+specifically to close the "run it as a service, publish nothing" gap that GPL
+leaves open. Picking AGPL and then running a hosted service on unpublished glue
+is exactly the thing it was written about, and you are right to poke at it. Two
+answers; the first is the real one.
+
+- **We are the sole copyright holder.** AGPL is a license we *grant*. It does not
+  bind us for our own code. A copyright holder may run a private, modified build
+  of their own program as a service and owes nobody source — the same position
+  MongoDB, Elastic, Grafana and Sentry occupy. That isn't a loophole in AGPL;
+  it's how copyright works, and §13 was never aimed at the author.
+- **Independently, none of the withheld code would help you self-host.** Every
+  item above is a binding to *our* Supabase project, *our* billing tables, or
+  *our* vendor keys. The add-on ships its own equivalent of each, in this repo,
+  and those are the ones you would actually run. Publishing our HTTP shell would
+  hand you a file you'd delete.
+
+**That first answer used to have an expiry date. It no longer does.** Previously
+it held only until the first outside patch landed, at which point that code would
+reach us under AGPL like anyone else's and a cloud build containing a modified
+version of it *would* carry §13 obligations — which is why a CLA existed. As of
+2026-07-30 this project accepts no pull requests at all
+([CONTRIBUTING.md](CONTRIBUTING.md)), so no outside code enters this tree and the
+question cannot arise. The CLA was retired in the same change; with no
+contribution path there was nothing for it to cover.
+
+**One posture, across everything we publish.** This repo and
+[dashie-ha-app](https://github.com/jwlerch78/dashie-ha-app) are both AGPL-3.0.
+That was not always true: dashie-ha-app carried MIT because a build script
+vendored code into it, not because anyone chose MIT, and for a while the same
+brain source sat under two licenses at once. It was moved to AGPL rather than the
+other way round. Releases it made before 2026-07-30 were MIT and stay MIT — a
+grant already given cannot be withdrawn, and we are not pretending otherwise.
+
+**The Nabu Casa parallel above is about the money, not the license** — and the
+licenses differ, which is worth saying rather than letting someone catch it. Home
+Assistant is Apache-2.0 with a closed Nabu Casa backend. We picked the more
+restrictive copyleft for the published part, which makes withheld glue *more*
+conspicuous, not less. We would still rather have it that way.
+
+**What does not depend on the license is the boundary above.** Published is
 published; the four withheld items are withheld; the seam between them is a
 single named interface you can read. If that ever changes, this page changes with
-it — the commitment here is disclosure, not a specific licence.
+it — the commitment here is disclosure, not a specific license.
 
 **One claim on this page rests on trust.** "The cloud runs the same core" is
 not currently verifiable from outside. The bundle header and
