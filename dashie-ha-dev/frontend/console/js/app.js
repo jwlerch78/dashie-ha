@@ -593,6 +593,17 @@ const App = {
      * console to return to; this is for a user already using the thing.
      */
     startSignIn() {
+        // In LOCAL MODE the console itself is rendered, so there is no
+        // #login-card in the DOM — and _showAddonWaitingScreen() bails silently
+        // when it can't find one. That made the menu item a dead button: the
+        // device flow started server-side and nothing ever painted.
+        //
+        // Show the login screen instead of starting a flow. It offers Google
+        // AND email (skipping straight to the device code would silently drop
+        // the email option), its buttons already route correctly per mode, and
+        // Cancel returns here via _cancelAddonSignIn -> _showSignedOut, which in
+        // local mode lands back on the console rather than a wall.
+        if (!document.getElementById('login-card')) return this._showLogin();
         if (DashieAuth.isAddonMode) return this._handleAddonSignIn();
         return DashieAuth.signIn();
     },

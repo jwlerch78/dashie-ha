@@ -98,9 +98,9 @@ const TopBar = {
         `;
     },
 
-    /** Local-mode account menu: one door, and an honest description of what is
-     *  behind it. Deliberately not phrased as an upsell — hosted engines and
-     *  credits are what an account buys, and everything else already works. */
+    /** Local-mode account menu: one door, and nothing else. It used to carry a
+     *  "running on your own engines — no account needed" line; removed 2026-07-30
+     *  (John) — the console already demonstrates that, and a menu is for actions. */
     _renderSignInMenu() {
         return `
             <div class="top-bar-user-menu" id="top-bar-user-menu"
@@ -109,10 +109,6 @@ const TopBar = {
                         background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb);
                         border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                         z-index: 1050; overflow: hidden;">
-                <div style="padding: 10px 14px; font-size: 12px; color: var(--text-muted, #777); line-height: 1.5;">
-                    Running on your own engines — no ${BRAND.productName} account needed.
-                </div>
-                <div style="height: 1px; background: var(--border, #e5e7eb);"></div>
                 <button onclick="TopBar.closeMenu(); App.startSignIn()"
                         style="width: 100%; text-align: left; padding: 10px 14px; background: none;
                                border: none; cursor: pointer; font-size: 14px; color: var(--text-primary);">
