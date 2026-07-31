@@ -63,6 +63,11 @@ source list. A new picker is gated automatically.
 - **I5 — Config for user-owned engines never persists to Dashie cloud.**
 - **I6 — Shared-shell edits are made in this tree and flow downstream.** The
   family console never hand-edits its vendored copy of a shared file.
+- **I7 — No `FAMILY_ONLY_OPTIONS` entry is reachable in a published build.** The
+  option-level counterpart of I1. Two halves, and the second is the one that
+  bites: the gate must **refuse** the option, *and* some render path must
+  actually **ask** it. Registering a key in `FAMILY_ONLY_OPTIONS` does not gate
+  it — a fourth entry with no chokepoint reads as protected and renders anyway.
 
 ## Enforcement, and the gap
 
@@ -73,12 +78,39 @@ source list. A new picker is gated automatically.
 | I4 | on-box runbook F | ⚠️ manual, and not yet run |
 | I5 | local-mode Stage 1 | no standing gate |
 | I6 | `scripts/hooks/pre-commit` → `check-generated-tree.sh` | automated |
+| I7 | `scripts/check-family-only-options.test.ts` (executes the gate) | **automated**, via `check-console-tree.sh` §6 |
 
-`check-console-tree.sh` catches **file and string** leaks, not **behavioural**
+`check-console-tree.sh` §1–5 catch **file and string** leaks, not **behavioural**
 ones. A family feature reachable in the published build through a runtime branch
-passes the linter. That is the standing risk in this design: behavioural gating
-needs runbook **A7** (the full console still requires its account) re-run on
-every release, not just at authorship.
+passes those checks. That blind spot stopped being theoretical on 2026-07-30,
+when `devices` left `CLOSED_DELTA_PAGES` for option-level gating — which moved
+three family-only options from "absent file, statically provable" to "present
+file, runtime branch". §6 exists for exactly that, and it **executes**
+`feature-gate.js` rather than reading it.
+
+What §6 asserts, and what it does not:
+
+- ✅ every registered entry is refused in the published build, kept in the full
+  build, and does not over-reach onto unlisted values
+- ✅ an unknown/missing `BRAND.build` fails **closed** with a one-shot `DROP:` —
+  the contract-#56 defect, now regression-locked
+- ✅ every registered key is **reachable** by a gate call site: a literal
+  `optionAllowed`/`filterOptions`, or an `openPicker(…,'<cat>','<key>',…)` that
+  `renderPickerModal()` gates generically
+- ✅ that generic chokepoint still filters. It is load-bearing on its own:
+  `display.layoutMode` has no literal call site anywhere, so without this
+  assertion the reachability check would stay green while the option came back
+- ❌ it does not render the page. A4–A7 on the box remain the account-boundary
+  check; I7 is about which **options** exist, not who may see the page
+
+All three failure modes were verified to go red against a mutated copy of the
+tree (`I7_CONSOLE_DIR` points the suite at a copy for exactly that purpose).
+
+Known cosmetic wrinkle, not a leak: `openPicker` passes `'widgets'` as the Layout
+picker's `defaultValue`, and in the published build that value is filtered out of
+the options — so an unset device renders the select with nothing matching and the
+browser shows the first entry. `widgets` is never *offered*, so it cannot be
+chosen; the summary row separately reports a device's real mode, which is honest.
 
 ## Why `isPublishedBuild()` fails closed
 

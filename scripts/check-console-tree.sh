@@ -11,6 +11,13 @@
 #   3. Delta globals referenced ONLY in guarded form (window.X?. / typeof X)
 #   4. Every <script src> in index.html + login/index.html resolves
 #   5. The DELTA-SCRIPTS block is empty
+#   6. I7 — no FAMILY_ONLY_OPTIONS entry is reachable in a published build
+#
+# 1–5 are FILE and STRING checks. They cannot see a BEHAVIOURAL leak: a family
+# feature reachable in the published build through a runtime branch passes all of
+# them. That blind spot became load-bearing on 2026-07-30, when `devices` left
+# CLOSED_DELTA_PAGES for option-level gating — so 6 delegates to a real test suite
+# that executes the gate.
 #
 # Run standalone or via release.sh (which refuses to cut a release on failure).
 set -euo pipefail
@@ -84,6 +91,26 @@ if [ -f "$CONSOLE/index.html" ]; then
   fi
   if ! echo "$block" | grep -q 'DELTA-SCRIPTS-BEGIN'; then
     bad "DELTA-SCRIPTS markers missing from index.html"
+  fi
+fi
+
+# ---- 6. I7: behavioural gate on family-only OPTIONS ------------------------
+# Everything above is static. This one executes feature-gate.js and asserts that
+# every FAMILY_ONLY_OPTIONS entry is both refused by the gate AND actually
+# consulted by a render path — registering a key does not gate it.
+#
+# Deliberately a HARD failure when deno is missing rather than a skip: a gate that
+# quietly stops running is worse than no gate, and this is the same silent-skip
+# shape that left the published console out of `lint:prompts` for three days.
+if ! command -v deno >/dev/null 2>&1; then
+  bad "deno not on PATH — cannot run the I7 (FAMILY_ONLY_OPTIONS) behavioural test.
+       Install deno; do not skip this. It is the only check that can see a
+       BEHAVIOURAL leak of a family option into the published build."
+else
+  if deno test --quiet --allow-read --allow-env "$ROOT/scripts/check-family-only-options.test.ts"; then
+    say "✅ I7 — no FAMILY_ONLY_OPTIONS entry reachable in a published build"
+  else
+    bad "I7 FAILED — a family-only option is reachable in the published build (see above)"
   fi
 fi
 
