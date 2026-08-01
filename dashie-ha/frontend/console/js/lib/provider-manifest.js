@@ -12,9 +12,10 @@
 //   name        human label.
 //   kind        'brain' | 'tool'. A brain provider answers; a tool provider
 //               gives the brain a capability.
-//   auth        HOW you configure it, not what it is. See AUTH below — this is
-//               the field a hosted option would extend, and the reason the
-//               renderers dispatch on it rather than on `id`.
+//   auth        HOW you configure it, not what it is. See AUTH below. Renderers
+//               dispatch on this rather than on `id` because eleven providers
+//               share a handful of shapes, so a new provider is a line here
+//               rather than a branch in a growing if/else.
 //   fields      for auth 'api-key': the inputs. Multi-field is normal
 //               (Bedrock needs three), so nothing may assume one.
 //   required    true only for a provider without which the product does not
@@ -39,11 +40,12 @@
 //               'images' · 'sports'. The registry was implicitly LLM-only before
 //               this existed, which is why a tool provider had nowhere to say
 //               what it was for.
-//   credential  how the stored secret behaves: { expires, refreshable }. An API
-//               key is {false,false}; a device-flow token is not. Nothing
-//               refreshes anything yet — this exists so the STATE is expressible,
+//   credential  how the stored secret behaves: { expires, refreshable }. A pasted
+//               API key is {false,false} — it stays valid until someone revokes
+//               it. Not every credential works that way, and nothing here
+//               refreshes anything: this exists so the STATE is expressible,
 //               because code that assumes a credential is valid forever is code
-//               that has to be found and rewritten later.
+//               that has to be found and rewritten the first time one isn't.
 //   note        anything the user should know before choosing it.
 //
 // ── What is deliberately absent ───────────────────────────────────────────────
@@ -74,17 +76,21 @@
     'use strict';
 
     /**
-     * Auth shapes. The renderer registry dispatches on these, so adding a shape
-     * is adding a renderer — never a branch inside an existing one.
+     * Auth shapes this build knows.
      *
-     * NONE exists to be explicit that "no configuration" is a shape rather than
-     * an absence; DEVICE_FLOW is declared and deliberately unbuilt (see
-     * provider-auth-renderers.js).
+     * The renderer registry dispatches on these, so adding a shape is adding a
+     * renderer — never a branch inside an existing one. NONE is listed
+     * explicitly so that "nothing to configure" is a shape rather than an
+     * absence: a provider with no settings still has state worth reporting.
+     *
+     * The set is deliberately open. `ProviderAuthRenderers.register()` and
+     * `registerReadiness()` let a build that ships additional providers add
+     * their shape at runtime without this file naming it — which keeps the
+     * dispatch generic rather than turning every future shape into an edit here.
      */
     const AUTH = {
         NONE: 'none',
         API_KEY: 'api-key',
-        DEVICE_FLOW_TOKEN: 'device-flow-token',
     };
 
     /** What a provider can serve. */
@@ -93,7 +99,7 @@
         TTS: 'tts', IMAGES: 'images', SPORTS: 'sports',
     };
 
-    /** An API key does not expire on its own; a device-flow token does. */
+    /** A pasted API key stays valid until it is revoked — it does not lapse. */
     const CRED_STATIC = Object.freeze({ expires: false, refreshable: false });
 
     /** Adapter state — is there on-box code that actually uses this key yet? */
@@ -297,23 +303,32 @@
      * undefined when the server does not track it (keyless providers are not in
      * the credential store — they have no credential to store).
      */
-    function isConfigured(provider, serverStatus) {
-        switch (provider.auth) {
-            case AUTH.NONE:
-                return true;                       // nothing to configure, always ready
-            case AUTH.API_KEY:
-                return serverStatus === true;
-            case AUTH.DEVICE_FLOW_TOKEN:
-                // Not built. When it is, "configured" must also mean "not expired" —
-                // which is why `credential.expires` exists rather than being assumed
-                // false everywhere. Failing closed until then.
-                return false;
-            default:
-                console.warn(`DROP: isConfigured() has no rule for auth shape ` +
-                    `'${provider.auth}' (provider '${provider.id}') — treating as ` +
-                    `not configured.`);
-                return false;
+    const READINESS = {
+        [AUTH.NONE]: () => true,                       // nothing to configure, always ready
+        [AUTH.API_KEY]: (_p, serverStatus) => serverStatus === true,
+    };
+
+    /** A build shipping another shape registers how to read its readiness. */
+    function registerReadiness(shape, fn) {
+        if (READINESS[shape]) {
+            console.warn(`DROP: readiness rule for auth shape '${shape}' is already ` +
+                `registered — refusing to replace it.`);
+            return;
         }
+        READINESS[shape] = fn;
+    }
+
+    function isConfigured(provider, serverStatus) {
+        const fn = READINESS[provider.auth];
+        if (!fn) {
+            // Fails CLOSED and loudly. An unknown shape reported as configured
+            // would be the console claiming a capability it cannot verify.
+            console.warn(`DROP: isConfigured() has no rule for auth shape ` +
+                `'${provider.auth}' (provider '${provider.id}') — treating as ` +
+                `not configured.`);
+            return false;
+        }
+        return fn(provider, serverStatus);
     }
 
     function byId(id) {
@@ -328,5 +343,5 @@
     }
 
     window.ProviderManifest = { AUTH, ADAPTER, CAP, CRED_STATIC, PROVIDERS,
-        byKind, bySurface, byId, toolGroups, isConfigured };
+        byKind, bySurface, byId, toolGroups, isConfigured, registerReadiness };
 })();

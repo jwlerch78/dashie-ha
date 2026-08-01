@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // js/lib/provider-auth-renderers.js
 //
-// One renderer per AUTH SHAPE, not per provider. Eleven providers share three
-// shapes, and dispatching on shape is what keeps adding a provider a one-line
-// manifest entry instead of a new branch in a growing if/else.
+// One renderer per AUTH SHAPE, not per provider. Every provider here shares one
+// of two shapes, and dispatching on shape is what keeps adding a provider a
+// one-line manifest entry instead of a new branch in a growing if/else.
 //
-// The registry is also the extension point. A hosted engine option — if one is
-// ever offered — is a `device-flow-token` provider: sign in to a third party, receive
-// a token. That is a genuinely different interaction from a text field, not a
-// variant of one, which is precisely why this file dispatches on shape.
+// The registry is open: `register(shape, fn)` lets a build that ships additional
+// providers add a shape at runtime. That matters because not every way of
+// configuring a provider is a text box, and a registry that assumed one would
+// have to be unpicked rather than extended.
 //
 // 🔴 What must never appear here
 //
@@ -42,11 +42,12 @@
 
         // A credential that CAN expire and HAS is not "configured" — it is
         // broken in a way the user has to act on, and it must not read the same
-        // as working. Nothing sets this yet (no expiring credential ships), but
-        // the state exists so the eventual one has somewhere to land instead of
-        // being retrofitted through every call site.
+        // as working. Nothing sets this yet: every credential in this build is a
+        // pasted key that stays valid until revoked. The state exists so that if
+        // one ever isn't, it has somewhere to land instead of being retrofitted
+        // through every call site.
         if (configured && provider.credential && provider.credential.expires && o.expired) {
-            return '<span class="pm-state pm-state--expired">Sign-in expired — reconnect</span>';
+            return '<span class="pm-state pm-state--expired">Credential expired — needs updating</span>';
         }
         if (provider.auth === AUTH.NONE) {
             return '<span class="pm-state pm-state--ok">Ready — nothing to configure</span>';
@@ -89,37 +90,35 @@
             return `<div class="pm-body">${fields}${keySourceLine(provider)}</div>`;
         },
 
-        /**
-         * Sign in to a third party and receive a token.
-         *
-         * DECLARED AND DELIBERATELY UNBUILT. There is no provider using it, and
-         * building a flow with no consumer is speculative generality — the shape
-         * of the eventual token exchange is not knowable from here.
-         *
-         * It is registered rather than omitted so the seam stays visible, and it
-         * fails LOUDLY rather than rendering an empty card, because a silently
-         * blank provider is the drop this codebase keeps getting bitten by. If
-         * you are reading this because you saw the DROP: line, you are the
-         * person who should implement it.
-         */
-        [AUTH.DEVICE_FLOW_TOKEN](provider, ctx) {
-            console.warn(
-                `DROP: no renderer for auth shape 'device-flow-token' (provider '${provider.id}'). ` +
-                `The shape is declared in provider-manifest.js and intentionally not ` +
-                `implemented — no provider used it when it was written. Implement it here; ` +
-                `do not special-case it inside another renderer.`);
-            return `<div class="pm-body"><p class="pm-error">` +
-                `This sign-in method isn’t supported by this version. ` +
-                `Update the add-on, or choose a provider that uses an API key.</p></div>`;
-        },
     };
 
+    /**
+     * Register a renderer for an auth shape this file does not define.
+     *
+     * The extension point exists so a build with more provider kinds does not
+     * have to fork this file or special-case inside an existing renderer —
+     * either of which turns "one renderer per shape" back into the if/else it
+     * replaced. Refuses to overwrite, so two registrations of the same shape is
+     * a loud conflict rather than a last-one-wins surprise.
+     */
+    function register(shape, fn) {
+        if (!shape || typeof fn !== 'function') {
+            console.warn('DROP: register() needs a shape and a function.');
+            return;
+        }
+        if (Object.prototype.hasOwnProperty.call(RENDERERS, shape)) {
+            console.warn(`DROP: a renderer for auth shape '${shape}' is already ` +
+                `registered — refusing to replace it.`);
+            return;
+        }
+        RENDERERS[shape] = fn;
+    }
+
     // Every declared auth shape must have a renderer. A computed key built from
-    // a constant that was renamed silently becomes the string "undefined" and
-    // registers a renderer nothing can ever reach — which is exactly what
-    // happened when AUTH.DEVICE_FLOW became AUTH.DEVICE_FLOW_TOKEN, and no test
-    // noticed because the fallback still failed loudly, just with the wrong
-    // message. This turns that into a boot-time complaint.
+    // a constant that was later renamed silently becomes the string "undefined"
+    // and registers a renderer nothing can ever reach — that happened once here,
+    // and no test noticed because the fallback still failed loudly, just with the
+    // wrong message. This turns it into a boot-time complaint.
     for (const shape of Object.values(AUTH)) {
         if (!Object.prototype.hasOwnProperty.call(RENDERERS, shape)) {
             console.warn(`DROP: auth shape '${shape}' is declared in ` +
@@ -151,5 +150,5 @@
         return Object.prototype.hasOwnProperty.call(RENDERERS, provider.auth);
     }
 
-    window.ProviderAuthRenderers = { render, isSupported, statusLine, keySourceLine, esc };
+    window.ProviderAuthRenderers = { render, register, isSupported, statusLine, keySourceLine, esc };
 })();
