@@ -983,7 +983,41 @@ const VoiceAiPage = {
         if (!DashieAuth.isAddonMode) return '';
         // ACCOUNT-scoped (2026-07-13) — read from the account defaults, not the add-on's
         // /data store. A fresh account is off by default.
+        // UNKNOWN is not OFF. `_defaults` is absent whenever the account read failed — most
+        // often because the add-on is signed out, which is exactly when someone is likeliest
+        // to be looking at this page. `=== true` collapsed that into a confident "Sharing
+        // Off", i.e. the control told you nobody was drawing on your credits at the one
+        // moment it had no idea. Observed 2026-07-31: sharing had been ON for a day while
+        // this rendered Off, and clicking it was then refused by the stale-render guard with
+        // a message that read as a contradiction.
+        //
+        // For a security control the honest states are ON / OFF / DON'T KNOW, and the
+        // failure has to LOOK like a failure — never like the reassuring answer.
+        const known = !!this._defaults && ('voice.householdSharing' in this._defaults);
         const enabled = this._defaults?.['voice.householdSharing'] === true;
+        if (!known) {
+            return `
+            <div class="section-header" style="margin-top: 32px;">Household ${BRAND.productName} Intelligence Sharing</div>
+            <div class="card">
+                <div class="card-body">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:240px;">
+                            <div style="font-weight:500; margin-bottom:6px;">Sharing status unavailable</div>
+                            <div style="color: var(--text-secondary); font-size: var(--font-size-sm); line-height:1.5;">
+                                This account's settings could not be read, so ${BRAND.productName} cannot tell you
+                                whether Household Sharing is on. It has <strong>not</strong> been changed.
+                                This usually means the add-on is signed out — sign in, then reload this page.
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary" id="household-sharing-btn" disabled
+                            style="flex-shrink:0; opacity:0.6; cursor:not-allowed;">
+                            Unknown
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        }
         return `
             <div class="section-header" style="margin-top: 32px;">Household ${BRAND.productName} Intelligence Sharing</div>
             <div class="card">
@@ -1209,14 +1243,43 @@ const VoiceAiPage = {
             // Then tell the add-on to drop its cached account config and push a voice-config
             // refresh to the kiosks, so the change takes effect immediately rather than after
             // the 30s account-config TTL. Best-effort — the setting is already saved.
+            //
+            // ⚠️ `fetch` only REJECTS on a network error — a 401/500 resolves normally. The
+            // old code awaited it and looked at nothing, so a signed-out add-on returned
+            // `401 not_signed_in`, this treated it as success, and the push never went out.
+            // The setting was saved, the page said so, and the tablets then sat unchanged
+            // until their own ~30 min HA-token-rotation cycle happened to notice. That is
+            // the "turning sharing on took half an hour" report (2026-07-31) — the fast path
+            // failed silently and there was no signal anywhere that it had.
+            //
+            // So: check `res.ok`, and TELL the user when only the slow path is left. This is
+            // still best-effort — the setting is already persisted and the tablets do
+            // converge — but "it will take a few minutes" and "it is instant" are different
+            // promises, and the UI must not make the second one when it delivered the first.
+            let pushed = false;
             try {
-                await fetch(DashieAuth._addonUrl('/api/settings/household-sharing'), {
+                const res = await fetch(DashieAuth._addonUrl('/api/settings/household-sharing'), {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ enabled }),
                 });
+                pushed = res.ok;
+                if (!res.ok) {
+                    console.warn(`DROP: sharing push rejected by the add-on (HTTP ${res.status}) — devices will not be told until their next check-in`);
+                }
             } catch (e) {
                 console.warn('[VoiceAiPage] sharing invalidate/push failed (non-fatal):', e.message);
+            }
+            if (!pushed) {
+                Toast.error(
+                    `Sharing is ${enabled ? 'on' : 'off'}, but your devices could not be notified right now ` +
+                    `(the add-on may be signed out). They will pick it up within about 30 minutes, ` +
+                    `or immediately if you restart them.`
+                );
+            } else if (enabled) {
+                // The ON direction had no confirmation at all, so "did that work?" was
+                // unanswerable — the OFF direction has said what it did since 07-29.
+                Toast.success('Sharing on — your devices have been notified.');
             }
             App.renderPage();
         } catch (e) {
