@@ -6,7 +6,7 @@
 // manifest entry instead of a new branch in a growing if/else.
 //
 // The registry is also the extension point. A hosted engine option — if one is
-// ever offered — is a `device-flow` provider: sign in to a third party, receive
+// ever offered — is a `device-flow-token` provider: sign in to a third party, receive
 // a token. That is a genuinely different interaction from a text field, not a
 // variant of one, which is precisely why this file dispatches on shape.
 //
@@ -36,7 +36,21 @@
      * prevent (a tester pastes a key, sees "connected", and search does
      * nothing).
      */
-    function statusLine(provider, configured) {
+    function statusLine(provider, configured, opts) {
+        const { AUTH } = window.ProviderManifest;
+        const o = opts || {};
+
+        // A credential that CAN expire and HAS is not "configured" — it is
+        // broken in a way the user has to act on, and it must not read the same
+        // as working. Nothing sets this yet (no expiring credential ships), but
+        // the state exists so the eventual one has somewhere to land instead of
+        // being retrofitted through every call site.
+        if (configured && provider.credential && provider.credential.expires && o.expired) {
+            return '<span class="pm-state pm-state--expired">Sign-in expired — reconnect</span>';
+        }
+        if (provider.auth === AUTH.NONE) {
+            return '<span class="pm-state pm-state--ok">Ready — nothing to configure</span>';
+        }
         if (!configured) return '<span class="pm-state pm-state--unset">Not configured</span>';
         if (provider.adapter === ADAPTER.PENDING) {
             return '<span class="pm-state pm-state--stored">Key stored — not in use yet</span>';
@@ -57,7 +71,8 @@
     const RENDERERS = {
         /** Nothing to configure. Present so "no config" is a shape, not a gap. */
         [AUTH.NONE](provider, ctx) {
-            return `<div class="pm-body"><p class="pm-none">Works without configuration.</p></div>`;
+            const why = provider.note ? `<p class="pm-none">${esc(provider.note)}</p>` : '';
+            return `<div class="pm-body">${why}</div>`;
         },
 
         /** One or more text inputs. Multi-field is normal — Bedrock needs three. */
@@ -87,9 +102,9 @@
          * you are reading this because you saw the DROP: line, you are the
          * person who should implement it.
          */
-        [AUTH.DEVICE_FLOW](provider, ctx) {
+        [AUTH.DEVICE_FLOW_TOKEN](provider, ctx) {
             console.warn(
-                `DROP: no renderer for auth shape 'device-flow' (provider '${provider.id}'). ` +
+                `DROP: no renderer for auth shape 'device-flow-token' (provider '${provider.id}'). ` +
                 `The shape is declared in provider-manifest.js and intentionally not ` +
                 `implemented — no provider used it when it was written. Implement it here; ` +
                 `do not special-case it inside another renderer.`);
@@ -98,6 +113,23 @@
                 `Update the add-on, or choose a provider that uses an API key.</p></div>`;
         },
     };
+
+    // Every declared auth shape must have a renderer. A computed key built from
+    // a constant that was renamed silently becomes the string "undefined" and
+    // registers a renderer nothing can ever reach — which is exactly what
+    // happened when AUTH.DEVICE_FLOW became AUTH.DEVICE_FLOW_TOKEN, and no test
+    // noticed because the fallback still failed loudly, just with the wrong
+    // message. This turns that into a boot-time complaint.
+    for (const shape of Object.values(AUTH)) {
+        if (!Object.prototype.hasOwnProperty.call(RENDERERS, shape)) {
+            console.warn(`DROP: auth shape '${shape}' is declared in ` +
+                `provider-manifest.js but has no renderer registered here.`);
+        }
+    }
+    if (Object.prototype.hasOwnProperty.call(RENDERERS, 'undefined')) {
+        console.warn('DROP: a renderer is registered under the key "undefined" — ' +
+            'a computed [AUTH.X] key references a constant that no longer exists.');
+    }
 
     /**
      * Render one provider's configuration body.
