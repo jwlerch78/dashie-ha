@@ -182,6 +182,28 @@ const FeatureGate = {
     ]),
 
     /**
+     * ⚠️ BRAND-ARC NOTE (2026-08-01) — read before this set outlives its context.
+     *
+     * These five are PAY/ACCOUNT surfaces, and this set makes them VISIBLE (locked)
+     * exactly where `isLocalMode` is true — i.e. the account-less add-on console.
+     * That is right for **Dashie**, which keeps accounts, credits and devices and
+     * wants them discoverable before sign-up.
+     *
+     * It is the OPPOSITE of what **Chickadee** wants. Per BRAND_ARC_STATE.md
+     * (07-31 pm) Chickadee is fully open, free, BYOK-only — *no pay surfaces at
+     * all*. A locked "Credits — create a free account" teaser IS a pay surface,
+     * so on a Chickadee build these pages should be ABSENT, not locked.
+     *
+     * Deliberately NOT gated on the edition yet: Chickadee's identity (D1–D6 in
+     * 20260731_CHICKADEE_INDEPENDENT_EDITION.md — applicationId, integration
+     * domains, slug, distribution) is undecided, so there is nothing stable to
+     * branch on and a guess would be one more thing to unpick. When that lands,
+     * the Chickadee build must exclude this whole set — the same way
+     * CLOSED_DELTA_PAGES excludes the family delta — rather than lock it.
+     * Straddling the two is the exact failure this brand split exists to end.
+     */
+
+    /**
      * True when `page` should appear in the nav but refuse to open — the third
      * state described on ACCOUNT_LOCKED_PAGES.
      *
@@ -267,6 +289,19 @@ const FeatureGate = {
     PUBLISHED_RULE_OVERRIDES: {
         voiceAi: true,
         credits: true,
+        // scheduledActions (2026-08-01, John): OFF 'alpha-only' here.
+        //
+        // Not a product expansion — a repair. ACCOUNT_LOCKED_PAGES makes
+        // 'scheduled-actions' VISIBLE-but-locked signed out, but the family rule is
+        // 'alpha-only', so a standard-tier user saw it locked, signed in to unlock
+        // it, and watched it DISAPPEAR. Signing in must never remove a feature you
+        // were just shown. The locked set cannot express "would be visible if you
+        // had the tier" — signed out there is no specialAccess to test — so the
+        // repair belongs on the rule, not on the lock.
+        //
+        // Scoped to the published build ONLY: the family build's 'alpha-only'
+        // (FEATURE_RULES) is untouched, so this changes nothing for Dashie users.
+        scheduledActions: true,
     },
 
     /**
