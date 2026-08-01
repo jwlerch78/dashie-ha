@@ -27,12 +27,6 @@
          render, must work on an air-gapped box, and must run the code that is
          actually in this repo. -->
     <script src="vendor/supabase-js-2.111.0.min.js"></script>
-    <!-- Pinned to HA frontend's exact version (see home-assistant/frontend
-         package.json) so we run the same hls.js code HA's <ha-hls-player>
-         uses. Version drift here was producing bufferAppendError on streams
-         that play fine in HA's UI. -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.light.min.js"></script>
-
     <!-- heic2any: HEIC → JPEG conversion used by photo-file-processor on
          desktop upload. Same pin as the dashboard's photos-settings.html. -->
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>

@@ -45,11 +45,20 @@ JavaScript library in a repo is a question nobody wants to answer later.
 
 ## Still loaded from a CDN (known, being moved)
 
-`../index.html` still pulls **hls.js** and **heic2any** from jsDelivr. Neither
-is used by anything in this repo: they serve the video-feed and photo-upload
-pages of the closed Dashie build that vendors this console as its core (see
-PROVENANCE.md). They belong in that build's delta block, not in shared
-`index.html`, and moving them is a change in both trees at once — tracked, not
-forgotten. Until then, opening the console panel makes two third-party requests
-for features the open build does not have, and that is worth knowing rather
-than discovering.
+`../index.html` still pulls **heic2any** from jsDelivr. It is not used by
+anything in this repo: it serves the photo-upload page of the closed Dashie
+build that vendors this console as its core (see PROVENANCE.md). It belongs in
+that build's delta block, not in shared `index.html`, and moving it is a change
+in both trees at once — tracked, not forgotten. Until then, opening the console
+panel makes one third-party request for a feature the open build does not have,
+and that is worth knowing rather than discovering.
+
+**hls.js was also listed here and has been removed** (2026-08-01). This section
+claimed it served the closed build's video-feed page; that was **wrong**. It had
+no consumer in *any* tree — not this console, not the closed build's delta, not
+the staging webapp, not the kiosk overlay. The only reference outside the script
+tag was `js/pages/devices-camera.js` explaining that the camera view deliberately
+does **not** use it. So it was a third-party request on every panel load for
+nothing at all, and the fix was deletion rather than relocation. Recorded because
+this file's own claim is what would otherwise have moved a dead library into the
+closed build permanently.
