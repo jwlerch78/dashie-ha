@@ -549,6 +549,18 @@ const App = {
                         </button>
                     </div>
 
+                    ${/* Way out, LOCAL MODE ONLY. This screen replaces a WORKING
+                          console there, and until 2026-08-01 the only exits were
+                          "finish signing in" or "reload the ingress page". That was
+                          survivable with one door into it (the top-bar menu); the
+                          locked pages add five more, all reached by a user who was
+                          browsing, not committing. Everywhere else the login screen
+                          IS the app when signed out and there is nothing to go back to. */
+                      DashieAuth.isLocalMode ? `
+                    <div style="margin-top: 14px;">
+                        <button class="btn btn-ghost btn-sm" onclick="App._showSignedOut()">Back to the console</button>
+                    </div>` : ''}
+
                     <div class="dashie-login-footer">
                         <div class="dashie-login-legal">
                             <a href="${BRAND.urls.privacy}" target="_blank" rel="noopener">Privacy Policy</a>
@@ -857,6 +869,24 @@ const App = {
     },
 
     renderPage() {
+        // ── LOCKED branch (2026-08-01) ───────────────────────────────────
+        // A page in FeatureGate.ACCOUNT_LOCKED_PAGES is VISIBLE in the nav and
+        // NOT routable: it renders an account-required stub and the real page
+        // module never executes — no fetch, no 401 storm, no half-populated
+        // account UI. Intercepting HERE rather than inside each page is the
+        // point; renderPage is the one funnel every render path goes through.
+        //
+        // Deliberately AHEAD of the auth guard below, and deliberately not a
+        // modification of it. The guard stays exactly as it was: if a locked
+        // page ever reaches it (isLocked disagreeing with requiresAccount, a
+        // page dropped from ACCOUNT_LOCKED_PAGES, FeatureGate absent), the
+        // whitelist still fires and still falls back to home. This branch only
+        // ever ADDS a safe render for a page the guard would otherwise bounce.
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isLocked(this._currentPage)) {
+            this._renderLockedPage(this._currentPage);
+            return;
+        }
+
         // Auth guard (the "auto logs back in after sign-out" fix): background
         // tasks call renderPage() asynchronously — the devices page's
         // _pollUntilFreshDevices / auto-refresh timers, SSE events, the credits
@@ -935,6 +965,80 @@ const App = {
         if (el) el.scrollTop = 0;
     },
 
+    // ── Visible-but-locked pages ─────────────────────────────────────
+    // The third gating state (2026-08-01, John): signed out in the add-on, the
+    // pages that exist and need a free account stay in the nav instead of
+    // vanishing, so an HA user can find out they exist. See
+    // FeatureGate.ACCOUNT_LOCKED_PAGES for why the set is separate from the
+    // LOCAL_MODE_PAGES whitelist and can never widen it.
+
+    /**
+     * Open a locked page's account-required stub. Called by the locked nav
+     * entry INSTEAD of navigate(), which would (correctly) refuse the page via
+     * `_isRoutable` and bounce the click to home.
+     *
+     * Deliberately does NOT touch window.location.hash. A locked page is not
+     * routable, so it must not become deep-linkable through the back door — on
+     * reload, `_showApp`'s hash handling would refuse it anyway and rewrite to
+     * home, which would look like the console losing the click.
+     *
+     * Never calls the page module: no registry lookup, no onNavigateTo(), no
+     * refresh(). `_currentPage` is set only so the sidebar marks it active and
+     * so re-entrant renderPage() calls (timers, SSE) land back on this branch.
+     */
+    openLocked(page) {
+        if (typeof FeatureGate === 'undefined' || !FeatureGate.isLocked(page)) {
+            console.warn(`DROP: openLocked('${page}') on a page that is not locked — ` +
+                         `routing it normally instead`);
+            return this.navigate(page);
+        }
+        this._currentPage = page;
+        this.closeSidebar();
+        this.renderPage();
+        this._resetContentScroll();
+    },
+
+    /**
+     * Render the locked stub: real sidebar (so the user can leave), a top bar
+     * with no refresh affordance (there is no page object to refresh), and the
+     * AccountRequiredPanel in place of the page.
+     */
+    _renderLockedPage(page) {
+        document.getElementById('sidebar').innerHTML = Sidebar.render(page);
+        // showRefresh=false: refreshCurrentPage() would reach into this.pages
+        // and call the very module this state exists to keep from running.
+        document.getElementById('top-bar').innerHTML =
+            TopBar.render(AccountRequiredPanel.title(page), '', false);
+        document.getElementById('content').innerHTML = AccountRequiredPanel.render(page);
+        // Account-scoped banners (deletion, expired) are already '' with no
+        // account; the integration-restart banner is add-on state and still applies.
+        const gb = document.getElementById('global-banner');
+        if (gb) gb.innerHTML = this._integrationRestartBannerHtml();
+    },
+
+    /**
+     * Jump straight into account CREATION. Reuses the signup mode that already
+     * exists — LoginEmail.show(true) posts to /api/auth/email-signup — rather
+     * than growing a second auth flow.
+     *
+     * `_showLogin()` first: LoginEmail.show() fills #login-card, which only
+     * exists once the login screen is painted (in local mode the console is
+     * rendered, so there is no login card in the DOM — the same trap
+     * startSignIn() documents).
+     */
+    startCreateAccount() {
+        // Email signup exists only where the add-on runtime advertises
+        // email_auth. Everywhere else, send the user to the login screen, whose
+        // Google button also creates an account on first use.
+        if (typeof LoginEmail === 'undefined' || !LoginEmail.isAvailable()) {
+            console.warn('DROP: create-account requested but email signup is unavailable ' +
+                         '(runtime does not advertise email_auth) — showing the login screen');
+            return this.startSignIn();
+        }
+        this._showLogin();
+        LoginEmail.show(true);
+    },
+
     // ── Expired-trial branching (Part B3) ────────────────────────────
     // The server (check-subscription) tells us whether an expired user still
     // has console value via has_console_value (is_ha_user || has active
@@ -980,6 +1084,15 @@ const App = {
     // the user on the page (no navigation, no full reload). The title-bar
     // refresh icon (TopBar) calls this; _refreshing drives its spin state.
     async refreshCurrentPage() {
+        // Belt and braces for the locked state: _renderLockedPage draws no
+        // refresh button, but this is the one remaining path that would reach
+        // into this.pages and execute a locked page's fetch. Silent-ish by
+        // design — it can only be hit by a stale DOM node — but still loud.
+        if (typeof FeatureGate !== 'undefined' && FeatureGate.isLocked(this._currentPage)) {
+            console.warn(`DROP: refresh requested for locked page '${this._currentPage}' — ` +
+                         `account required; the page module is not run`);
+            return;
+        }
         const pageObj = this.pages[this._currentPage]?.page;
         if (!pageObj || typeof pageObj.refresh !== 'function' || this._refreshing) return;
         this._refreshing = true;

@@ -15,11 +15,36 @@ const AccountPage = {
     _error: null,
     _subRenewsAt: null,      // ISO — active sub's next renewal (Stripe current_period_end)
 
+    /**
+     * True when this session has no Dashie account to show — i.e. local mode
+     * (the published console inside the add-on, signed out).
+     *
+     * Asks `requiresAccount`, not `isLocked`: the question here is "is there an
+     * account", which is the broader condition. If 'account' ever leaves
+     * ACCOUNT_LOCKED_PAGES this guard must still hold, because _fetchData would
+     * still 401.
+     */
+    _signedOut() {
+        return typeof FeatureGate !== 'undefined' && FeatureGate.requiresAccount('account');
+    },
+
     async refresh() {
+        if (this._signedOut()) return;
         await this._fetchData();
     },
 
     render() {
+        // Signed-out state. DEFENCE IN DEPTH — in normal operation the router
+        // intercepts 'account' while it is locked (App.renderPage's locked
+        // branch) and this module never runs at all. This is the backstop for
+        // any path that reaches the page object directly: without it, render()
+        // falls straight into _fetchData() and 401s check-subscription.
+        if (this._signedOut()) {
+            return typeof AccountRequiredPanel !== 'undefined'
+                ? AccountRequiredPanel.render('account')
+                : '';
+        }
+
         // Kick off data fetch if not loaded
         if (!this._data && !this._loading && !this._error) {
             this._fetchData();

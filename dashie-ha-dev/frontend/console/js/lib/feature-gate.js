@@ -132,6 +132,99 @@ const FeatureGate = {
     ]),
 
     /**
+     * ACCOUNT-LOCKED PAGES — the third gating state (2026-08-01, John).
+     *
+     * Signed out, a page used to have exactly two fates: reachable
+     * (LOCAL_MODE_PAGES) or absent from the console entirely. Absent is the
+     * right answer for the closed family delta — those modules genuinely do not
+     * ship here. It is the WRONG answer for pages that exist, work, and simply
+     * need a (free) account: an HA user with no Dashie account currently has no
+     * way to learn that Scheduled Actions or Credits exist at all. This set is
+     * the middle state — VISIBLE IN THE NAV, NOT REACHABLE — so the console can
+     * say what it can do without pretending to do it.
+     *
+     * ── WHY THIS IS A SEPARATE SET FROM LOCAL_MODE_PAGES, and must stay one ──
+     *
+     * LOCAL_MODE_PAGES is a whitelist whose polarity is a SAFETY property: a
+     * page is account-only until someone deliberately says otherwise, and the
+     * failure mode of the other polarity is rendering an account page — with its
+     * fetches, its 401s, its half-populated account UI — at a signed-out user.
+     * That whitelist is re-checked in three places (the sidebar, `_isRoutable`/
+     * `navigate`, and the `renderPage()` guard, which exists because renderPage
+     * is reached from background timers, SSE events and CreditsService — paths
+     * that never went through a navigation door).
+     *
+     * Membership HERE grants VISIBILITY ONLY. It is deliberately NOT consulted by
+     * `requiresAccount` or `isPageEnabled`, so:
+     *
+     *   - adding a page here can never make it routable;
+     *   - the router intercepts a locked page and renders a STUB
+     *     (AccountRequiredPanel) — the real page module never executes;
+     *   - if a locked page somehow reaches the renderPage() guard anyway, that
+     *     guard still fires and still falls back to home, unchanged.
+     *
+     * "Visible" must never come to imply "functional". If a page here starts
+     * genuinely working without an account, it belongs in LOCAL_MODE_PAGES and
+     * should LEAVE this set — the two are mutually exclusive, and `isLocked`
+     * enforces that (it is built on `requiresAccount`, which is false for
+     * anything whitelisted).
+     *
+     * Scope is local mode only, i.e. the published build inside the add-on
+     * (DashieAuth.isLocalMode is itself addon + published + unauthenticated).
+     * The standalone console shows a login wall when signed out, so there is no
+     * nav there to surface anything in.
+     *
+     * `account-usage` is deliberately absent: it is a sub-page reached from
+     * Account, not a nav entry, so locking it would surface nothing.
+     */
+    ACCOUNT_LOCKED_PAGES: new Set([
+        'credits', 'scheduled-actions', 'account', 'preferences', 'devices',
+    ]),
+
+    /**
+     * ⚠️ BRAND-ARC NOTE (2026-08-01) — read before this set outlives its context.
+     *
+     * These five are PAY/ACCOUNT surfaces, and this set makes them VISIBLE (locked)
+     * exactly where `isLocalMode` is true — i.e. the account-less add-on console.
+     * That is right for **Dashie**, which keeps accounts, credits and devices and
+     * wants them discoverable before sign-up.
+     *
+     * It is the OPPOSITE of what **Chickadee** wants. Per BRAND_ARC_STATE.md
+     * (07-31 pm) Chickadee is fully open, free, BYOK-only — *no pay surfaces at
+     * all*. A locked "Credits — create a free account" teaser IS a pay surface,
+     * so on a Chickadee build these pages should be ABSENT, not locked.
+     *
+     * Deliberately NOT gated on the edition yet: Chickadee's identity (D1–D6 in
+     * 20260731_CHICKADEE_INDEPENDENT_EDITION.md — applicationId, integration
+     * domains, slug, distribution) is undecided, so there is nothing stable to
+     * branch on and a guess would be one more thing to unpick. When that lands,
+     * the Chickadee build must exclude this whole set — the same way
+     * CLOSED_DELTA_PAGES excludes the family delta — rather than lock it.
+     * Straddling the two is the exact failure this brand split exists to end.
+     */
+
+    /**
+     * True when `page` should appear in the nav but refuse to open — the third
+     * state described on ACCOUNT_LOCKED_PAGES.
+     *
+     * Built ON TOP OF `requiresAccount` rather than beside it, so there is still
+     * ONE definition of "this session has no account for this page" (the seam
+     * rule). Consequences that fall out of that, all wanted:
+     *   - false whenever there is an account, and outside local mode entirely;
+     *   - false for anything in LOCAL_MODE_PAGES — a working page is never locked;
+     *   - false in the full/family build, which is never in local mode.
+     * CLOSED_DELTA_PAGES is excluded explicitly: those modules are ABSENT from
+     * this tree, and a nav entry for a page whose file does not exist would be a
+     * dead end, not a teaser.
+     */
+    isLocked(page) {
+        if (!this.requiresAccount(page)) return false;
+        if (!this.ACCOUNT_LOCKED_PAGES.has(page)) return false;
+        if (this.CLOSED_DELTA_PAGES.has(page)) return false;
+        return true;
+    },
+
+    /**
      * FAMILY-ONLY OPTIONS — a finer grain than CLOSED_DELTA_PAGES.
      *
      * Publishing the Devices pages (2026-07-30) surfaced a case the page-level
@@ -196,6 +289,19 @@ const FeatureGate = {
     PUBLISHED_RULE_OVERRIDES: {
         voiceAi: true,
         credits: true,
+        // scheduledActions (2026-08-01, John): OFF 'alpha-only' here.
+        //
+        // Not a product expansion — a repair. ACCOUNT_LOCKED_PAGES makes
+        // 'scheduled-actions' VISIBLE-but-locked signed out, but the family rule is
+        // 'alpha-only', so a standard-tier user saw it locked, signed in to unlock
+        // it, and watched it DISAPPEAR. Signing in must never remove a feature you
+        // were just shown. The locked set cannot express "would be visible if you
+        // had the tier" — signed out there is no specialAccess to test — so the
+        // repair belongs on the rule, not on the lock.
+        //
+        // Scoped to the published build ONLY: the family build's 'alpha-only'
+        // (FEATURE_RULES) is untouched, so this changes nothing for Dashie users.
+        scheduledActions: true,
     },
 
     /**

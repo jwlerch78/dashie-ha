@@ -17,6 +17,9 @@
     .sidebar-logo-text,
     .sidebar-section-label,
     .sidebar-nav-item .nav-label,
+    /* The lock badge is right-aligned off the label; with no label there is
+       nothing for it to sit beside, so the collapsed rail is icon-only. */
+    .sidebar-nav-item .nav-lock,
     .sidebar-credits-label,
     .sidebar-version {
         display: none;
@@ -93,6 +96,12 @@
     .sidebar.open .sidebar-credits-label,
     .sidebar.open .sidebar-version {
         display: unset;
+    }
+
+    /* …and the lock badge comes back with the labels (flex, not unset — it is
+       a flex row around a 12px icon). */
+    .sidebar.open .sidebar-nav-item .nav-lock {
+        display: flex;
     }
 
     .sidebar.open .sidebar-logo {
