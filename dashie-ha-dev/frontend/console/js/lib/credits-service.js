@@ -36,6 +36,27 @@ const CreditsService = (function () {
         _scheduleRender();
     }
 
+    // Bounded retry for the boot fetch. The sidebar widget is the only consumer
+    // with no way to ask again — every other caller fetches on its own page load
+    // — so a single early miss used to be permanent. Bounded and backed off so a
+    // genuinely account-less or offline session settles instead of polling.
+    let _retries = 0;
+    let _retryTimer = null;
+    const _MAX_RETRIES = 4;   // ~0.5s + 1s + 2s + 4s ≈ 7.5s of grace
+    function _scheduleRetry(reason) {
+        if (_retryTimer || _retries >= _MAX_RETRIES) return;
+        const delay = 500 * Math.pow(2, _retries);
+        _retries += 1;
+        _retryTimer = setTimeout(() => {
+            _retryTimer = null;
+            fetch({ force: true });
+        }, delay);
+        if (_retries === _MAX_RETRIES) {
+            console.warn(`DROP: CreditsService gave up seeding the balance after ` +
+                         `${_MAX_RETRIES} tries (last reason: ${reason}) — sidebar stays '$—'`);
+        }
+    }
+
     async function fetch(opts = {}) {
         if (_inflight && !opts.force) return _inflight;
         // DashieAuth is a bare script-scope const, NOT on window — the old
@@ -43,8 +64,13 @@ const CreditsService = (function () {
         // returned null every time and the sidebar/account balance never
         // populated until the Credit Usage page fetched it directly.
         if (typeof DashieAuth === 'undefined' || !DashieAuth.dbRequest) {
-            // Auth bundle isn't loaded yet (e.g. very early boot) — defer
-            // silently. Callers that care can retry after init.
+            // Auth bundle isn't loaded yet (e.g. very early boot) — defer,
+            // but SCHEDULE A RETRY. "Callers that care can retry after init"
+            // was aspirational: the boot fetch (app.js `_showApp`) is the only
+            // caller, it is fire-and-forget, and nothing retried on the
+            // sidebar's behalf. One early miss therefore left the widget at
+            // '$—' until some other page fetched directly.
+            _scheduleRetry('auth-not-ready');
             return null;
         }
         _inflight = (async () => {
@@ -52,11 +78,18 @@ const CreditsService = (function () {
                 const result = await DashieAuth.dbRequest('get_credit_balance', {});
                 if (result && typeof result.balance === 'number') {
                     _cache = result;
+                    _retries = 0;
                     _scheduleRender();
+                } else {
+                    // Reached the server but got no usable balance — e.g. the JWT
+                    // is still propagating right after sign-in. Same permanent-'$—'
+                    // outcome as a deferral, so it gets the same retry.
+                    _scheduleRetry('no-balance-in-response');
                 }
                 return result;
             } catch (e) {
                 console.warn('[CreditsService] fetch failed', e);
+                _scheduleRetry('fetch-threw');
                 return null;
             } finally {
                 _inflight = null;
