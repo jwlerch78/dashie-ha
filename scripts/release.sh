@@ -165,6 +165,24 @@ elif [[ $FROM_HEAD -eq 1 ]]; then
   INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main)"
 
 else
+  # ⚠️ DOMAIN COLLISION RISK WHEN PROMOTING AN OLD LEDGER ENTRY (2026-08-01)
+  #
+  # Promotion re-vendors the integration SHA recorded in the dev ledger, NOT
+  # current main. Any ledger entry from before dashie-voice-integration@5ad8e6c
+  # names a tree whose integration domain is `chickadee` — the pre-rename voice
+  # integration. Chickadee is now a live brand with its own DEVICE integration
+  # claiming exactly that domain, so re-vendoring one of those SHAs would ship an
+  # add-on that installs a `chickadee`-domain integration which is not Chickadee.
+  #
+  # The current prod tree (dashie-ha/, 0.8.6) is in precisely that state today:
+  # it vendors custom_components/chickadee/ v0.6.0. It is harmless only because
+  # no box has ever run prod 0.8.6 (confirmed by John, 2026-08-01) — that is
+  # LUCK, not design, and the next promotion from a post-rename ledger clears it.
+  #
+  # Note --from-head is NOT the hazard here: it vendors current main, so it
+  # clears the stale tree. The hazard is promoting a STALE LEDGER ENTRY.
+  # If you are promoting anything older than 5ad8e6c, check the vendored
+  # domain before pushing:  ls dashie-ha/integration/custom_components/
   # ── Promote the last dev release ──────────────────────────────────────────
   # Read the inputs out of the dev release ledger rather than rebuilding from
   # whatever is current. Only the "[dev] ... (source @ x, integration @ y)"
