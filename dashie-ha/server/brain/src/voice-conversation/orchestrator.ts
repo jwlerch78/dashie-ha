@@ -1199,7 +1199,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // web-search-and-hallucinate. Retrieval is deterministic keyword scoring — no network,
   // no billing. Pass-2 synthesizes the spoken answer from the retrieved chunks; on a miss
   // (found:false — including pricing, intentionally unauthored) a sentinel tells the model
-  // to defer to support@dashieapp.com rather than invent settings paths or prices.
+  // to say it is not sure rather than invent settings paths or prices.
   // Design: 20260711_DASHIE_SKILL_DESIGN.md §4.2.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'dashie_help') {
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
@@ -1216,8 +1216,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const helpData = helpResult.found ? helpResult : {
       found: false,
       note: 'No product-documentation entry matched this question. Do NOT invent settings ' +
-        'locations, steps, prices, or features. Say you are not sure about that one and that ' +
-        'the user can email support@dashieapp.com.',
+        'locations, steps, prices, or features. Say you are not sure about that one.',
       question: hq,
     };
     return await secondPass(io, deps, t0, 'dashie-help', helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
