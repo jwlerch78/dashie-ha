@@ -12,6 +12,24 @@ the story about it moved. Git history still says Chickadee throughout, and it is
 left that way deliberately: the disclosure trail below depends on that history
 being intact and unrewritten.
 
+**Update 2026-08-01 — the paragraph above is out of date, and is left standing
+rather than rewritten.** Quietly editing a claim that turned out wrong is the
+exact failure this page exists to prevent, so the correction is appended instead.
+
+On 2026-07-31 the Chickadee name came back. Not as an open core underneath
+Dashie — that framing stays retired — but as an **independent brand beside it**:
+a free, BYOK, account-free Home Assistant edition, generated from this same
+codebase. Two brands, one codebase, neither a crippled version of the other.
+Dashie keeps full Home Assistant support in parallel, so nobody is stranded and
+nobody is pushed to switch. The Chickadee-branded repositories are real and
+public; the integrations there are GENERATED from the ones here, never
+hand-maintained copies, and each records the commit it came from.
+
+What survived both reversals is the boundary itself: the same code is published
+and the same code is withheld, on the same seam. Only the naming and the story
+about it moved — twice now, which is why this page documents the seam rather
+than the story.
+
 ## The two editions
 
 **Dashie for Home Assistant** — this repo. The voice/AI pipeline: add-on,
@@ -160,10 +178,11 @@ Two things are still worth knowing:
   are spoken by shipped apps in the field and cannot be renamed unilaterally.
   Display identity is centralized in `js/lib/brand.js`.
 - **One wake word is named `chickadee`.** It is a real trained microWakeWord
-  model from the previous brand, still shipped and still selectable — it simply
-  isn't any build's default (`hey_dashie` is, on every build since 2026-07-30).
-  It stays because the id keys the model file and is persisted on devices that
-  chose it; renaming it would stop those devices waking. Shipping wake words
+  model, still shipped and still selectable. Which one a build defaults to
+  follows its brand — `hey_dashie` on a Dashie build, `chickadee` on a Chickadee
+  one — and on any given build the other is simply an option in the list. The id
+  keys the model file and is persisted on devices that chose it, so renaming it
+  would stop those devices waking. Shipping wake words
   named after products is the ecosystem norm — openWakeWord ships `alexa` and
   `hey_mycroft`, microWakeWord ships `okay_nabu`. Nothing selects one for you,
   and picking either changes nothing about where your audio goes. The
