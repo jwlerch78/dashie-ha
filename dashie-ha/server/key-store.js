@@ -31,6 +31,27 @@ const PROVIDERS = {
     openai:  ['key'],
     bedrock: ['accessKeyId', 'secretAccessKey', 'region'],
     hermes:  ['key'],
+
+    // ── Tool providers ────────────────────────────────────────────────────────
+    // Capabilities the brain calls out to, rather than brains themselves. The
+    // store does not care about that distinction — it stores credentials, and
+    // every rule above applies identically: /data only, never Supabase, never
+    // synced, masked on read. The brain/tool split is a UI concern and lives in
+    // the console's provider-manifest.js.
+    //
+    // ⚠️ A key here means STORED, not working. The on-box adapters that use
+    // these are separate work (see the Thread B plan's 5b boundary), so nothing
+    // may infer "this capability functions" from `status()` alone.
+    //
+    // Serper is deliberately absent: its terms exclude end-user/consumer
+    // services, which is exactly what a household is. Image search uses
+    // Wikimedia (keyless) or Pexels.
+    tavily:     ['key'],   // web search — the one recommended new key
+    brave:      ['key'],   // web search — kept working, not recommended (no free tier since 02/2026)
+    deepgram:   ['key'],   // STT upgrade over HA Whisper
+    elevenlabs: ['key'],   // TTS upgrade over HA Piper
+    inworld:    ['key'],   // TTS alternative to ElevenLabs
+    pexels:     ['key'],   // images; Wikimedia is the keyless default
 };
 
 function isKnownProvider(provider) {

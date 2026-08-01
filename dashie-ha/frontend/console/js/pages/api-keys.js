@@ -22,43 +22,22 @@ const ApiKeysPage = {
     _testing: null,       // provider id currently being validated
     _testResult: {},      // { providerId: { ok: true|false|null, detail } } — last validation
 
-    /** AI/brain providers (v1). `fields` drive the form; single-key providers
-     *  use one masked input, Bedrock is multi-field. `group` buckets the cards on
-     *  the page (see GROUPS): OpenRouter leads as the one-key-covers-everything
-     *  option, individual vendor keys are the "I already have one" path.  */
-    PROVIDERS: [
-        {
-            id: 'openrouter', name: 'OpenRouter', group: 'universal',
-            // One key → every model in the picker. OpenRouter proxies the whole catalog over an
-            // OpenAI-compatible endpoint, so it also covers Claude and Nova, which direct-key
-            // BYOK can't serve yet (they'd need the deferred Anthropic/SigV4 adapters).
-            fields: [{ id: 'key', label: 'API key', placeholder: 'sk-or-v1-…', secret: true }],
-        },
-        {
-            id: 'gemini', name: 'Google Gemini', group: 'direct',
-            fields: [{ id: 'key', label: 'API key', placeholder: 'AIza…', secret: true }],
-        },
-        {
-            id: 'claude', name: 'Anthropic Claude', group: 'direct',
-            fields: [{ id: 'key', label: 'API key', placeholder: 'sk-ant-…', secret: true }],
-        },
-        {
-            id: 'openai', name: 'OpenAI', group: 'direct',
-            fields: [{ id: 'key', label: 'API key', placeholder: 'sk-…', secret: true }],
-        },
-        {
-            // Bedrock is NOT in the server's `routable` list (SigV4 signing, no OpenAI-compat
-            // endpoint), so this card is filtered out — its Nova models are covered by
-            // OpenRouter instead. Kept in the array only so an ALREADY-STORED bedrock key
-            // still renders (with a warning) and can be removed. See _visibleProviders().
-            id: 'bedrock', name: 'Amazon Bedrock', group: 'direct',
-            fields: [
-                { id: 'accessKeyId', label: 'Access key ID', placeholder: 'AKIA…', secret: true },
-                { id: 'secretAccessKey', label: 'Secret access key', placeholder: '', secret: true },
-                { id: 'region', label: 'Region', placeholder: 'us-east-1', secret: false },
-            ],
-        },
-    ],
+    /** Brain providers, read from the SHARED manifest — this page keeps no list
+     *  of its own. It used to, and the copy was the thing that would rot: a
+     *  provider added to onboarding and not here (or the reverse) reads as
+     *  perfectly normal code in both files.
+     *
+     *  `fields` and `group` still drive the form and the section bucketing, they
+     *  are just declared once now. Tool providers live in the same manifest and
+     *  are rendered by the onboarding flow; this page stays brain-only, which is
+     *  a filter over one list rather than two lists.
+     *
+     *  Filtered by SURFACE as well as kind, and that is load-bearing: Hermes is
+     *  a brain provider whose key is set on the voice page, in its own row
+     *  alongside its endpoint URL. Selecting on kind alone would have quietly
+     *  added a second control for the same credential — which the first version
+     *  of this refactor did. */
+    get PROVIDERS() { return window.ProviderManifest.bySurface('api-keys', 'brain'); },
 
     /** Page sections, in render order. Direct provider keys lead (preferred — no markup);
      *  OpenRouter is the single-key catch-all (and the only path to Amazon Nova). */
