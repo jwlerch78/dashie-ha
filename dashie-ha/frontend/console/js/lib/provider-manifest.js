@@ -245,6 +245,28 @@
             note: 'Without it, images come from Wikimedia, which needs no key.',
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
+        {
+            // A LEVER, not a recommendation. Sports is keyless and ESPN-first
+            // (see the `espn` entry below); this exists so that if ESPN breaks or
+            // starts blocking, the fix is a key the user already can add — or a
+            // default flip — rather than an emergency patch to a shipped add-on.
+            //
+            // Deliberately NOT on the onboarding surface. First run asks for a
+            // brain key and optionally a search key; asking for a sports key that
+            // ESPN already makes unnecessary would undo exactly that. It is
+            // reachable from API Keys when it is needed, which is the only time
+            // anyone should see it.
+            id: 'apisports', name: 'API-Sports', kind: 'tool', group: 'sports',
+            surfaces: ['api-keys'],
+            capabilities: [CAP.SPORTS], credential: CRED_STATIC,
+            auth: AUTH.API_KEY, required: false, adapter: ADAPTER.PENDING,
+            unlocks: 'Scores and schedules if the default source stops working',
+            keySource: { url: 'https://api-sports.io/', free: 'Free tier available' },
+            note: 'Not needed normally — sports works without any key.',
+            deprioritised: true,
+            fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
+        },
+
         // ── Keyless ──────────────────────────────────────────────────────────
         // Permanently ready: nothing to configure, nothing to expire, nothing to
         // pay. I originally left these OUT, reasoning that a provider with no

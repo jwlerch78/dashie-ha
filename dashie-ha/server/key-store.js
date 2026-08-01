@@ -52,6 +52,10 @@ const PROVIDERS = {
     elevenlabs: ['key'],   // TTS upgrade over HA Piper
     inworld:    ['key'],   // TTS alternative to ElevenLabs
     pexels:     ['key'],   // images; Wikimedia is the keyless default
+    // Sports FALLBACK only. The sports capability is keyless and ESPN-first; this
+    // exists so that if ESPN ever breaks or blocks, the mitigation is a user key
+    // or a default flip rather than an emergency patch to a shipped add-on.
+    apisports:  ['key'],
 };
 
 function isKnownProvider(provider) {
