@@ -122,10 +122,40 @@ const Sidebar = {
         return window.SubscribeGate?.renderPurchaseNavItem?.() ?? '';
     },
 
-    /** Renders a nav item only when FeatureGate allows the page. */
+    /**
+     * Renders a nav item only when FeatureGate allows the page — or, signed
+     * out in the add-on, a LOCKED entry for the pages that exist and need a
+     * free account (FeatureGate.ACCOUNT_LOCKED_PAGES).
+     *
+     * Order matters and is the safety-relevant part: `isPageEnabled` is asked
+     * FIRST and is the only thing that produces a real, navigable item.
+     * `isLocked` can only ever add an INERT entry — it never widens what
+     * `isPageEnabled` allows, and it is false for anything that gate already
+     * permits (it is built on `requiresAccount`).
+     */
     _gatedNavItem(page, label, iconName, activePage) {
-        if (!FeatureGate.isPageEnabled(page)) return '';
-        return this._navItem(page, label, iconName, activePage);
+        if (FeatureGate.isPageEnabled(page)) return this._navItem(page, label, iconName, activePage);
+        if (FeatureGate.isLocked(page)) return this._lockedNavItem(page, label, iconName, activePage);
+        return '';
+    },
+
+    /**
+     * A visible-but-locked nav entry. Goes to App.openLocked (NOT App.navigate)
+     * on purpose: navigate() routes through `_isRoutable`, which correctly
+     * refuses this page and would bounce the click to home — a click that looks
+     * like nothing happened. openLocked renders the account-required stub and
+     * never touches the page module.
+     */
+    _lockedNavItem(page, label, iconName, activePage) {
+        const isActive = page === activePage ? 'active' : '';
+        return `
+            <div class="sidebar-nav-item locked ${isActive}" onclick="App.openLocked('${page}')"
+                 title="Needs a free ${BRAND.productName} account">
+                <span class="nav-icon"><img src="assets/icons/${iconName}.svg" alt="${label}"></span>
+                <span class="nav-label">${label}</span>
+                <span class="nav-lock"><img src="assets/icons/icon-lock.svg" alt="Account required"></span>
+            </div>
+        `;
     },
 
     _navItem(page, label, iconName, activePage) {
