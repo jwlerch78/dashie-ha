@@ -22,6 +22,7 @@ const auth = require('../auth');
 const settingsStore = require('../settings-store');
 const accountConfig = require('../account-config');
 const supervisor = require('../supervisor');
+const leaseNudge = require('../lease-nudge');
 
 const router = express.Router();
 
@@ -55,6 +56,9 @@ router.put('/household-sharing', requireSignedIn, express.json(), async (req, re
     const enabled = req.body?.enabled === true;
     accountConfig.invalidate();
     console.log(`[settings] household-sharing → ${enabled} (account-scoped; cache invalidated)`);
+    // The lease nudge (#68) — same trigger, both flip paths, so a satellite does
+    // not have to wait out a TTL on either edition.
+    leaseNudge.nudgeRenewNow('sharing_changed');
     // Fast path: tell every kiosk to re-verify its session NOW. Best-effort and
     // fire-and-forget — the setting itself is already written by the console.
     supervisor.callService('dashie', 'refresh_voice_config', {}).then(ok => {
@@ -94,6 +98,37 @@ router.patch('/local', express.json({ limit: '256kb' }), (req, res) => {
         return res.status(400).json({ error: 'bad_patch' });
     }
     const settings = settingsStore.patchUserSettings(partial);
+
+    // 🔴 THE ACCOUNT-LESS FLIP PATH (added 2026-08-02).
+    //
+    // `PUT /household-sharing` — which drops the cached config and nudges the
+    // kiosks so a flip takes effect in seconds — is `requireSignedIn`, so on a
+    // box with no account it 401s and NEITHER half fires. The setting saves, the
+    // console says so, and nothing changes until a device happens to re-check.
+    // That is precisely the "I flipped it and nothing happened" failure the
+    // lease work exists to end, arriving through the other door.
+    //
+    // Done HERE rather than by relaxing that endpoint's auth, because this is
+    // already the one write path for this key without an account: the console's
+    // `saveDefault` switches backends underneath itself, so adding a second
+    // account-less call site would be a hand-mirror of a flip path that already
+    // has one. The write and its side effect stay together.
+    if (Object.prototype.hasOwnProperty.call(partial?.voice ?? {}, 'householdSharing')) {
+        const enabled = settings?.voice?.householdSharing === true;
+        accountConfig.invalidate();
+        console.log(`[settings] household-sharing → ${enabled} (account-less; cache invalidated)`);
+        supervisor.callService('dashie', 'refresh_voice_config', {}).then((ok) => {
+            if (ok) console.log('[settings] pushed refresh_voice_config to satellites');
+            else console.warn('DROP: refresh_voice_config push failed — satellites converge at their next renewal instead');
+        });
+        // …and the lease nudge (#68), which is the one that matters for a
+        // satellite holding capability: refresh_voice_config reaches KIOSKS
+        // through the device integration, while this reaches anything that
+        // subscribes to HA events, including a satellite the device integration
+        // has never heard of.
+        leaseNudge.nudgeRenewNow('sharing_changed');
+    }
+
     res.json({ success: true, settings });
 });
 
