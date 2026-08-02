@@ -567,7 +567,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
   // false → prompt omits web_search from the tools list (T3 opt-out, or Gemini-grounds-natively)
   const promptWebSearch = webSearchAllowed && !geminiGrounds;
-  // Capability snapshot (Thread A #1): what THIS turn was allowed to do, logged into
+  // Capability snapshot: what THIS turn was allowed to do, logged into
   // tool_trace.caps on every terminal row — so an image request with retrieve_pictures
   // OFF reads as "disabled" in the fleet metadata, not a routing defect. `tools` comes
   // from the same filtered list buildPrompt injects (offeredToolNames), so it can't drift.
@@ -1700,7 +1700,7 @@ async function logPass(
   meta: Record<string, unknown> = {},
 ): Promise<void> {
   const usage = pass.raw?.usage || {};
-  // Thread A #2: the logged tool_trace is fleet-wide analysis metadata — redact free-text
+  // The logged tool_trace is fleet-wide analysis metadata — redact free-text
   // arg values (search strings, calendar keywords, names) on the LOGGED COPY ONLY, without
   // mutating meta (the same args object is referenced by the Turn's client_tool, which the
   // device needs intact to fulfill the tool). Structured enum args pass through verbatim.
@@ -1772,7 +1772,7 @@ async function logPass(
 /** Per-turn tool decision for the log: the route + the pass-1 tool call + its args (null on a
  *  direct no-tool response) + the capability snapshot. Populates the existing
  *  tool_used/response_type columns + tool_trace. Args here are the RAW model args — logPass
- *  redacts free-text values on the logged copy (Thread A #2). */
+ *  redacts free-text values on the logged copy. */
 function toolMeta(parsed: ReturnType<typeof parseContent>, route: string, caps?: CapsSnapshot): Record<string, unknown> {
   const tool = (parsed?.type === 'info_request' ? parsed.tool : null) ?? null;
   const args = (parsed?.type === 'info_request' ? parsed.query : null) ?? null;

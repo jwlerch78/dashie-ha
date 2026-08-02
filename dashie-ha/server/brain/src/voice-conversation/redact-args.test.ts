@@ -1,4 +1,4 @@
-// redact-args.test.ts — the fleet-metadata redaction rules (Thread A #2).
+// redact-args.test.ts — the fleet-metadata redaction rules.
 // Run: deno test --allow-env redact-args.test.ts
 
 import { assert, assertEquals, assertMatch } from 'https://deno.land/std@0.224.0/assert/mod.ts';

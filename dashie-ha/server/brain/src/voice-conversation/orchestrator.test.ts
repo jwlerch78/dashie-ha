@@ -274,7 +274,7 @@ Deno.test('tool logging: a tool turn → tool_used + REDACTED free-text args on 
   const terminal = m.logs.find((l) => l.tool_used === 'web_search')!;
   assert(terminal, 'a row logged the web_search tool');
   assertEquals((terminal.tool_trace as { tool?: unknown }).tool, 'web_search');
-  // Thread A #2: the logged copy never carries the raw search string — an equality-
+  // The logged copy never carries the raw search string — an equality-
   // preserving token replaces it ("weather in boston" is 17 chars).
   const args = String((terminal.tool_trace as { args?: unknown }).args);
   assert(/^\[redacted:[0-9a-f]*:17\]$/.test(args), `expected redacted token, got: ${args}`);
@@ -1228,7 +1228,7 @@ Deno.test('sports tool finds NOTHING → second pass runs WITH grounding (tool f
   assert(turn.voice.includes('Thursday'));
 });
 
-// ── Salvage regression (postmortem 20260718 incident C, ALL axes) ─────────────────────────
+// ── Salvage regression (2026-07-18 incident C, ALL axes) ─────────────────────────────────
 // finalize()'s `raw.content` salvage exists ONLY for a turn that FAILED to parse (raw content
 // is genuine prose there). For any PARSED turn with an empty `voice`, raw.content IS the JSON
 // blob — salvaging it reads the blob aloud (2026-07-17 Mio music info_request; 2026-07-18 the

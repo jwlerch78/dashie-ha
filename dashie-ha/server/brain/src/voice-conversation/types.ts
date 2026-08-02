@@ -266,10 +266,10 @@ export interface PromptContext {
   // {{DEVICE_AREA}} in the home_assistant prompt so an unqualified command resolves to this room.
   // null/absent → area-blind (template falls back to "ask which room").
   deviceArea?: string | null;
-  caps?: CapsSnapshot;          // Thread A #1: logged into tool_trace.caps, never templated
+  caps?: CapsSnapshot;          // logged into tool_trace.caps, never templated
 }
 
-/** Per-turn capability snapshot (Thread A #1, 20260710_VOICE_FEEDBACK_AND_IMPROVEMENT.md):
+/** Per-turn capability snapshot:
  *  what THIS turn was allowed to do, logged as ai_interactions.tool_trace.caps so a request
  *  blocked by an OFF toggle reads as "disabled" in analysis, not a defect. */
 export interface CapsSnapshot {

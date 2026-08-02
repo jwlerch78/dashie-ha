@@ -187,7 +187,7 @@ function toolsListFor(context: ToolsContext): string {
 
 /** Tool names actually offered to pass-1 for this context — derived from the SAME filtered
  *  list buildPrompt injects, so the logged capability snapshot (tool_trace.caps.tools,
- *  Thread A #1) can't drift from what the model really saw. */
+ *  the capability snapshot) can't drift from what the model really saw. */
 export function offeredToolNames(context: ToolsContext): string[] {
   const names: string[] = [];
   for (const line of toolsListFor(context).split('\n')) {
