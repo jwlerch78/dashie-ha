@@ -119,14 +119,21 @@ function hashDir(dir) {
 /**
  * Any marker this add-on family has EVER written into its own integration dir.
  *
- * 🔴 Why a PATTERN and not a `LEGACY_MARKERS = ['.installed_by_dashie_ha_addon']`
- * list, which is the obvious fix and is broken here:
+ * 🔴 Why a PATTERN and not a `LEGACY_MARKERS = [...]` list of old names, which is
+ * the obvious fix and is broken here:
  *
- * This file is brand-generated. A legacy literal written in canon would be
- * SUBSTITUTED on the way into the other brand's tree — `.installed_by_dashie_ha_addon`
- * becomes `.installed_by_chickadee_addon`, i.e. identical to MARKER — so the
- * legacy list would be empty of meaning **in the one tree that needs it**. The
- * old name cannot be spelled here, because spelling it is what rebrands it.
+ * This file is brand-generated, and the marker name contains the brand token. So
+ * a previous name written as a literal in canon is SUBSTITUTED on the way into
+ * the other brand's tree and arrives as TODAY'S name — the legacy entry matches
+ * only what MARKER already matches, i.e. it is empty of meaning in the one tree
+ * that needs it. **The old name cannot be spelled here, because spelling it is
+ * what rebrands it.**
+ *
+ * ⚠️ That is not theoretical: the first version of this comment demonstrated the
+ * problem with the two literals side by side, and generation rewrote both into
+ * the same string — leaving "X becomes X" in the Chickadee tree. The explanation
+ * destroyed itself in exactly the way it was describing. Hence no literals here
+ * either: this comment has to survive the transform it is warning about.
  *
  * A pattern has no brand token to substitute, so it survives generation, and it
  * also survives the NEXT rename without anyone remembering to add a row.
