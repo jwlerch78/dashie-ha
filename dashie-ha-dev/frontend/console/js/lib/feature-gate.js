@@ -117,6 +117,13 @@ const FeatureGate = {
      * dbRequest (contract #31), so it would show a feature that cannot save.
      */
     LOCAL_MODE_PAGES: new Set([
+        // onboarding (2026-08-01): the first-run BYOK flow. It exists FOR the
+        // account-free case, so omitting it from this whitelist would hide it
+        // from exactly the users it was written for — and silently, since a
+        // missing entry reads as 'account-only' rather than as a mistake. Its
+        // only calls are GET/PUT /api/keys, which api-keys already reaches
+        // signed-out, so no server change is needed alongside this.
+        'onboarding',
         'voice-ai', 'local-engines', 'api-keys',
         // video-feeds (2026-07-31): HA camera feeds belong to the HA user, not to
         // a Dashie account. Every /api/feeds/* route proxies to the integration's

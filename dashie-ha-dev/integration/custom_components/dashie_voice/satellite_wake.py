@@ -2,7 +2,7 @@
 """Satellite wake word — deploy our microWakeWord models to the HA box and wire
 the Assist pipeline's wake stage.
 
-Our wake words (`hey_dashie`, `chickadee`) are custom microWakeWord models with
+Our wake words are custom microWakeWord models with
 the identical tensor signature to the community `okay_nabu` model, so they run
 unmodified on the official `rhasspy/wyoming-microwakeword` add-on — the box-side
 wake engine for satellites that don't do wake detection themselves. Model

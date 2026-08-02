@@ -44,6 +44,8 @@
 
 'use strict';
 
+const tools = require('./tool-gate');
+
 // Sampling temperature by call INTENT (see Dashie 20260714_LOCAL_MODEL_BENCHMARK_RESULTS
 // "DECIDE-vs-NARRATE"): routing/action emission is a classification — sample
 // deterministically; prose synthesis keeps warmth.
@@ -175,8 +177,20 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
             // Hosted, account-billed tools — inert without an account. The core's tool
             // branches degrade on a throw / empty result; the toggles below keep it from
             // offering them in the first place.
-            runWebSearch: async () => { throw new Error('web search is not available without a Dashie account'); },
-            runSports: async (query) => ({ provider: 'none', query, games: [], result_count: 0, latency: 0 }),
+            // Gated on the KEY STORE, not on account presence — for a BYOK build
+            // "no account" is the design, not the reason a tool is off. tool-gate
+            // distinguishes needs-key (the user can fix it) from no-adapter (they
+            // cannot), and emits one DROP: per capability naming which it is.
+            // Blaming a missing key for something no key would fix is the worse
+            // error of the two, so it checks the adapter first.
+            runWebSearch: async () => {
+                const s = tools.dropIfUnavailable('web_search', log);
+                throw new Error(`web search unavailable: ${s.reason}`);
+            },
+            runSports: async (query) => {
+                tools.dropIfUnavailable('sports', log);
+                return { provider: 'none', query, games: [], result_count: 0, latency: 0 };
+            },
             // Image search has no hook here — the core resolves it inline — so the refusal
             // must be DECLARED. Without this, a caller passing retrieve_pictures:true
             // re-enabled it (the request override beats the account default by design, and
@@ -184,6 +198,11 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
             // that kept the call away from Dashie was the empty toolConn making the URL
             // relative so fetch threw at parse. Off by rule now, not by coincidence.
             // Runbook F / invariant I4; regression-tested in orchestrator.test.ts + addon-io.test.ts.
+            //
+            // ⚠️ STILL FALSE, and not because of the key store. This flag governs
+            // tools DASHIE funds; a BYOK key does not make one of those free. The
+            // per-capability gate above is a separate axis — what this box can do
+            // — and loosening one must never be read as loosening the other.
             paidTools: false,
             checkSpendable: async () => FAIL_OPEN_SPEND,
             readAccountAiConfig: async () => ({ model: null, webSearchEnabled: false, retrievePicturesEnabled: false, zipCode: null }),

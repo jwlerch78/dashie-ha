@@ -1,7 +1,7 @@
 // orchestrator.ts — the two-pass loop.
 //
 // Ported from console-ai-client.js sendQuery (482–721), _finalize (735–758), _sumUsage (723–732).
-// Build plan §12. Adapted for the brain (surface-agnostic):
+// Adapted for the brain (surface-agnostic):
 //   - NO NLP fast-path (caller/surface-specific).
 //   - NO HA entity FETCH — entities arrive via provided_context.ha_entities.
 //   - NO action dispatch — the brain RETURNS the action; the caller executes it.
@@ -13,7 +13,7 @@
 // ⚠️ DUAL-RUNTIME CORE — this file runs in BOTH Deno (cloud edge fn) and Node (add-on, on-prem L3),
 // bundled from the SAME source (no second copy). Keep it pure: NO `Deno.*`, NO `https://` imports,
 // NO Supabase imports — runtime coupling lives only in the injectable OrchestratorIO adapters.
-// See README "Dual-runtime sync contract" + build plan §13.16. Re-authoring this as a Node copy is
+// See README "Dual-runtime sync contract". Re-authoring this as a Node copy is
 // the forbidden move (recreates the §1 drift).
 
 // ⚠️ DUAL-RUNTIME CORE: value imports below are ALL from pure modules (prompt/parse/models/
@@ -324,16 +324,16 @@ export interface OrchestratorIO {
   logSports: (token: string, data: SportsLogData) => Promise<void>;
   getDefaultModel: (supabase: unknown) => Promise<string>;
   readRetainTranscripts: (supabase: unknown, userId: string) => Promise<boolean>;
-  // CR1 pre-flight credit gate (build plan §3.5). OPTIONAL: an IO shell that omits it
+  // CR1 pre-flight credit gate. OPTIONAL: an IO shell that omits it
   // (the not-yet-built Node add-on shell; fakes in tests) is treated as always-spendable,
   // so the gate is purely additive. The Deno shell reads user_credits + the floor and
   // honors the `voice_credit_enforce` kill-switch.
   checkSpendable?: (supabase: unknown, userId: string) => Promise<{ spendable: boolean; balance: number; floor: number; low?: boolean }>;
-  // T3 (build plan §16.7 item 4): resolve the account's AI config (model + tool toggles)
+  // T3: resolve the account's AI config (model + tool toggles)
   // from user_settings. OPTIONAL — absent IO (Node shell / tests) → all-null (request /
   // global-default behavior, unchanged). The account values are DEFAULTS the request can override.
   readAccountAiConfig?: (supabase: unknown, userId: string) => Promise<{ model: string | null; webSearchEnabled: boolean | null; retrievePicturesEnabled: boolean | null; zipCode?: string | null; calendarWriteAccess?: string | null }>;
-  // CR3 (build plan §3.5): per-account rate-limit backstop. OPTIONAL — absent IO → always
+  // CR3: per-account rate-limit backstop. OPTIONAL — absent IO → always
   // allowed. Inert until `voice_rate_limit_enabled`. Atomic + fail-open (abuse guard only).
   checkRateLimit?: (supabase: unknown, userId: string) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
   // BYOK (Open Brain WS-I): 'byok' = the AI tokens run on the USER'S OWN key/model
@@ -361,7 +361,7 @@ export interface OrchestratorIO {
   toolConn?: { supabaseUrl: string; anonKey: string };
 }
 
-/** Per-turn retention resolution (build plan §17). `serverPersist` → write text on
+/** Per-turn retention resolution. `serverPersist` → write text on
  *  the terminal Supabase log row; `callerRetain` → signal the caller to store HA-locally. */
 interface RetainCtx {
   serverPersist: boolean;
@@ -425,7 +425,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // False-activation guard: a pure-noise transcript (no letters in any script)
   // is a wake-word misfire — return a terminal "didn't catch that" with no AI
   // call/credit. The model-facing half ("don't loop on a clarifying question")
-  // lives in the prompt. Build plan §13.13a.
+  // lives in the prompt.
   if (isLikelyNoise(req.text)) {
     // WS-F.0a: this is the AMBIENT / false-wake miss class — the biggest one, and it
     // short-circuits before any log, so it was invisible in ai_interactions. Write a
@@ -503,7 +503,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   if (!rateLimit.allowed) return rateLimitedTurn(t0, rateLimit.retryAfterSeconds);
   // Out of credits → terminal, BEFORE any gateway spend. Soft signal only
   // (metadata.degraded); the caller renders the prompt-to-choose (CR2). No AI
-  // call, no deduction, no log. Build plan §3.5 / CR1.
+  // call, no deduction, no log. CR1.
   // BYOK exception: the AI tokens are on the user's own key ($0 to Dashie), so the
   // turn proceeds — only the Dashie-funded tools (web/image search) are gated off
   // below via paidToolsOk, and the prompt tells the model honestly.
@@ -567,7 +567,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
   // false → prompt omits web_search from the tools list (T3 opt-out, or Gemini-grounds-natively)
   const promptWebSearch = webSearchAllowed && !geminiGrounds;
-  // Capability snapshot (Thread A #1): what THIS turn was allowed to do, logged into
+  // Capability snapshot: what THIS turn was allowed to do, logged into
   // tool_trace.caps on every terminal row — so an image request with retrieve_pictures
   // OFF reads as "disabled" in the fleet metadata, not a routing defect. `tools` comes
   // from the same filtered list buildPrompt injects (offeredToolNames), so it can't drift.
@@ -844,7 +844,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     }
     const fetchStage: Stage = { name: 'fetch_search', latency_ms: Date.now() - tFetch, result_count: search?.results?.length || 0, provider: search?.provider };
     // Log the ACTUAL provider the gateway used + debit its searchCost (same
-    // log_web_search path the webapp uses). Build plan §15.5.
+    // log_web_search path the webapp uses).
     await io.logWebSearch(token, {
       session_id: sessionId,
       provider: search?.provider || 'unknown',
@@ -1136,7 +1136,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // gateway / anon kiosk → client_fulfilled_tools omits 'weather') would dead-end on
   // client_tool. So the brain self-fulfills via getWeather (edge Open-Meteo) + the SAME
   // phrasing the device speaks (weather-synth), returning a real spoken `response` turn.
-  // Voice-only — matches the device path (its weather card renderer isn't built). Build plan §0.
+  // Voice-only — matches the device path (its weather card renderer isn't built).
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'weather_data') {
     const wq = (typeof p1Parsed.query === 'object' && p1Parsed.query) ? p1Parsed.query as Record<string, unknown> : {};
     if (io.getWeather && !callerFulfills(req, 'weather')) {
@@ -1199,7 +1199,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // web-search-and-hallucinate. Retrieval is deterministic keyword scoring — no network,
   // no billing. Pass-2 synthesizes the spoken answer from the retrieved chunks; on a miss
   // (found:false — including pricing, intentionally unauthored) a sentinel tells the model
-  // to defer to support@dashieapp.com rather than invent settings paths or prices.
+  // to say it is not sure rather than invent settings paths or prices.
   // Design: 20260711_DASHIE_SKILL_DESIGN.md §4.2.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'dashie_help') {
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
@@ -1216,8 +1216,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const helpData = helpResult.found ? helpResult : {
       found: false,
       note: 'No product-documentation entry matched this question. Do NOT invent settings ' +
-        'locations, steps, prices, or features. Say you are not sure about that one and that ' +
-        'the user can email support@dashieapp.com.',
+        'locations, steps, prices, or features. Say you are not sure about that one.',
       question: hq,
     };
     return await secondPass(io, deps, t0, 'dashie-help', helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
@@ -1538,7 +1537,7 @@ function finalize(
   };
 }
 
-/** Terminal "out of credits" turn (CR1, build plan §3.5) — no AI call, no deduction,
+/** Terminal "out of credits" turn (CR1) — no AI call, no deduction,
  *  no logging. Empty `voice` so a caller that ignores `metadata.degraded` simply says
  *  nothing (never speaks a cloud reply it can't afford); a CR2-aware caller reads
  *  `metadata.degraded === 'insufficient_credits'` and renders the prompt-to-choose. */
@@ -1562,7 +1561,7 @@ function insufficientCreditsTurn(t0: number, balance: number): Turn {
   };
 }
 
-/** Terminal "rate limited" turn (CR3, build plan §3.5) — the per-account backstop tripped
+/** Terminal "rate limited" turn (CR3) — the per-account backstop tripped
  *  (a looping/compromised endpoint). No AI call, no deduction, no log. Empty `voice` (a
  *  caller that ignores metadata says nothing); `metadata.degraded='rate_limited'` +
  *  retry_after_seconds for a caller that wants to surface "try again shortly". */
@@ -1701,7 +1700,7 @@ async function logPass(
   meta: Record<string, unknown> = {},
 ): Promise<void> {
   const usage = pass.raw?.usage || {};
-  // Thread A #2: the logged tool_trace is fleet-wide analysis metadata — redact free-text
+  // The logged tool_trace is fleet-wide analysis metadata — redact free-text
   // arg values (search strings, calendar keywords, names) on the LOGGED COPY ONLY, without
   // mutating meta (the same args object is referenced by the Turn's client_tool, which the
   // device needs intact to fulfill the tool). Structured enum args pass through verbatim.
@@ -1773,7 +1772,7 @@ async function logPass(
 /** Per-turn tool decision for the log: the route + the pass-1 tool call + its args (null on a
  *  direct no-tool response) + the capability snapshot. Populates the existing
  *  tool_used/response_type columns + tool_trace. Args here are the RAW model args — logPass
- *  redacts free-text values on the logged copy (Thread A #2). */
+ *  redacts free-text values on the logged copy. */
 function toolMeta(parsed: ReturnType<typeof parseContent>, route: string, caps?: CapsSnapshot): Record<string, unknown> {
   const tool = (parsed?.type === 'info_request' ? parsed.tool : null) ?? null;
   const args = (parsed?.type === 'info_request' ? parsed.query : null) ?? null;

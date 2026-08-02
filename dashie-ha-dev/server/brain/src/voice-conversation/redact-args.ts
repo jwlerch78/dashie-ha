@@ -1,4 +1,4 @@
-// redact-args.ts — free-text arg redaction for the LOGGED tool trace (Thread A #2,
+// redact-args.ts — free-text arg redaction for the LOGGED tool trace (
 // 20260710_VOICE_FEEDBACK_AND_IMPROVEMENT.md).
 //
 // ai_interactions.tool_trace is fleet-wide analysis metadata under the "Share Performance

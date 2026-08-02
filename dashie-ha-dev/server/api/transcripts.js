@@ -6,7 +6,7 @@
 // (.storage/dashie.voice_transcripts) and exposes them at HA's authed
 // /api/dashie/voice/transcripts. The Console can't call that HA endpoint
 // directly (no HA token in the browser), so we proxy through the add-on, which
-// already holds the supervisor token via ha-client. Build plan §17.
+// already holds the supervisor token via ha-client.
 //
 // Ingress-protected (HA authenticates the user before the request reaches us),
 // mirroring api/settings.js.

@@ -105,8 +105,8 @@ export const dashieHelpTool: ToolDef = {
     'steps, and troubleshooting. Call this for ANY question about Dashie the product ("what can ' +
     'you do", "how do I add a calendar", "where do I change the theme", "why is my screen ' +
     'black"). It returns curated product documentation — answer from it and do NOT web-search ' +
-    'or guess about Dashie. If it returns found:false, say you are not sure and suggest ' +
-    'emailing support@dashieapp.com; never invent settings locations or prices.',
+    'or guess about Dashie. If it returns found:false, say you are not sure; never invent ' +
+    'settings locations or prices.',
   parameters: {
     type: 'object',
     properties: {

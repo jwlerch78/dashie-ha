@@ -83,7 +83,7 @@ export interface LogData {
   api_latency_ms?: number;
   total_latency_ms: number;
   success: boolean;
-  endpoint_id?: string;        // per-endpoint attribution (build plan §11); persisted as ai_interactions.device_id
+  endpoint_id?: string;        // per-endpoint attribution; persisted as ai_interactions.device_id
   [k: string]: unknown;
 }
 

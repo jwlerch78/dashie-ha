@@ -4,9 +4,9 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 2ae574c4ad1f90bb6928eea8785f045798c1eb39
+   Source git SHA: cd66dfd905ec69d58ef053c8b9801d2fac1b9a2d
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
-   Contract:    supabase/functions/voice-conversation/README.md + build plan §13.16
+   Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -44,7 +44,7 @@ var BASE_CONTEXT = `# Base Context
 
 You are generating responses for a voice-controlled family assistant. Your output will be spoken aloud directly to the user.
 
-You are {{ASSISTANT_NAME}}, the voice assistant for a family dashboard \u2014 calendar, photos, weather, chores, timers, and smart-home control. If the user asks who or what you are or what you can do, answer directly in one or two friendly sentences \u2014 do NOT call a tool or search the web. Never describe yourself as a large language model and never name an underlying AI model or provider. For questions about {{ASSISTANT_NAME}}'s settings, how-to steps, or troubleshooting, use the dashie_help tool if it is offered. Never web-search questions about {{ASSISTANT_NAME}} itself, and never guess about settings, features, or prices \u2014 if you can't answer, say so and suggest emailing support@dashieapp.com (that exact address).
+You are {{ASSISTANT_NAME}}, the voice assistant for a family dashboard \u2014 calendar, photos, weather, chores, timers, and smart-home control. If the user asks who or what you are or what you can do, answer directly in one or two friendly sentences \u2014 do NOT call a tool or search the web. Never describe yourself as a large language model and never name an underlying AI model or provider. For questions about {{ASSISTANT_NAME}}'s settings, how-to steps, or troubleshooting, use the dashie_help tool if it is offered. Never web-search questions about {{ASSISTANT_NAME}} itself, and never guess about settings, features, or prices \u2014 if you can't answer, simply say you're not sure.
 
 Current date and time: {{DATE_TIME}}
 
@@ -1638,9 +1638,7 @@ about Dashie: answer from it, never from your general knowledge or the web.
 - **Keep beta caveats** \u2014 if the documentation says a feature is newer or may not be on the
   user's plan yet, keep that caveat in your answer.
 - **If \`found\` is false or the documentation doesn't actually answer the question**, say you're
-  not sure about that one, and that they can email support@dashieapp.com \u2014 do not guess, and do
-  not offer to search the web for it. When you give the support address, say it EXACTLY:
-  **support@dashieapp.com** \u2014 never shorten or alter the domain (it is not "dashie.com").
+  not sure about that one. Do not guess, and do not offer to search the web for it.
 
 ## Example Questions and Responses
 
@@ -1651,7 +1649,7 @@ about Dashie: answer from it, never from your general knowledge or the web.
 - Voice: "I can help with your family calendar, weather, chores, timers, smart-home control, and questions like this one \u2014 just ask."
 
 **"How much does Dashie cost?"** (not covered)
-- Voice: "I'm not sure about pricing, honestly \u2014 the team at support@dashieapp.com can give you a current answer."
+- Voice: "I'm not sure about pricing, honestly \u2014 I don't want to guess at a number."
 
 ## Retrieved Product Documentation
 
@@ -3897,7 +3895,7 @@ function identityChunks(chunks) {
 }
 var dashieHelpTool = {
   name: "dashie_help",
-  description: 'Look up how Dashie itself works \u2014 its features, settings and where to find them, how-to steps, and troubleshooting. Call this for ANY question about Dashie the product ("what can you do", "how do I add a calendar", "where do I change the theme", "why is my screen black"). It returns curated product documentation \u2014 answer from it and do NOT web-search or guess about Dashie. If it returns found:false, say you are not sure and suggest emailing support@dashieapp.com; never invent settings locations or prices.',
+  description: 'Look up how Dashie itself works \u2014 its features, settings and where to find them, how-to steps, and troubleshooting. Call this for ANY question about Dashie the product ("what can you do", "how do I add a calendar", "where do I change the theme", "why is my screen black"). It returns curated product documentation \u2014 answer from it and do NOT web-search or guess about Dashie. If it returns found:false, say you are not sure; never invent settings locations or prices.',
   parameters: {
     type: "object",
     properties: {
@@ -4949,7 +4947,7 @@ async function orchestrate(deps, io, voiceCtx) {
     };
     const helpData = helpResult.found ? helpResult : {
       found: false,
-      note: "No product-documentation entry matched this question. Do NOT invent settings locations, steps, prices, or features. Say you are not sure about that one and that the user can email support@dashieapp.com.",
+      note: "No product-documentation entry matched this question. Do NOT invent settings locations, steps, prices, or features. Say you are not sure about that one.",
       question: hq
     };
     return await secondPass(io, deps, t0, "dashie-help", helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
@@ -5307,4 +5305,4 @@ function toolMeta(parsed, route, caps) {
   templateCanAnswer,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "2ae574c4ad1f90bb6928eea8785f045798c1eb39";
+module.exports.BRAIN_SOURCE_SHA = "cd66dfd905ec69d58ef053c8b9801d2fac1b9a2d";

@@ -17,7 +17,8 @@ const express = require('express');
 const auth = require('../auth');
 const { getAccountVoiceConfig } = require('../account-config');
 const bridgeAuth = require('../bridge-auth');
-const { CLOUD } = require('../config');
+const capability = require('../capability');
+const { CLOUD, LEASE_TTL_S, LEASE_TTL_IS_DEBUG } = require('../config');
 
 const router = express.Router();
 
@@ -26,6 +27,15 @@ router.use((req, res, next) => {
     if (bridgeAuth.checkAuth(req, res, (r, s, b) => r.status(s).json(b))) next();
 });
 
+/**
+ * ACCOUNT-scoped sharing, for the routes below that vend the ACCOUNT's own
+ * credential. Deliberately not `capability.readHouseholdSharing()`, and the
+ * difference is the point: these three routes hand out the account JWT, so the
+ * only meaningful question is whether the ACCOUNT holder opted in. The
+ * capability predicate additionally answers for a box with no account at all —
+ * correct for leasing and spending, meaningless for vending a credential that
+ * does not exist. Same key, same fail-closed default, narrower question.
+ */
 async function readSharing() {
     // Fail CLOSED — never share on a config read error.
     try {
@@ -167,6 +177,159 @@ router.get('/voice-config', async (req, res) => {
         // Never block the gateway on this — default to cloud.
         return res.json({ route: 'cloud', model_is_local: false, agent_mode: '' });
     }
+});
+
+/**
+ * POST /api/internal/voice-lease  — the capability lease (CONTRACTS #65)
+ *
+ * Issue AND renew: there is no separate renew route and no lease handle to
+ * present, because renewal is simply asking again. That is what lets this box
+ * store NOTHING about leases — a renewal is a fresh read of grant state — which
+ * is how D4 ("a lease must survive an add-on restart") is satisfied by
+ * construction rather than by persistence. A stored lease could also outlive a
+ * revocation, which is the failure this whole design exists to remove.
+ *
+ * 🔴 THE STATUS IS THE PROTOCOL. The integration proxies it through verbatim and
+ * the device branches on it:
+ *
+ *   200  granted — here is a fresh expiry
+ *   403  a DEFINITE refusal from a box that is present and answering
+ *        → the device self-destructs IMMEDIATELY (this is the switch that is
+ *          flipped during testing; it has to take effect at once)
+ *   503  never sent from here. Unreachability is expressed by this box not
+ *        answering at all, and the device treats that as UNKNOWN, not withdrawn:
+ *        it keeps its lease and retries until expiry.
+ *
+ * ⚠️ FRAMING (required wording): the lease is a hygiene/operational control, NOT
+ * a security boundary. A granted lease means "the household still grants this";
+ * it does NOT mean "this request is permitted" — that is the scope check, made
+ * server-side on every request.
+ */
+
+// The list, and the per-capability refinement this comment anticipated ("naming
+// it here keeps a future per-capability refinement to one place"), both moved to
+// capability.js — the place was already chosen, and the spend path needed the
+// same answers. Left as a re-export so nothing reads a second copy.
+const { LEASABLE_CAPABILITIES } = capability;
+
+// ── OBSERVATIONAL ONLY — this is NOT the lease table, and there isn't one ─────
+//
+// Grant decisions stay stateless: a renewal is a fresh read of grant state, which
+// is what makes a lease survive an add-on restart without persistence and stops a
+// stored lease outliving a revocation. Nothing here is ever consulted to decide
+// whether to grant.
+//
+// It exists because leases are deliberately not in Supabase (D7), so without it
+// NOTHING can answer "who currently holds capability" — which makes the setup
+// state of most lease tests unverifiable (the lease test suite). Losing it on restart is
+// therefore fine, and is itself a useful signal that it is not authoritative.
+const LEASE_OBSERVED = new Map();
+const LEASE_OBSERVED_MAX = 50;
+
+function recordLease(endpointId, expiresAt, capabilities) {
+    const prior = LEASE_OBSERVED.get(endpointId);
+    const now = new Date().toISOString();
+    LEASE_OBSERVED.set(endpointId, {
+        endpoint_id: endpointId,
+        issued_at: prior?.issued_at ?? now,
+        last_renewal: now,
+        renewals: (prior?.renewals ?? 0) + (prior ? 1 : 0),
+        expires_at: expiresAt,
+        capabilities,
+    });
+    // Bounded: evict the oldest by last renewal. A debug surface must not be a
+    // way to grow the add-on's memory without limit.
+    if (LEASE_OBSERVED.size > LEASE_OBSERVED_MAX) {
+        const oldest = [...LEASE_OBSERVED.values()].sort((a, b) => a.last_renewal < b.last_renewal ? -1 : 1)[0];
+        if (oldest) LEASE_OBSERVED.delete(oldest.endpoint_id);
+    }
+    return !prior;
+}
+
+/**
+ * GET /api/internal/voice-lease/debug — who the box has recently leased to.
+ * Diagnostic surface for the lease test suite. NOT authoritative: see above.
+ */
+router.get('/voice-lease/debug', (req, res) => {
+    res.json({
+        authoritative: false,
+        note: 'observational only — grant decisions are stateless and read live; this list is lost on restart',
+        ttl_seconds: LEASE_TTL_S,
+        ttl_is_debug_override: LEASE_TTL_IS_DEBUG,
+        leases: [...LEASE_OBSERVED.values()],
+    });
+});
+
+
+router.post('/voice-lease', express.json(), async (req, res) => {
+    const endpointId = (req.body?.endpoint_id) || 'ha-voice';
+    // 🔴 GREPPABLE MARKERS on every transition (standing rule 2, and the lease suite's
+    // requirement: a silent transition makes most lease tests unprovable).
+    const deny = (reason) => {
+        console.warn(`LEASE: refused endpoint=${endpointId} reason=${reason}`);
+        return res.status(403).json({ granted: false, reason, capabilities: [] });
+    };
+
+    // ── the grant gate ────────────────────────────────────────────────────
+    //
+    // 🔴 REPLACED 2026-08-02 (D's ruling). This read `if (CLOUD.url) { signed_in
+    // + sharing }` — an ACCOUNT-shaped question standing in for a MONEY-shaped
+    // one. Chickadee blanks `CLOUD.url`, so the gate was skipped entirely and
+    // every satellite always granted, while the spend path handed out the
+    // household's own BYOK key. The old comment's reasoning — "where there is no
+    // account there is nothing to withhold" — conflated *no Dashie account* with
+    // *no shared metered resource*. A household BYOK key is the household's money.
+    //
+    // The condition was wrong, not the scope: deleting the branch would have
+    // failed CLOSED into a total voice outage on every Chickadee satellite
+    // (no JWT → not_signed_in; account sharing default false → sharing_disabled).
+    // So it is a predicate REPLACEMENT — see capability.js, which is also what
+    // the spend path now consults, so the two lanes cannot disagree again.
+    //
+    // ⚠️ ONE INTENDED BEHAVIOUR CHANGE, named here so it is not read as a
+    // regression: a signed-OUT Dashie box holding a BYOK key now grants `ai`
+    // where it previously denied `not_signed_in`. That is correct under the
+    // predicate — the key is the household's own — but it is not a no-op.
+    //
+    // `not_signed_in` is retired as a refusal reason. It was never a decision,
+    // only a resource-availability FACT, and the fact is now expressed properly:
+    // a box with no account has no credits to lend, but may still lend a key.
+    const { granted, withheld, reason: refusal } = await capability.grantableCapabilities(
+        Array.isArray(req.body?.capabilities) ? req.body.capabilities : null,
+    );
+    if (!granted.length) return deny(refusal);
+
+    const ttl = LEASE_TTL_S;
+    const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+    const isNew = recordLease(endpointId, expiresAt, granted);
+    console.log(
+        `LEASE: ${isNew ? 'issued' : 'renewed'} endpoint=${endpointId} ` +
+        `caps=${granted.join(',')} ttl=${ttl}s expires=${expiresAt}` +
+        (LEASE_TTL_IS_DEBUG ? ' ttl_source=debug_override' : ''),
+    );
+    // 🔴 A PARTIAL grant is the normal steady state, not an error — so it must
+    // not log as one, and it must not be SILENT either. `granted: [voice,tools]`
+    // with `ai` missing looks identical whether the household withdrew the key
+    // or no key was ever added, and those are opposite operator actions.
+    // 200 with a shorter list, and a marker that says why each one is short.
+    for (const [cap, why] of Object.entries(withheld || {})) {
+        console.warn(`LEASE: withheld endpoint=${endpointId} capability=${cap} reason=${why}`);
+    }
+    return res.json({
+        granted: true,
+        capabilities: granted,
+        // Additive and optional — the device decides on `capabilities` alone
+        // (absent ⇒ use the free engine). This is diagnostic: it is what lets an
+        // operator, and the lease test suite, tell the two causes apart.
+        ...(Object.keys(withheld || {}).length ? { withheld } : {}),
+        expires_at: expiresAt,
+        ttl_seconds: ttl,
+        // The BOX sets the cadence, so the TTL is reconfigurable without
+        // shipping a device build. A third of the TTL gives roughly three
+        // attempts before expiry — enough to ride out an add-on restart
+        // without widening the revocation window.
+        renew_after_seconds: Math.floor(ttl / 3),
+    });
 });
 
 module.exports = router;

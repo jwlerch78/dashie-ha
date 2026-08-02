@@ -3,6 +3,16 @@
 
 DOMAIN = "dashie_voice"
 
+# The sibling DEVICE integration of this same brand. Voice-gateway ownership is
+# a within-brand handshake: we stand down when the sibling is present and has
+# NOT ceded, and it cedes when we are configured (its VOICE_SIBLING_DOMAIN).
+# Both halves name each other through a constant, never an inline literal —
+# this pairing has already broken once, when THIS domain was renamed
+# (chickadee -> dashie_voice) and the sibling kept testing the dead name, so it
+# never ceded and we DROP'd forever. Cross-brand pairs never collide: each brand
+# serves its own route prefix.
+DEVICE_SIBLING_DOMAIN = "dashie"
+
 # ── Add-on bridge ──────────────────────────────────────────────────────────────
 # The integration never talks to a brain provider directly: the Dashie for Home Assistant add-on
 # owns engine routing (cloud / BYOK / local) and key custody. The integration is

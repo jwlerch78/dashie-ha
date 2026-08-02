@@ -388,7 +388,7 @@ const VoiceAiPage = {
             'voice.searxngUrl', 'voice.localTtsUrl', 'voice.localTtsVoiceId', 'voice.localSttUrl',
             'voice.localLlmKey',   // BYO-model API key (remote endpoints) — WS-I; read server-side by node-io.js
             'voice.hermesUrl',     // Hermes Agent endpoint — WS-I; key lives in the on-box key store (API Keys page)
-            // engine-direct HA voice (detection-gated picker, build plan §8)
+            // engine-direct HA voice (detection-gated picker)
             'voice.haTtsEngineId', 'voice.haTtsVoiceId', 'voice.haSttEngineId'];
         if (dottedKey === 'ai.conversationTimeout') value = Number(rawValue);
         else if (STRING_KEYS.includes(dottedKey)) value = String(rawValue);
@@ -993,8 +993,27 @@ const VoiceAiPage = {
         //
         // For a security control the honest states are ON / OFF / DON'T KNOW, and the
         // failure has to LOOK like a failure — never like the reassuring answer.
-        const known = !!this._defaults && ('voice.householdSharing' in this._defaults);
-        const enabled = this._defaults?.['voice.householdSharing'] === true;
+        // 🔴 ACCOUNT-LESS MODE (added 2026-08-02). Without an account this key
+        // lives in the box's own settings blob, and the read cannot "fail the
+        // way an account read fails" — an ABSENT key means nobody has answered
+        // yet, which is the DEFAULT, not the unknown. Rendering "sign in, then
+        // reload" here would be doubly wrong: it hides the only control that
+        // governs whether this box spends the household's keys, and it tells a
+        // user with no account to sign in to something that does not exist for
+        // them. D's ruling put the source of truth here; leaving the toggle
+        // unreachable would mean the ruling has a source of truth nobody can
+        // reach.
+        //
+        // The default must match the server's (capability.js
+        // ACCOUNTLESS_SHARING_DEFAULT). ⚠️ That is a second statement of one
+        // value — a real hand-mirror — and it is deliberate rather than missed:
+        // this renders BEFORE any write exists, so it cannot read the server's
+        // answer, and a wrong guess here is cosmetic (the button label) while
+        // the spend decision is always the server's. Flagged rather than hidden.
+        const local = !!DashieAuth.isLocalMode;
+        const stored = this._defaults?.['voice.householdSharing'];
+        const known = local ? true : (!!this._defaults && ('voice.householdSharing' in this._defaults));
+        const enabled = local ? stored !== false : stored === true;
         if (!known) {
             return `
             <div class="section-header" style="margin-top: 32px;">Household ${BRAND.productName} Intelligence Sharing</div>
@@ -1018,15 +1037,36 @@ const VoiceAiPage = {
             </div>
         `;
         }
+        // 🔴 THE LABEL MUST DIFFER, even though the stored key is the same one.
+        // With an account, sharing crosses an ACCOUNT boundary: other devices
+        // spend the signed-in owner's credits, and "share with household
+        // devices" is exactly what it does. Without an account there is no
+        // second party — the honest sentence is "let this box spend my keys" —
+        // and the consequence is blunter: turning it off stops the shared brain
+        // for the WHOLE house, this console's owner included, because on an
+        // account-less box every consumer is anonymous and there is no
+        // owner/satellite distinction left to preserve. Saying "other devices"
+        // there would be a quiet lie about who it affects.
+        const heading = local
+            ? `Shared voice &amp; A.I.`
+            : `Household ${BRAND.productName} Intelligence Sharing`;
+        const title = local
+            ? `Let this box spend your keys on voice`
+            : `Let kiosk tablets &amp; voice satellites use this account`;
+        const blurb = local
+            ? `Turn this off to stop ${BRAND.productName} using your stored provider keys for voice and A.I. ` +
+              `It applies to <strong>everything on this box</strong>, including this console — not just satellites. ` +
+              `Home Assistant's own voice engines keep working either way, because they cost nothing.`
+            : `Household Sharing needs to be on for other devices on your network to use this account's voice &amp; AI credits and API keys. You can alternatively sign into this account on your devices. You can turn it off any time.`;
         return `
-            <div class="section-header" style="margin-top: 32px;">Household ${BRAND.productName} Intelligence Sharing</div>
+            <div class="section-header" style="margin-top: 32px;">${heading}</div>
             <div class="card">
                 <div class="card-body">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
                         <div style="flex:1; min-width:240px;">
-                            <div style="font-weight:500; margin-bottom:6px;">Let kiosk tablets &amp; voice satellites use this account</div>
+                            <div style="font-weight:500; margin-bottom:6px;">${title}</div>
                             <div style="color: var(--text-secondary); font-size: var(--font-size-sm); line-height:1.5;">
-                                Household Sharing needs to be on for other devices on your network to use this account's voice &amp; AI credits and API keys. You can alternatively sign into this account on your devices. You can turn it off any time.
+                                ${blurb}
                             </div>
                         </div>
                         <button class="btn ${enabled ? 'btn-primary' : 'btn-secondary'}" id="household-sharing-btn"
@@ -1168,7 +1208,13 @@ const VoiceAiPage = {
         let current;
         try {
             const fresh = await VoiceAiApi.loadAiDefaults();
-            current = fresh['voice.householdSharing'] === true;
+            // Account-less: an absent key is the DEFAULT, not false — same rule
+            // the renderer uses, and getting it wrong here would be worse than
+            // cosmetic (the stale-render guard below would then refuse every
+            // first click with "this page was out of date").
+            current = DashieAuth.isLocalMode
+                ? fresh['voice.householdSharing'] !== false
+                : fresh['voice.householdSharing'] === true;
             if (this._defaults) this._defaults['voice.householdSharing'] = current;
         } catch (e) {
             // Never guess on a security control — a failed read must not become a write.
@@ -1194,7 +1240,11 @@ const VoiceAiPage = {
     async setHouseholdSharing(enabled) {
         try {
             // D6: warn BEFORE flipping — the user is about to sign tablets out of the account.
-            if (!enabled) {
+            // Account-less boxes skip it: there is no account to be signed out OF, and
+            // `list_devices` is a Dashie-service call that cannot succeed here. The
+            // consequence there is different and blunter (the shared brain stops for the
+            // whole house), and the card's own copy states it.
+            if (!enabled && !DashieAuth.isLocalMode) {
                 let count = 0;
                 try {
                     const res = await DashieAuth.dbRequest('list_devices', { controllable_only: false });
@@ -1222,13 +1272,16 @@ const VoiceAiPage = {
                 }
             }
 
-            // ACCOUNT-scoped: the console owns settings writes (serialized patchUserSetting).
+            // ONE write path, both postures: `saveDefault` switches backends underneath
+            // itself (account → user_settings, no account → PATCH /api/settings/local),
+            // which is why the key name is the same in both editions rather than two
+            // vocabularies that can drift.
             await this.saveDefault('voice.householdSharing', enabled);
 
             // D6: now actually sign the kiosks out. Order matters — sharing is already false, so
             // a tablet that re-provisions in this window is refused by jwt-auth's sharing gate
             // (the authoritative one) rather than racing us back onto the account.
-            if (!enabled) {
+            if (!enabled && !DashieAuth.isLocalMode) {
                 const sweep = await this._signOutKiosksOnSharingOff();
                 if (sweep.removed > 0) {
                     Toast.success(`Sharing off — ${sweep.removed} kiosk ${sweep.removed === 1 ? 'device' : 'devices'} signed out.`);
@@ -1256,16 +1309,26 @@ const VoiceAiPage = {
             // still best-effort — the setting is already persisted and the tablets do
             // converge — but "it will take a few minutes" and "it is instant" are different
             // promises, and the UI must not make the second one when it delivered the first.
-            let pushed = false;
+            //
+            // 🔴 Account-less boxes skip this call entirely, and that is not a
+            // degradation: `PUT /household-sharing` is requireSignedIn, so here it
+            // would 401 — meaning the cache-invalidate and the nudge would BOTH be
+            // silently skipped while this code reported the slow path. The add-on
+            // now does both inside `PATCH /api/settings/local` when the patch
+            // touches this key, so the write we already made carried its own side
+            // effect. Calling it anyway would just manufacture a scary toast.
+            let pushed = DashieAuth.isLocalMode;
             try {
-                const res = await fetch(DashieAuth._addonUrl('/api/settings/household-sharing'), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled }),
-                });
-                pushed = res.ok;
-                if (!res.ok) {
-                    console.warn(`DROP: sharing push rejected by the add-on (HTTP ${res.status}) — devices will not be told until their next check-in`);
+                if (!DashieAuth.isLocalMode) {
+                    const res = await fetch(DashieAuth._addonUrl('/api/settings/household-sharing'), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled }),
+                    });
+                    pushed = res.ok;
+                    if (!res.ok) {
+                        console.warn(`DROP: sharing push rejected by the add-on (HTTP ${res.status}) — devices will not be told until their next check-in`);
+                    }
                 }
             } catch (e) {
                 console.warn('[VoiceAiPage] sharing invalidate/push failed (non-fatal):', e.message);

@@ -331,7 +331,7 @@ const AccountUsage = {
     /** In add-on mode, overlay HA-local transcript text onto interactions by
      *  session_id. Kiosk turns keep transcripts on the user's HA box (not
      *  Supabase), so the Supabase usage rows carry cost but no text — we fetch
-     *  the text from the add-on and join it here. Best-effort. Build plan §17. */
+     *  the text from the add-on and join it here. Best-effort. */
     async _mergeLocalTranscripts(interactions) {
         if (typeof DashieAuth === 'undefined' || !DashieAuth.isAddonMode) return;
         if (!interactions.length) return;
@@ -958,7 +958,7 @@ const AccountUsage = {
     },
 
     /** Retained transcript for one interaction (only present when the account
-     *  opted into "Keep transcripts"). Build plan §17. */
+     *  opted into "Keep transcripts"). */
     _renderTranscript(intr) {
         if (!intr || (!intr.prompt && !intr.response)) return '';
         const line = (label, val) => `

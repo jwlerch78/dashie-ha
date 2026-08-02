@@ -1,7 +1,9 @@
 // types.ts — voice-conversation contract types.
-// External contract: build plan §9. Internal design: §12.
+//
+// The EXTERNAL contract (request/response shapes below) is what every caller
+// depends on; the internal design is free to move behind it.
 
-/** Request body (§9). Required: text + endpoint_id; account carried by the JWT. */
+/** Request body. Required: text + endpoint_id; account carried by the JWT. */
 export interface VoiceRequest {
   text: string;                 // REQUIRED — transcript
   endpoint_id: string;          // REQUIRED — personality resolution + usage attribution
@@ -39,7 +41,7 @@ export interface VoiceRequest {
     model?: string;
     web_search?: boolean;
     personality_id?: string;
-    // Transcript-retention mode (build plan §17):
+    // Transcript-retention mode:
     //   'server' (default) — brain persists prompt/response text to Supabase
     //     ai_interactions when the account opted in (logged-in cloud path).
     //   'caller' — brain NEVER persists text; it returns metadata.retain_transcript
@@ -266,10 +268,10 @@ export interface PromptContext {
   // {{DEVICE_AREA}} in the home_assistant prompt so an unqualified command resolves to this room.
   // null/absent → area-blind (template falls back to "ask which room").
   deviceArea?: string | null;
-  caps?: CapsSnapshot;          // Thread A #1: logged into tool_trace.caps, never templated
+  caps?: CapsSnapshot;          // logged into tool_trace.caps, never templated
 }
 
-/** Per-turn capability snapshot (Thread A #1, 20260710_VOICE_FEEDBACK_AND_IMPROVEMENT.md):
+/** Per-turn capability snapshot:
  *  what THIS turn was allowed to do, logged as ai_interactions.tool_trace.caps so a request
  *  blocked by an OFF toggle reads as "disabled" in analysis, not a defect. */
 export interface CapsSnapshot {

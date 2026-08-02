@@ -380,7 +380,7 @@ async function callService(domain, service, entityId, serviceData = {}) {
 // HA exposes STT/TTS *engines* over WS, independent of any configured Assist
 // pipeline. These thin wrappers let the Console detect what the user's HA can
 // do (see api/voice-engines.js). The exact command names + response shapes have
-// drifted across HA releases (build plan §4.3) — callers must tolerate a reject
+// drifted across HA releases — callers must tolerate a reject
 // and the probe script (scripts/probe-voice-engines.js) captures raw shapes.
 
 /** List TTS engines. → { providers: [{ engine_id, supported_languages }] } (HA shape). */

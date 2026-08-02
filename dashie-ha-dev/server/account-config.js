@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // server/account-config.js — read the account's voice/AI config from user_settings.
 //
-// Build plan §13.16/§13.17 (on-prem brain) + §16.7 (account-level config). The add-on is the
+// Account-level config for the on-prem brain. The add-on is the
 // single reader of user_settings for voice routing: it already holds the account JWT, so it queries
 // its own row via PostgREST (RLS-scoped to the user). Both consumers use this one function:
 //   - /api/voice/converse-local → endpoint + model for the LAN inference call (M6)

@@ -1,4 +1,4 @@
-// retention.ts — transcript retention opt-in + field builder (build plan §17).
+// retention.ts — transcript retention opt-in + field builder.
 //
 // A SINGLE account-level flag (user_settings.settings.ai.retainTranscripts, default
 // false) governs whether the user's utterance + the assistant's spoken reply are

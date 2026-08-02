@@ -274,7 +274,7 @@ Deno.test('tool logging: a tool turn → tool_used + REDACTED free-text args on 
   const terminal = m.logs.find((l) => l.tool_used === 'web_search')!;
   assert(terminal, 'a row logged the web_search tool');
   assertEquals((terminal.tool_trace as { tool?: unknown }).tool, 'web_search');
-  // Thread A #2: the logged copy never carries the raw search string — an equality-
+  // The logged copy never carries the raw search string — an equality-
   // preserving token replaces it ("weather in boston" is 17 chars).
   const args = String((terminal.tool_trace as { args?: unknown }).args);
   assert(/^\[redacted:[0-9a-f]*:17\]$/.test(args), `expected redacted token, got: ${args}`);
@@ -474,7 +474,7 @@ Deno.test('action → returned, NOT dispatched by the brain', async () => {
 });
 
 Deno.test('web_search (Gemini) → native grounding, no Tavily fetch', async () => {
-  // Gemini models ground via Google Search inside the gateway call (build plan §D):
+  // Gemini models ground via Google Search inside the gateway call:
   // no runWebSearch, no Tavily search-log; the second pass runs WITH grounding on.
   const m = makeIO([
     '{"type":"info_request","tool":"web_search","query":"weather"}',
@@ -1011,7 +1011,7 @@ Deno.test('dialog policy: a real answer is NOT tagged a miss', async () => {
   assertEquals(log.miss_reason, null);
 });
 
-// ── CR1 pre-flight credit gate (build plan §3.5) ───────────────────────────
+// ── CR1 pre-flight credit gate ───────────────────────────
 
 Deno.test('insufficient credits → terminal, no AI call, no deduction', async () => {
   const m = makeIO(['{"type":"response","voice":"should not run"}'], { spendable: false });
@@ -1032,7 +1032,7 @@ Deno.test('spendable → proceeds normally (gate is additive)', async () => {
   assertEquals(m.gatewayCalls(), 1);
 });
 
-// ── CR3 per-account rate-limit backstop (build plan §3.5) ──────────────────
+// ── CR3 per-account rate-limit backstop ──────────────────
 
 Deno.test('rate limited → terminal, no AI call, retry_after surfaced', async () => {
   const m = makeIO(['{"type":"response","voice":"should not run"}'], { rateLimited: true });
@@ -1053,7 +1053,7 @@ Deno.test('not rate limited → proceeds normally', async () => {
   assertEquals(m.gatewayCalls(), 1);
 });
 
-// ── T3: account config resolution (build plan §16.7 item 4) ────────────────
+// ── T3: account config resolution ────────────────
 
 Deno.test('model resolves from the account when the request omits it', async () => {
   const m = makeIO(['{"type":"response","voice":"hi"}'], { account: { model: 'claude-sonnet-5' } });
@@ -1228,7 +1228,7 @@ Deno.test('sports tool finds NOTHING → second pass runs WITH grounding (tool f
   assert(turn.voice.includes('Thursday'));
 });
 
-// ── Salvage regression (postmortem 20260718 incident C, ALL axes) ─────────────────────────
+// ── Salvage regression (2026-07-18 incident C, ALL axes) ─────────────────────────────────
 // finalize()'s `raw.content` salvage exists ONLY for a turn that FAILED to parse (raw content
 // is genuine prose there). For any PARSED turn with an empty `voice`, raw.content IS the JSON
 // blob — salvaging it reads the blob aloud (2026-07-17 Mio music info_request; 2026-07-18 the

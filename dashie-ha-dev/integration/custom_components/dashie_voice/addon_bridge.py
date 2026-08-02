@@ -47,6 +47,16 @@ class AddonUnavailable(Exception):
     """The Dashie for Home Assistant add-on can't be reached (not installed, stopped, or no bridge secret)."""
 
 
+class SharingDisabled(AddonUnavailable):
+    """Add-on reachable + signed in, but household cloud sharing is off (HTTP 403).
+
+    Lives here, with the transport that produces it, rather than in the account
+    lane that mostly raises it: `addon_voice.converse_local` also turns a 403
+    into this, and an exception type shared by two lanes belongs under both. A
+    build with no account never sees a 403 and so never raises it.
+    """
+
+
 _secret_cache: str | None = None
 
 
@@ -146,6 +156,24 @@ async def _resolve_base(hass: HomeAssistant) -> str:
         except Exception:  # noqa: BLE001 — unreachable candidate, try the next
             continue
     raise AddonUnavailable(f"no reachable Dashie for Home Assistant add-on (tried {len(candidates)} bases)")
+
+
+async def addon_brain_target(hass: HomeAssistant) -> tuple[str, dict[str, str]]:
+    """Where the ADD-ON brain is, and how to authenticate to it.
+
+    Split out of call_addon_brain so a caller that must own its own request —
+    the LAN gateway, which streams — can reach the same endpoint with the same
+    credential rather than re-deriving either. Raises AddonUnavailable for the
+    same reasons, at the same point.
+    """
+    secret = await _read_bridge_secret(hass)
+    if not secret:
+        raise AddonUnavailable("bridge secret not found — is the add-on installed?")
+    base = await _resolve_base(hass)
+    return f"{base}{ADDON_CONVERSE_PATH}", {
+        "Content-Type": "application/json",
+        BRIDGE_HEADER: secret,
+    }
 
 
 async def call_addon_brain(hass: HomeAssistant, payload: dict) -> tuple[dict, int]:

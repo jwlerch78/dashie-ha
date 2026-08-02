@@ -27,12 +27,6 @@
          render, must work on an air-gapped box, and must run the code that is
          actually in this repo. -->
     <script src="vendor/supabase-js-2.111.0.min.js"></script>
-    <!-- Pinned to HA frontend's exact version (see home-assistant/frontend
-         package.json) so we run the same hls.js code HA's <ha-hls-player>
-         uses. Version drift here was producing bufferAppendError on streams
-         that play fine in HA's UI. -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.light.min.js"></script>
-
     <!-- heic2any: HEIC → JPEG conversion used by photo-file-processor on
          desktop upload. Same pin as the dashboard's photos-settings.html. -->
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
@@ -43,6 +37,10 @@
     <script src="js/lib/console-auth.js?v=20260730b"></script>
     <script src="js/lib/feature-gate.js?v=20260801a"></script>
     <script src="js/lib/option-catalog.js?v=20260712a"></script>
+    <!-- Provider manifest BEFORE any page that reads it: api-keys and
+         onboarding both render from this one list. -->
+    <script src="js/lib/provider-manifest.js?v=20260801a"></script>
+    <script src="js/lib/provider-auth-renderers.js?v=20260801a"></script>
     <script src="js/lib/console-state.js?v=20260712a"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
@@ -104,6 +102,7 @@
     <script src="js/pages/account.js?v=20260801a"></script>
     <script src="js/pages/credits.js?v=20260712a"></script>
     <script src="js/pages/api-keys.js?v=20260725b"></script>
+    <script src="js/pages/onboarding.js?v=20260801a"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
     <!-- Video feeds. Published core since 2026-07-31 (was the closed family
          delta): HA camera feeds are a core HA capability, and every operation

@@ -18,7 +18,7 @@
    Source: get_intelligence_log (Supabase) + HA-local transcripts
    (add-on mode) merged by session_id. Toggle writes
    ai.retainTranscripts; Clear history nulls the stored text.
-   Build plan §17.
+
    ============================================================ */
 
 const VoiceAiAnalysis = {

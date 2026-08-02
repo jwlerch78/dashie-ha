@@ -55,6 +55,38 @@ try {
     if (ENVIRONMENTS[requested]) envName = requested;
 } catch { /* defaults */ }
 
+// Capability-lease TTL (CONTRACTS #65). Config, not a constant, because the
+// revocation window is an operational dial: shorter means a sharing flip takes
+// effect sooner, at the cost of more LAN chatter. 30 min is the default (D3);
+// LAN traffic is free, so the floor is generous and the ceiling is what bounds
+// the worst-case revocation delay.
+//
+// Clamped rather than trusted: a 0 would mean a lease that expires on arrival
+// (every satellite permanently destroyed), and a huge value would make the
+// revocation window unbounded — the exact thing the lease exists to bound.
+let leaseTtlS = 30 * 60;
+let leaseTtlIsDebug = false;
+try {
+    const opts = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'options.json'), 'utf8'));
+    const mins = Number(opts.lease_ttl_minutes);
+    if (Number.isFinite(mins)) leaseTtlS = Math.min(Math.max(Math.round(mins), 5), 240) * 60;
+
+    // DEBUG OVERRIDE, seconds — declared in the DEV channel's schema ONLY, so on
+    // the prod channel Home Assistant rejects the option before it reaches us.
+    // That is the whole enforcement: no code branch, no flavour check, and no way
+    // to leave a 60-second revocation window running in a household by accident.
+    //
+    // It exists because the real 30-minute TTL prices the lease test suite like a
+    // soak — 3+ hours a run — and a suite that expensive is one that stops being
+    // run, which is how a revocation mechanism silently rots. At 60s the same
+    // suite is minutes.
+    const secs = Number(opts.lease_ttl_seconds);
+    if (Number.isFinite(secs) && secs > 0) {
+        leaseTtlS = Math.min(Math.max(Math.round(secs), 10), 240 * 60);
+        leaseTtlIsDebug = true;
+    }
+} catch { /* default */ }
+
 // Add-on version — single source is package.json (bumped by scripts/release.sh
 // together with config.yaml, so /api/ping can't go stale again).
 let version = '0.0.0';
@@ -64,6 +96,8 @@ module.exports = {
     DATA_DIR,
     CLOUD_ENV: envName,
     CLOUD: ENVIRONMENTS[envName],
+    LEASE_TTL_S: leaseTtlS,
+    LEASE_TTL_IS_DEBUG: leaseTtlIsDebug,
     JWT_FILE: path.join(DATA_DIR, 'dashie_ha_auth.json'),
     // The vendored Dashie console SPA (scripts/sync-console.sh).
     FRONTEND_DIR: path.resolve(__dirname, '..', 'frontend', 'console'),

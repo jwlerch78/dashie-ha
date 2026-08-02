@@ -11,6 +11,11 @@
 //   3. a signed-in Dashie account                              → Dashie Cloud (metered)
 //   4. nothing                                                 → spoken setup guidance
 //
+// 🔴 Routes 1-with-a-key, 2 and 3 all spend money the household pays for, and
+// until 2026-08-02 NONE of them consulted household sharing — see the spend gate
+// below. Route 1 with an EMPTY key spends nothing (the user's own hardware) and
+// is never gated.
+//
 // Rule 2 landed 2026-07-31 (Step 7). It had TWO consumers waiting on it and zero
 // implementations:
 //   - the console tells the user "a BYO provider key unlocks a cloud-AI preset in EVERY
@@ -30,6 +35,7 @@
 'use strict';
 
 const auth = require('./auth');
+const capability = require('./capability');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const settingsStore = require('./settings-store');
@@ -123,9 +129,13 @@ async function converse(payload) {
     // ── Route (see the file header for the precedence and why) ──────────────────
     let shell = null;      // createAddonIO options for an on-box/BYOK turn
     let routeTag = '';     // for the DASHIE-TURN log line
+    let metered = false;   // does this route spend the household's money?
     if (endpoint && optModel) {
         shell = { endpoint, model: optModel, key: String(opts.llm_api_key || '') };
         routeTag = 'local';
+        // The KEY decides, not the route: empty means Ollama on the user's own
+        // hardware and no money moves; non-empty means a paid endpoint.
+        metered = !!shell.key.trim();
     } else {
         const byok = resolveByokTarget(await chosenModel(!!jwt));
         if (byok) {
@@ -139,11 +149,48 @@ async function converse(payload) {
                 extraHeaders: byok.headers || {},
             };
             routeTag = `byok:${byok.provider}`;
+            metered = true;   // the household's own provider key, always
         }
+    }
+
+    // ── 🔴 THE SPEND GATE (added 2026-08-02, D's ruling) ───────────────────────
+    //
+    // This handler had NO sharing check on ANY of its four routes. The
+    // credential-VENDING lane (`/api/internal/*`) was gated from birth; the lane
+    // that actually SPENDS was not — so with household sharing off, a satellite
+    // turn arriving through HA-Assist still spent the household's BYOK key, and
+    // on a signed-in box still spent account CREDITS. Both editions.
+    //
+    // Why the gate is at HOUSEHOLD scope here and per-device on the other lane:
+    // the lease governs what the box LENDS A SATELLITE, and on this lane the box
+    // lends nothing — Home Assistant asks, and the box spends on its own behalf.
+    // There is no satellite in the transaction to attach a lease to, and none
+    // could be attached anyway: `conversation.py` hardcodes `endpoint_id:
+    // "ha-voice"`, so a per-device check here would be gating a constant. The
+    // household is the only party this lane can name. (Per-device revocation on
+    // this lane is deferred, not rejected — it needs the device to identify
+    // itself on the assist frames, and a gate keyed on an identity only SOME
+    // satellites send is a coverage map nobody can see.)
+    if (metered && !(await capability.readHouseholdSharing())) {
+        console.warn(`SPEND: refused route=${routeTag} reason=sharing_disabled account=${jwt ? 'yes' : 'no'}`);
+        return speak(
+            "Voice sharing is turned off for this household, so I can't use the shared A.I. right now. " +
+            "Turn household sharing back on in the Dashie panel to use it again.",
+        );
     }
 
     if (!shell) {
         if (jwt) {
+            // Route 3 is metered too — Dashie Cloud spends the account's credits.
+            // It is checked here rather than above because it is the fall-through:
+            // `shell` stays null precisely when neither on-box route applied.
+            if (!(await capability.readHouseholdSharing())) {
+                console.warn('SPEND: refused route=cloud reason=sharing_disabled account=yes');
+                return speak(
+                    "Voice sharing is turned off for this household, so I can't use Dashie Cloud right now. " +
+                    "Turn household sharing back on in the Dashie panel to use it again.",
+                );
+            }
             const nCloud = ((payload.provided_context || {}).ha_entities || []).length;
             console.log(`DASHIE-TURN route=cloud text="${text}" entities=${nCloud}`);
             return await converseCloud({ ...payload, text }, jwt);
