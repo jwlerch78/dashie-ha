@@ -1,7 +1,8 @@
 // parse.ts — tolerant parse of the AI's JSON response.
 //
 // Ported VERBATIM from console-ai-client.js: _parseContent (256–285), _normalizeParsedShape
-// (287–310), _repairTruncatedJson (318–348). Build plan §12 ("tolerant; never hard-fail the turn").
+// (287–310), _repairTruncatedJson (318–348). The rule it implements: tolerant, never
+// hard-fail the turn.
 // Returns the parsed object or null; the caller sets parsed_ok = !!parsed and, on null, returns the
 // raw text as a 'response'.
 
@@ -65,7 +66,7 @@ function normalizeParsedShape(parsed: any): ParsedResponse {
   if (!parsed || typeof parsed !== 'object') return parsed;
   // Sanitize the spoken field for TTS (strip markdown + emoji). The `text`
   // (display) field is intentionally left UNTOUCHED so the tablet can still
-  // render emphasis/emoji visually. Filter, not prompt — build plan §13.13a.
+  // render emphasis/emoji visually. Filter, not prompt.
   if (typeof parsed.voice === 'string') parsed.voice = sanitizeVoice(parsed.voice);
   const KNOWN_TOOLS = new Set([
     'web_search', 'calendar_events', 'family_members', 'chores', 'rewards',
@@ -107,7 +108,7 @@ function normalizeParsedShape(parsed: any): ParsedResponse {
  *  (pure punctuation/symbols/digits). High-precision on purpose — anything with
  *  letters (incl. non-Latin) passes through to the model, so legitimate short or
  *  non-English queries are never dropped. Lets the caller short-circuit before
- *  spending an AI call (build plan §13.13a; the model-facing half — "don't loop
+ *  spending an AI call (the model-facing half — "don't loop
  *  on a clarifying question" — lives in the prompt). */
 export function isLikelyNoise(text: string): boolean {
   if (!text || typeof text !== 'string') return true;
@@ -117,7 +118,7 @@ export function isLikelyNoise(text: string): boolean {
 /** Strip markdown + emoji from text destined for TTS so the speech engine never
  *  reads "asterisk asterisk" or chokes on an emoji. Applied to the `voice` field
  *  only — `text` (display) keeps its formatting/emoji. Deterministic and
- *  model-independent (build plan §13.13a). */
+ *  model-independent. */
 export function sanitizeVoice(s: string): string {
   if (!s || typeof s !== 'string') return s;
   let out = s;

@@ -2,7 +2,8 @@
 //
 // Ported from the browser weather widget (js/data/services/weather-service.js +
 // js/utils/geocoding-helper.js) to Deno: zip/city → coordinates → current + daily forecast.
-// Build plan §0 (fold weather into the brain), §2.3/§3.2 (weather = self-fulfillable, public).
+// Weather is folded into the brain rather than fetched by the caller: it is
+// self-fulfillable from public, key-free APIs, so no surface needs its own copy.
 //
 // ⚠️ PURE module — NO Deno.*/Supabase/https-import coupling (Open-Meteo, Zippopotam, and
 // Nominatim are public). The L3 add-on (node-io.js) ports this same logic in plain Node.

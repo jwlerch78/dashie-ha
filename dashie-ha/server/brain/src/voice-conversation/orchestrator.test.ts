@@ -474,7 +474,7 @@ Deno.test('action → returned, NOT dispatched by the brain', async () => {
 });
 
 Deno.test('web_search (Gemini) → native grounding, no Tavily fetch', async () => {
-  // Gemini models ground via Google Search inside the gateway call (build plan §D):
+  // Gemini models ground via Google Search inside the gateway call:
   // no runWebSearch, no Tavily search-log; the second pass runs WITH grounding on.
   const m = makeIO([
     '{"type":"info_request","tool":"web_search","query":"weather"}',
@@ -1011,7 +1011,7 @@ Deno.test('dialog policy: a real answer is NOT tagged a miss', async () => {
   assertEquals(log.miss_reason, null);
 });
 
-// ── CR1 pre-flight credit gate (build plan §3.5) ───────────────────────────
+// ── CR1 pre-flight credit gate ───────────────────────────
 
 Deno.test('insufficient credits → terminal, no AI call, no deduction', async () => {
   const m = makeIO(['{"type":"response","voice":"should not run"}'], { spendable: false });
@@ -1032,7 +1032,7 @@ Deno.test('spendable → proceeds normally (gate is additive)', async () => {
   assertEquals(m.gatewayCalls(), 1);
 });
 
-// ── CR3 per-account rate-limit backstop (build plan §3.5) ──────────────────
+// ── CR3 per-account rate-limit backstop ──────────────────
 
 Deno.test('rate limited → terminal, no AI call, retry_after surfaced', async () => {
   const m = makeIO(['{"type":"response","voice":"should not run"}'], { rateLimited: true });
@@ -1053,7 +1053,7 @@ Deno.test('not rate limited → proceeds normally', async () => {
   assertEquals(m.gatewayCalls(), 1);
 });
 
-// ── T3: account config resolution (build plan §16.7 item 4) ────────────────
+// ── T3: account config resolution ────────────────
 
 Deno.test('model resolves from the account when the request omits it', async () => {
   const m = makeIO(['{"type":"response","voice":"hi"}'], { account: { model: 'claude-sonnet-5' } });

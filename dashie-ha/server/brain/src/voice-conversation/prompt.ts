@@ -3,7 +3,7 @@
 // Ported from js/ai/prompts/prompt-builder.js buildPrompt (271–358), buildInquiryValues (161–260),
 // languageNameFor (112–129). Templates + fillTemplate + formatDateTime come from the GENERATED
 // templates.ts (single source: js/ai/prompts/*.md via scripts/bundle-ai-prompts.js). Synchronous —
-// no fetch/loadTemplate; templates are imported directly. Build plan §12.
+// no fetch/loadTemplate; templates are imported directly.
 
 import {
   AVAILABLE_TOOLS_LIST,
