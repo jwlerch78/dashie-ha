@@ -69,6 +69,20 @@ ports: {}
 # staging backend — see DOCS.md; `stable` (app.dashieapp.com) is prod.
 options:
   log_level: debug
+  # Capability-lease TTL in minutes (CONTRACTS #65). Bounds the worst-case delay
+  # between turning household sharing off and a satellite noticing. Clamped
+  # 5..240 in server/config.js — a 0 would expire every lease on arrival.
+  lease_ttl_minutes: 30
+  # ⚠️ DEV CHANNEL ONLY — seconds, and it OVERRIDES the minutes above.
+  # Declared here and deliberately NOT in the prod channel's schema, so Home
+  # Assistant rejects it there before it can reach the add-on. That absence is
+  # the whole enforcement: no code branch, and no way to leave a 60-second
+  # revocation window running in a real household by accident.
+  # 0 / unset = off. Exists so the lease test suite costs minutes rather than
+  # the 3+ hours a real 30-minute TTL prices it at — without it the suite is
+  # priced like a soak and stops being run, which is how a revocation mechanism
+  # silently rots.
+  lease_ttl_seconds: 0
   cloud_env: beta
   install_integration: true
   llm_url: ""
@@ -82,6 +96,8 @@ options:
   tts_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+  lease_ttl_minutes: int(5,240)?
+  lease_ttl_seconds: int(0,14400)?
   cloud_env: list(beta|stable|development|production)
   install_integration: bool?
   llm_url: str?
