@@ -22,6 +22,7 @@ const haRegistry = require('../ha-registry');
 const haWorker = require('../ha-worker');
 const haClient = require('../ha-client');
 const config = require('../config');
+const { requireIngressUser } = require('../require-ingress-user');
 
 const router = express.Router();
 
@@ -379,7 +380,7 @@ router.get('/entities', async (req, res) => {
  * a hard 500 for normal HA-rejection cases like "entity not found" so the
  * Console chat can show the rejection inline rather than blowing up.)
  */
-router.post('/service', express.json(), async (req, res) => {
+router.post('/service', requireIngressUser('ha-service'), express.json(), async (req, res) => {
     const { domain, service, data } = req.body || {};
     if (!domain || !service || typeof domain !== 'string' || typeof service !== 'string') {
         return res.status(400).json({ success: false, error: 'domain and service are required' });
@@ -394,6 +395,17 @@ router.post('/service', express.json(), async (req, res) => {
         // — peel entity_id out of `data` for the target field.
         const serviceData = { ...payload };
         delete serviceData.entity_id;
+        // 🔴 ATTRIBUTION. This route can call ANY HA service with the add-on's
+        // supervisor token, and until now it logged only failures — so a
+        // successful `lock.open` left no record of who asked for it. The caller
+        // is an LLM acting on someone's behalf, which makes "on whose behalf"
+        // the interesting half. A household where anyone at the panel can open a
+        // lock is a choice; one where nobody can tell who did is not.
+        console.log(
+            `HA-SERVICE: ${domain}.${service} by=${req.haUser.id}` +
+            (req.haUser.display_name ? ` (${req.haUser.display_name})` : '') +
+            (payload.entity_id ? ` target=${payload.entity_id}` : ''),
+        );
         const result = await haRegistry.callService(domain, service, entityId, serviceData);
         return res.json({ success: true, result });
     } catch (e) {
