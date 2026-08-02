@@ -1,0 +1,28 @@
+# Services this integration exposes.
+lease_nudge:
+  name: Lease nudge
+  description: >-
+    Ask voice satellites to renew their capability lease immediately, instead of
+    waiting out the lease TTL. This is a trigger only — it grants and revokes
+    nothing. Each satellite re-asks the add-on and obeys whatever answer it gets.
+  fields:
+    reason:
+      name: Reason
+      description: >-
+        Diagnostic label recorded on the entity. Nothing branches on it.
+      required: false
+      default: manual
+      selector:
+        select:
+          options:
+            - sharing_changed
+            - config_changed
+            - manual
+    endpoint_ids:
+      name: Endpoint IDs
+      description: >-
+        Optional hint listing which satellites prompted the nudge. Leave empty
+        for all of them — a satellite that is not listed is not excluded.
+      required: false
+      selector:
+        object:

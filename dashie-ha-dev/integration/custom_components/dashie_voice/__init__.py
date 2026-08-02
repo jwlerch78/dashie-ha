@@ -32,7 +32,13 @@ from .voice_view import register_voice_views
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CONVERSATION, Platform.STT, Platform.TTS]
+# SENSOR carries exactly one entity: the lease-nudge signal (CONTRACTS #71).
+# It is a platform rather than a bare state write because the visibility proof
+# that made this transport viable covers REGISTRY entities owned by an
+# integration — a state-only entity written straight to the Core API would be
+# trading a verified path for an unverified one in the exact area where the
+# previous transport died of an unverified authorization assumption.
+PLATFORMS: list[Platform] = [Platform.CONVERSATION, Platform.STT, Platform.TTS, Platform.SENSOR]
 
 # hass.data flag — voice-gateway registration is once per HA run (views can't
 # be unregistered), decided at HA start when every integration has set up.
