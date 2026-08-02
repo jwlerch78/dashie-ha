@@ -17,6 +17,7 @@ const express = require('express');
 const auth = require('../auth');
 const { getAccountVoiceConfig } = require('../account-config');
 const bridgeAuth = require('../bridge-auth');
+const capability = require('../capability');
 const { CLOUD, LEASE_TTL_S, LEASE_TTL_IS_DEBUG } = require('../config');
 
 const router = express.Router();
@@ -26,6 +27,15 @@ router.use((req, res, next) => {
     if (bridgeAuth.checkAuth(req, res, (r, s, b) => r.status(s).json(b))) next();
 });
 
+/**
+ * ACCOUNT-scoped sharing, for the routes below that vend the ACCOUNT's own
+ * credential. Deliberately not `capability.readHouseholdSharing()`, and the
+ * difference is the point: these three routes hand out the account JWT, so the
+ * only meaningful question is whether the ACCOUNT holder opted in. The
+ * capability predicate additionally answers for a box with no account at all —
+ * correct for leasing and spending, meaningless for vending a credential that
+ * does not exist. Same key, same fail-closed default, narrower question.
+ */
 async function readSharing() {
     // Fail CLOSED — never share on a config read error.
     try {
@@ -196,11 +206,11 @@ router.get('/voice-config', async (req, res) => {
  * server-side on every request.
  */
 
-// What this box is willing to lease at all. A fixed list is correct rather than
-// lazy: the lease is PERMISSION TO ASK, and whether a given call then succeeds
-// is decided per-request by the scope check and the tool gate. Naming it here
-// keeps a future per-capability refinement to one place.
-const LEASABLE_CAPABILITIES = ['voice', 'ai', 'tools'];
+// The list, and the per-capability refinement this comment anticipated ("naming
+// it here keeps a future per-capability refinement to one place"), both moved to
+// capability.js — the place was already chosen, and the spend path needed the
+// same answers. Left as a re-export so nothing reads a second copy.
+const { LEASABLE_CAPABILITIES } = capability;
 
 // ── OBSERVATIONAL ONLY — this is NOT the lease table, and there isn't one ─────
 //
@@ -261,24 +271,33 @@ router.post('/voice-lease', express.json(), async (req, res) => {
     };
 
     // ── the grant gate ────────────────────────────────────────────────────
-    // Sharing is an ACCOUNT concept: it is the household owner declining to let
-    // a satellite spend the account's metered capability. Where there is no
-    // account there is nothing to withhold, so the gate does not apply.
     //
-    // Derived from CLOUD.url rather than a new per-brand constant — the same
-    // seam the brain target uses, and self-policing for the same reason: a
-    // branded build that failed to blank it would still carry a real project
-    // URL, which is exactly what the generator's deny scan fails on.
-    if (CLOUD.url) {
-        if (!auth.readStoredJwt()) return deny('not_signed_in');
-        if (!await readSharing()) return deny('sharing_disabled');
-    }
-
-    const asked = Array.isArray(req.body?.capabilities) ? req.body.capabilities : null;
-    const granted = asked
-        ? LEASABLE_CAPABILITIES.filter((c) => asked.includes(c))
-        : LEASABLE_CAPABILITIES;
-    if (!granted.length) return deny('capability_unavailable');
+    // 🔴 REPLACED 2026-08-02 (D's ruling). This read `if (CLOUD.url) { signed_in
+    // + sharing }` — an ACCOUNT-shaped question standing in for a MONEY-shaped
+    // one. Chickadee blanks `CLOUD.url`, so the gate was skipped entirely and
+    // every satellite always granted, while the spend path handed out the
+    // household's own BYOK key. The old comment's reasoning — "where there is no
+    // account there is nothing to withhold" — conflated *no Dashie account* with
+    // *no shared metered resource*. A household BYOK key is the household's money.
+    //
+    // The condition was wrong, not the scope: deleting the branch would have
+    // failed CLOSED into a total voice outage on every Chickadee satellite
+    // (no JWT → not_signed_in; account sharing default false → sharing_disabled).
+    // So it is a predicate REPLACEMENT — see capability.js, which is also what
+    // the spend path now consults, so the two lanes cannot disagree again.
+    //
+    // ⚠️ ONE INTENDED BEHAVIOUR CHANGE, named here so it is not read as a
+    // regression: a signed-OUT Dashie box holding a BYOK key now grants `ai`
+    // where it previously denied `not_signed_in`. That is correct under the
+    // predicate — the key is the household's own — but it is not a no-op.
+    //
+    // `not_signed_in` is retired as a refusal reason. It was never a decision,
+    // only a resource-availability FACT, and the fact is now expressed properly:
+    // a box with no account has no credits to lend, but may still lend a key.
+    const { granted, withheld, reason: refusal } = await capability.grantableCapabilities(
+        Array.isArray(req.body?.capabilities) ? req.body.capabilities : null,
+    );
+    if (!granted.length) return deny(refusal);
 
     const ttl = LEASE_TTL_S;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
@@ -288,9 +307,21 @@ router.post('/voice-lease', express.json(), async (req, res) => {
         `caps=${granted.join(',')} ttl=${ttl}s expires=${expiresAt}` +
         (LEASE_TTL_IS_DEBUG ? ' ttl_source=debug_override' : ''),
     );
+    // 🔴 A PARTIAL grant is the normal steady state, not an error — so it must
+    // not log as one, and it must not be SILENT either. `granted: [voice,tools]`
+    // with `ai` missing looks identical whether the household withdrew the key
+    // or no key was ever added, and those are opposite operator actions.
+    // 200 with a shorter list, and a marker that says why each one is short.
+    for (const [cap, why] of Object.entries(withheld || {})) {
+        console.warn(`LEASE: withheld endpoint=${endpointId} capability=${cap} reason=${why}`);
+    }
     return res.json({
         granted: true,
         capabilities: granted,
+        // Additive and optional — the device decides on `capabilities` alone
+        // (absent ⇒ use the free engine). This is diagnostic: it is what lets an
+        // operator, and Thread T's suite, tell the two causes apart.
+        ...(Object.keys(withheld || {}).length ? { withheld } : {}),
         expires_at: expiresAt,
         ttl_seconds: ttl,
         // The BOX sets the cadence, so the TTL is reconfigurable without

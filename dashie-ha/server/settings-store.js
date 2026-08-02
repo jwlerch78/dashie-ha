@@ -52,10 +52,19 @@ function writeSettings(patch) {
     return next;
 }
 
-/** True when the account holder has opted into household-wide Dashie Cloud sharing. */
-function isHouseholdSharingEnabled() {
-    return readSettings().householdSharing === true;
-}
+// 🔴 DELETED 2026-08-02: `isHouseholdSharingEnabled()` and the top-level
+// `householdSharing` field it read.
+//
+// Zero callers, and worse than dead: `GET /api/settings` read the file and then
+// OVERWROTE `householdSharing` with the account value, so the stored field could
+// hold whatever a box wrote to it before 2026-07-13, when sharing genuinely was
+// add-on-local. Two fields with one name, one of them a fossil.
+//
+// The live answer is `voice.householdSharing` in the settings blob (or the
+// account's copy) — see capability.js, which is the single reader. Re-animating
+// this one would have meant inheriting values written under semantics nobody has
+// reasoned about in three weeks: "present but not a live grant", the class that
+// has now been counted five times.
 
 // ── Account-less console settings ────────────────────────────────────────────
 
@@ -98,6 +107,6 @@ function patchUserSettings(partial) {
 }
 
 module.exports = {
-    readSettings, writeSettings, isHouseholdSharingEnabled,
+    readSettings, writeSettings,
     readUserSettings, patchUserSettings,
 };
