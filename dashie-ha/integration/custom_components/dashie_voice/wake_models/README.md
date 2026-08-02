@@ -5,13 +5,17 @@ their manifests:
 
 | File | Wake word | Selected by |
 |---|---|---|
-| `chickadee.tflite` / `.json` | "Chickadee" | `chickadee` — the default on this build |
-| `hey_dashie.tflite` / `.json` | "Hey Dashie" | `hey_dashie` — for [Dashie](https://dashieapp.com) satellites |
+| `hey_dashie.tflite` / `.json` | "Hey Dashie" | `hey_dashie` — the default | 
+| `chickadee.tflite` / `.json` | "Chickadee" | `chickadee` — selectable alternative |
+
+The `chickadee` model predates the 2026-07-30 brand consolidation. It is kept
+because the weights are real and someone may have selected it; it is no longer
+any build's default. See [PROVENANCE.md](https://github.com/jwlerch78/dashie-ha-console/blob/main/PROVENANCE.md).
 
 ## Provenance
 
-Both models were **trained in-house by Dashie** (the makers of Chickadee — see
-[PROVENANCE.md](https://github.com/jwlerch78/chickadee/blob/main/PROVENANCE.md)).
+Both models were **trained in-house by Dashie** (see
+[PROVENANCE.md](https://github.com/jwlerch78/dashie-ha-console/blob/main/PROVENANCE.md)).
 They are original models, not derivatives or re-labels of a community model.
 
 <!-- Links to the add-on repo are absolute on purpose: this file ships at two
@@ -30,7 +34,7 @@ repo today. Said plainly rather than left to be discovered.
 ## License
 
 The weights are released under this repository's **AGPL-3.0-only**, the same as the
-rest of Chickadee. See [LICENSE](../LICENSE).
+rest of this integration. See [LICENSE](../LICENSE).
 
 ## Deployment
 
@@ -39,4 +43,4 @@ rest of Chickadee. See [LICENSE](../LICENSE).
 `--custom-model-dir`. Only these custom words deploy anything — community wake words
 (Okay Nabu, Hey Jarvis, Alexa) already ship with the official add-on and are
 referenced by name. User-facing description of this write is in
-[the add-on's DOCS.md](https://github.com/jwlerch78/chickadee/blob/main/chickadee/DOCS.md#permissions--what-this-add-on-touches).
+[the add-on's DOCS.md](https://github.com/jwlerch78/dashie-ha-console/blob/main/dashie-ha/DOCS.md#permissions--what-this-add-on-touches).

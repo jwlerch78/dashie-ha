@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Chickadee text-to-speech entity — asks the add-on's TTS engine for spoken audio.
+"""Dashie Voice text-to-speech entity — asks the add-on's TTS engine for spoken audio.
 
 The add-on owns which engine synthesizes (BYO OpenAI-compatible server now;
-hosted Chickadee Cloud voices with the account port). Bridge contract
+hosted Dashie Cloud voices with the account port). Bridge contract
 (CONTRACTS.md): POST /api/voice/tts {text, voice?} → audio/wav bytes.
 """
 
@@ -30,13 +30,13 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([ChickadeeTtsEntity()])
+    async_add_entities([DashieVoiceTtsEntity()])
 
 
-class ChickadeeTtsEntity(tts.TextToSpeechEntity):
+class DashieVoiceTtsEntity(tts.TextToSpeechEntity):
     """One TTS entity per install; the add-on routes to the configured engine."""
 
-    _attr_name = "Chickadee TTS"
+    _attr_name = "Dashie Voice TTS"
     _attr_unique_id = UNIQUE_ID_TTS
     _attr_default_language = "en-US"
     _attr_supported_languages = SUPPORTED_LANGUAGES
@@ -63,9 +63,9 @@ class ChickadeeTtsEntity(tts.TextToSpeechEntity):
                     for v in raw
                     if isinstance(v, dict) and v.get("voice_id")
                 ]
-                _LOGGER.info("Chickadee TTS voice catalog: %d voices", len(self._voices))
+                _LOGGER.info("Dashie Voice TTS voice catalog: %d voices", len(self._voices))
         except (AddonUnavailable, ValueError, UnicodeDecodeError) as err:
-            _LOGGER.debug("Chickadee TTS voice catalog unavailable: %s", err)
+            _LOGGER.debug("Dashie Voice TTS voice catalog unavailable: %s", err)
 
     @callback
     def async_get_supported_voices(self, language: str) -> list[tts.Voice] | None:
@@ -82,13 +82,13 @@ class ChickadeeTtsEntity(tts.TextToSpeechEntity):
                 self.hass, ADDON_TTS_PATH, payload, "application/json", timeout_s=60
             )
         except AddonUnavailable as err:
-            _LOGGER.warning("DROP: Chickadee TTS — add-on unavailable: %s", err)
+            _LOGGER.warning("DROP: Dashie Voice TTS — add-on unavailable: %s", err)
             return None, None
 
         if status >= 400 or not body or "audio" not in (ctype or ""):
-            _LOGGER.warning("DROP: Chickadee TTS — add-on HTTP %s (%s): %s", status, ctype, body[:200])
+            _LOGGER.warning("DROP: Dashie Voice TTS — add-on HTTP %s (%s): %s", status, ctype, body[:200])
             return None, None
         # Extension follows the engine: BYO servers return WAV, the hosted
-        # (Chickadee Cloud) voice returns MP3 (audio/mpeg).
+        # (Dashie Cloud) voice returns MP3 (audio/mpeg).
         ext = "mp3" if "mpeg" in ctype or "mp3" in ctype else "wav"
         return ext, body

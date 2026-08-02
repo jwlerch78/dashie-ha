@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Auto-create the Chickadee Assist pipeline on config-entry setup.
+"""Auto-create the Dashie Voice Assist pipeline on config-entry setup.
 
 The plug-and-play promise: install the add-on, add the integration, and a
 working pipeline wired to conversation + STT + TTS appears — no manual Assist
-configuration. Idempotent: any existing pipeline that references a Chickadee
+configuration. Idempotent: any existing pipeline that references a Dashie Voice
 entity is the user's (edits and all) and is left alone; we recreate only when
 none exists. We never mark ours preferred — that's the user's call.
 
@@ -48,7 +48,7 @@ def _best_language(preferred: str, supported: list[str]) -> str:
 async def async_ensure_pipeline(
     hass: HomeAssistant, entry: ConfigEntry, wake_word_id: str | None = None
 ) -> None:
-    """Create the Chickadee Assist pipeline if no pipeline references our entities.
+    """Create the Dashie Voice Assist pipeline if no pipeline references our entities.
 
     Called after platform setup so the entities exist in the registry. Any
     failure is a loud WARN, never a failed entry setup — voice still works via
@@ -68,7 +68,7 @@ async def async_ensure_pipeline(
     except ImportError as err:
         _LOGGER.warning(
             "DROP: assist_pipeline store API changed — cannot auto-create the "
-            "Chickadee pipeline, create one manually in Settings > Voice assistants (%s)",
+            "Dashie Voice pipeline, create one manually in Settings > Voice assistants (%s)",
             err,
         )
         return
@@ -82,17 +82,17 @@ async def async_ensure_pipeline(
 
     if conversation_id is None:
         _LOGGER.warning(
-            "DROP: Chickadee conversation entity not registered yet — pipeline not created"
+            "DROP: Dashie Voice conversation entity not registered yet — pipeline not created"
         )
         return
 
-    # Idempotency: any pipeline touching a Chickadee entity — whatever the user
+    # Idempotency: any pipeline touching a Dashie Voice entity — whatever the user
     # renamed or rewired around it — counts as ours already existing.
     ours = {conversation_id, stt_id, tts_id} - {None}
     for pipeline in async_get_pipelines(hass):
         if {pipeline.conversation_engine, pipeline.stt_engine, pipeline.tts_engine} & ours:
             _LOGGER.debug(
-                "Chickadee pipeline already present ('%s') — leaving it untouched",
+                "Dashie Voice pipeline already present ('%s') — leaving it untouched",
                 pipeline.name,
             )
             return
@@ -100,7 +100,7 @@ async def async_ensure_pipeline(
     if stt_id is None or tts_id is None:
         # A conversation-only pipeline is still useful (text Assist); WARN loudly.
         _LOGGER.warning(
-            "DROP: Chickadee STT/TTS entity missing (stt=%s tts=%s) — creating a "
+            "DROP: Dashie Voice STT/TTS entity missing (stt=%s tts=%s) — creating a "
             "reduced pipeline",
             stt_id,
             tts_id,
@@ -142,11 +142,11 @@ async def async_ensure_pipeline(
         pipeline_data = await async_setup_pipeline_store(hass)
         pipeline = await pipeline_data.pipeline_store.async_create_item(settings)
     except Exception as err:  # noqa: BLE001 — never fail entry setup over this
-        _LOGGER.warning("DROP: Chickadee pipeline creation failed: %s", err)
+        _LOGGER.warning("DROP: Dashie Voice pipeline creation failed: %s", err)
         return
 
     _LOGGER.info(
-        "CHICKADEE-PIPELINE created '%s' (id=%s) conversation=%s stt=%s tts=%s wake=%s",
+        "DASHIE-PIPELINE created '%s' (id=%s) conversation=%s stt=%s tts=%s wake=%s",
         name,
         pipeline.id,
         conversation_id,
@@ -157,7 +157,7 @@ async def async_ensure_pipeline(
 
 
 def _our_entity_ids(hass: HomeAssistant) -> set[str]:
-    """The Chickadee-owned pipeline entity ids currently in the registry."""
+    """The Dashie Voice-owned pipeline entity ids currently in the registry."""
     ent_reg = er.async_get(hass)
     return {
         ent_reg.async_get_entity_id("conversation", DOMAIN, UNIQUE_ID_CONVERSATION),
@@ -169,7 +169,7 @@ def _our_entity_ids(hass: HomeAssistant) -> set[str]:
 async def _apply_wake_to_pipeline(
     hass: HomeAssistant, wake_entity: str, wake_id: str | None
 ) -> bool:
-    """Set wake on the existing Chickadee pipeline if it's currently unset.
+    """Set wake on the existing Dashie Voice pipeline if it's currently unset.
 
     Returns True when there's nothing left to do — either we set it, or the user
     already chose a wake entity (never override that). False means keep watching.
@@ -202,7 +202,7 @@ async def _apply_wake_to_pipeline(
             )
             return False
         _LOGGER.info(
-            "CHICKADEE-WAKE self-healed pipeline '%s' -> wake=%s (%s)",
+            "DASHIE-WAKE self-healed pipeline '%s' -> wake=%s (%s)",
             pipeline.name,
             wake_entity,
             wake_id,

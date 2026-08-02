@@ -1,26 +1,39 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Chickadee voice gateway — the /api/chickadee/voice/* views for LAN devices.
+"""Dashie Voice gateway — the /api/dashie_voice/voice/* views for LAN devices.
 
 Ported from the Dashie integration's voice_view.py. A satellite on the LAN
 (any device holding an HA token — Dashie tablets in kiosk mode today) reaches
-household voice through these views; they proxy to the Chickadee add-on's
+household voice through these views; they proxy to the Dashie for Home Assistant add-on's
 /api/internal/* (account credential, sharing gate) and to the cloud brain on
 the account's behalf.
 
-Every view serves TWO paths: the canonical `/api/chickadee/...` and a
-`/api/dashie/...` legacy alias. The alias is a compatibility contract with
-shipped Dashie APKs (a path is a wire value — same rule as the `dashie_cloud`
-engine id) and must never be removed while those apps are in the field; both
-paths hit the same handler. Ownership: when the Chickadee integration is
+Every view serves TWO paths: the canonical `/api/dashie_voice/...` and
+`/api/dashie/...`. Both hit the same handler.
+
+⚠️ The second is NOT merely a legacy alias, though it was described as one here
+for a while and that description nearly got it deleted from a branded build. It
+is the CROSS-INTEGRATION CANONICAL PATH: the device integration serves
+`/api/dashie/voice/*` natively, and this integration claims the same path on top
+of its own — which is exactly why the cede handshake below has to exist. Remove
+it and cede leaves that path served by NOBODY: the device half stands down, this
+half never claims it, and a caller gets a 404 with both integrations healthy.
+
+It is also a compatibility contract with shipped Dashie APKs (a path is a wire
+value — same rule as the `dashie_cloud` engine id), so it must never be removed
+while those apps are in the field. Two reasons, either one sufficient. Ownership: when the Dashie Voice integration is
 configured it registers these views and the Dashie integration cedes (its
 __init__ checks our config entries); see async_register_voice_views.
 
-The payload builder is a faithful copy of the Dashie gateway's pass-through
-design (allowlist rot postmortem: dashieapp_staging
-`.reference/build-plans/20260716_HA_GATEWAY_PAYLOAD_ALLOWLIST_ROT.md`).
-GATEWAY_OWNED_KEYS mirrors VoiceRequest field names — dashieapp_staging's
-`lint:gateway-payload` currently checks the Dashie copy only; keep the two
-builders in step until that lint learns this file.
+The payload builder FORWARDS the caller's body wholesale and overrides only the
+keys it owns (GATEWAY_OWNED_KEYS, which mirror VoiceRequest field names). It is
+deliberately not an allowlist: naming each forwarded field means the builder
+silently drops every field added to the brain contract afterwards — that cost
+device tool capability, the user's timezone, and anti-recursion state, with no
+error and no log. Add a key here only to OVERRIDE it, never to permit it.
+
+A sibling copy of this builder ships in the Dashie integration, and the lint
+that guards this shape currently checks that copy only — so keep the two in
+step by hand until it covers this file too.
 """
 from __future__ import annotations
 
@@ -33,17 +46,18 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from . import account_bridge
-from .account_bridge import (
-    AddonUnavailable,
-    SharingDisabled,
-    authorize_device,
+from .brain_target import brain_target, cloud_base, default_brain_route
+from .addon_bridge import AddonUnavailable, SharingDisabled
+from .addon_voice import (
     converse_local,
-    get_account_credential,
-    get_sharing_status,
+    get_addon_availability,
     get_voice_config,
     mint_live_token,
+    request_lease,
 )
+# ⚠️ THE ACCOUNT LANE — this one import is the whole of it in this file, and a
+# build with no account drops this line together with the views below that use it.
+from .account_bridge import authorize_device, get_account_credential, get_sharing_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,28 +89,18 @@ def _actor(request: web.Request) -> str:
         return "unknown"
     return f"{user.name or user.id} ({'admin' if user.is_admin else 'non-admin'})"
 
-# Cloud base URL comes from the add-on (which knows the configured cloud_env)
-# via account_bridge.cloud_url(), populated on the first sharing-status check.
-# The constant below is only the fallback for add-ons too old to report it.
-_FALLBACK_CLOUD_BASE = "https://cwglbtosingboqepsmjk.supabase.co"
-
-
-def _cloud_base() -> str:
-    return account_bridge.cloud_url() or _FALLBACK_CLOUD_BASE
-
-
-def _brain_url() -> str:
-    return f"{_cloud_base()}/functions/v1/voice-conversation"
+# WHERE the brain is lives in brain_target.py — the one module that knows, and
+# the seam a second brand differs at. Don't re-derive an endpoint here.
 
 
 def _stt_token_url() -> str:
-    return f"{_cloud_base()}/functions/v1/issue-stt-token"
+    return f"{cloud_base()}/functions/v1/issue-stt-token"
 
 #: VoiceRequest keys the GATEWAY computes; everything else passes through.
 GATEWAY_OWNED_KEYS = frozenset({"endpoint_id", "options", "client_fulfilled_tools"})
 #: `options` keys read here, never sent on.
 GATEWAY_INTERNAL_OPTION_KEYS = frozenset({"route"})
-#: Retention pinned for EVERY caller — 'server' would move family speech into Supabase.
+#: Retention pinned for EVERY caller — 'server' would move family speech off this box.
 GATEWAY_RETAIN_MODE = "caller"
 
 
@@ -128,27 +132,21 @@ def build_brain_payload(body: dict) -> tuple[dict, str, str | None]:
     return payload, endpoint_id, route
 
 
-async def call_cloud_brain(hass: HomeAssistant, payload: dict, cred: str | None = None) -> tuple[dict, int]:
-    """POST a prepared VoiceRequest to the cloud brain with the account credential."""
-    if cred is None:
-        cred = await get_account_credential(hass)
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {cred}",
-        "apikey": cred,
-    }
+async def call_brain(hass: HomeAssistant, payload: dict, cred: str | None = None) -> tuple[dict, int]:
+    """POST a prepared VoiceRequest to the brain, wherever this build's brain is."""
+    url, headers = await brain_target(hass, cred=cred)
     session = async_get_clientsession(hass)
-    async with session.post(_brain_url(), json=payload, headers=headers) as resp:
+    async with session.post(url, json=payload, headers=headers) as resp:
         turn = await resp.json(content_type=None)
         return turn, (200 if resp.status < 400 else resp.status)
 
 
-class ChickadeeVoiceConverseView(HomeAssistantView):
+class DashieVoiceConverseView(HomeAssistantView):
     """Authed by the HA token; calls the brain on the account's behalf."""
 
-    url = "/api/chickadee/voice/converse"
-    extra_urls = ["/api/dashie/voice/converse"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:converse"
+    url = "/api/dashie_voice/voice/converse"
+    extra_urls = ["/api/dashie/voice/converse"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:voice:converse"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -167,16 +165,40 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
 
         # Authoritative account route stamped on every response so a device with
         # a stale cached route self-corrects next turn (brain-route strand fix).
-        authoritative_route = (await get_voice_config(hass)).get("route", "cloud")
-        # Both header names carry the same value: X-Chickadee-Brain-Route is
-        # canonical, X-Dashie-Brain-Route stays for shipped Dashie APKs.
+        # An unreadable config yields no route at all rather than a guessed
+        # "cloud" — this build's own default then applies (brain_target).
+        authoritative_route = (await get_voice_config(hass)).get("route") or default_brain_route()
+        # Both header names carry the same value. The first is this integration's
+        # canonical, brand-parameterised name; the second is a WIRE VALUE that is
+        # the same in every brand because the app reads that exact literal and
+        # does not key it by edition.
+        #
+        # ⚠️ Do not "clean up" the second as legacy. A branded build once dropped
+        # it and the brain-route keystone went inert: the response then carries no
+        # header the device recognises, so a device holding a cached route strands
+        # permanently, with both ends healthy. Same class as the extra_urls drop
+        # (CONTRACTS #63) — a compat name is a contract, not clutter.
         route_header = {
-            "X-Chickadee-Brain-Route": authoritative_route,
+            "X-Dashie-Voice-Brain-Route": authoritative_route,
             "X-Dashie-Brain-Route": authoritative_route,
         }
 
         if route is None:
             route = authoritative_route
+        # A caller can still ASK for the cloud explicitly. Honour that only if
+        # this build has a cloud — otherwise the request would fall through to a
+        # lane that does not exist here. Coerce to the brain this build actually
+        # has, and say so, rather than failing at the far end of a dead path.
+        #
+        # Brand-neutral on purpose: in a build with a cloud this never fires, and
+        # in a build without one it makes the cloud tail below UNREACHABLE — which
+        # is what lets a no-account build drop that tail without changing any
+        # behaviour, instead of merely hoping nothing reaches it.
+        if route == "cloud" and not cloud_base():
+            _LOGGER.warning(
+                "DROP: caller asked for brain route 'cloud'; this build has no cloud brain — using the add-on"
+            )
+            route = "local"
         if route == "local":
             try:
                 turn, status = await converse_local(hass, payload)
@@ -186,6 +208,25 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
                 return web.json_response({"ok": False, "error": f"addon_unavailable: {err}"}, status=503, headers=route_header)
             return web.json_response(turn, status=(200 if status < 400 else status), headers=route_header)
 
+        return await self._converse_via_cloud(request, hass, payload, body, route_header)
+
+    async def _converse_via_cloud(
+        self,
+        request: web.Request,
+        hass: HomeAssistant,
+        payload: dict,
+        body: dict,
+        route_header: dict[str, str],
+    ) -> web.Response:
+        """The cloud lane: account credential, cloud brain, optional NDJSON stream.
+
+        ⚠️ THE ACCOUNT LANE. Extracted as its own method so a build with no
+        account drops ONE named block, rather than having the tail of post()
+        carved out by an anchor that has to guess where the method ends — the
+        generator's block-dropper has eaten neighbouring code doing precisely
+        that. In such a build post() never reaches the call above, because an
+        explicit route "cloud" is coerced to local before it can.
+        """
         try:
             cred = await get_account_credential(hass)
         except SharingDisabled:
@@ -193,17 +234,13 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         except AddonUnavailable as err:
             return web.json_response({"ok": False, "error": f"addon_unavailable: {err}"}, status=503, headers=route_header)
 
-        brain_headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {cred}",
-            "apikey": cred,
-        }
+        brain_url, brain_headers = await brain_target(hass, cred=cred)
         session = async_get_clientsession(hass)
 
         # COMPAT: NDJSON progress stream only when the client asked (`body.stream`).
         if not body.get("stream"):
             try:
-                turn, status = await call_cloud_brain(hass, payload, cred=cred)
+                turn, status = await call_brain(hass, payload, cred=cred)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("voice converse → brain failed: %s", err)
                 return web.json_response({"ok": False, "error": f"brain_call_failed: {err}"}, status=502, headers=route_header)
@@ -215,7 +252,7 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         )
         prepared = False
         try:
-            async with session.post(_brain_url(), json=payload, headers=brain_headers) as resp:
+            async with session.post(brain_url, json=payload, headers=brain_headers) as resp:
                 if resp.status >= 400:
                     err_body = await resp.text()
                     return web.Response(status=resp.status, text=err_body, content_type="application/json", headers=route_header)
@@ -237,17 +274,26 @@ class ChickadeeVoiceConverseView(HomeAssistantView):
         return downstream
 
 
-class ChickadeeVoiceStatusView(HomeAssistantView):
+class DashieVoiceStatusView(HomeAssistantView):
     """Capability probe — can this HA offer household cloud voice to LAN endpoints?"""
 
-    url = "/api/chickadee/voice/status"
-    extra_urls = ["/api/dashie/voice/status"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:status"
+    url = "/api/dashie_voice/voice/status"
+    extra_urls = ["/api/dashie/voice/status"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:voice:status"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
+        status: dict = {}
+        # ⚠️ ACCOUNT LANE — this ONE line is the whole of it here. It fully
+        # answers the availability question when present (signed in? sharing on?
+        # which email?), which is why the base probe below is a FALLBACK and not
+        # a first step: a build with an account must not pay for both.
         status = await get_sharing_status(hass)
+        if not status:
+            # No account lane in this build: "available" means what it can mean
+            # here — the add-on is reachable.
+            status = await get_addon_availability(hass)
         agent_mode = ""
         retrieve_pictures = None
         brain_route = ""
@@ -272,7 +318,7 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
             # integration's copy of this view has no such field (absent =
             # dashie), so shared devices can brand their "manage in ..."
             # strings correctly. New nullable field — old APKs ignore it.
-            "hub": "chickadee",
+            "hub": "dashie_voice",
         }
         account_email = status.get("account_email")
         if isinstance(account_email, str) and account_email:
@@ -295,12 +341,12 @@ class ChickadeeVoiceStatusView(HomeAssistantView):
         return web.json_response(body)
 
 
-class ChickadeeVoiceSessionView(HomeAssistantView):
+class DashieVoiceSessionView(HomeAssistantView):
     """Vend a short-lived STT token bundle to a LAN endpoint (sharing-gated)."""
 
-    url = "/api/chickadee/voice/session"
-    extra_urls = ["/api/dashie/voice/session"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:session"
+    url = "/api/dashie_voice/voice/session"
+    extra_urls = ["/api/dashie/voice/session"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:voice:session"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -349,15 +395,15 @@ class ChickadeeVoiceSessionView(HomeAssistantView):
         return web.json_response(bundle, status=200)
 
 
-class ChickadeeAccountAuthorizeView(HomeAssistantView):
+class DashieVoiceAccountAuthorizeView(HomeAssistantView):
     """Authorize a LAN kiosk tablet into the household account (Kiosk Real Login).
 
     No credential is returned — the tablet polls the cloud for its own session.
     """
 
-    url = "/api/chickadee/account/authorize"
-    extra_urls = ["/api/dashie/account/authorize"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:account:authorize"
+    url = "/api/dashie_voice/account/authorize"
+    extra_urls = ["/api/dashie/account/authorize"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:account:authorize"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -399,12 +445,12 @@ class ChickadeeAccountAuthorizeView(HomeAssistantView):
         )
 
 
-class ChickadeeVoiceLiveTokenView(HomeAssistantView):
+class DashieVoiceLiveTokenView(HomeAssistantView):
     """Broker a Live-only Gemini ephemeral token from the box's stored key."""
 
-    url = "/api/chickadee/voice/live-token"
-    extra_urls = ["/api/dashie/voice/live-token"]  # legacy alias (shipped Dashie APKs)
-    name = "api:chickadee:voice:live-token"
+    url = "/api/dashie_voice/voice/live-token"
+    extra_urls = ["/api/dashie/voice/live-token"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:voice:live-token"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -424,11 +470,47 @@ class ChickadeeVoiceLiveTokenView(HomeAssistantView):
         return web.json_response(result, status=(200 if status < 400 else status))
 
 
+class DashieVoiceLeaseView(HomeAssistantView):
+    """Capability lease — issue and renew (CONTRACTS #65).
+
+    A satellite cannot reach the add-on directly (that needs the bridge secret,
+    which a satellite must never hold), so the lease rides the authenticated LAN
+    path that already exists: this gateway. We proxy and decide nothing.
+
+    🔴 The add-on's STATUS is passed through untouched, because the status IS the
+    protocol: 200 granted · 403 a definite refusal, self-destruct now · 503 the
+    grant state is UNKNOWN, keep the lease and retry until expiry. Collapsing 403
+    and 503 into one error would either revoke the household on every add-on
+    restart, or never revoke at all.
+    """
+
+    url = "/api/dashie_voice/voice/lease"
+    extra_urls = ["/api/dashie/voice/lease"]  # cross-integration path (see module docstring)
+    name = "api:dashie_voice:voice:lease"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+
+        payload: dict = {"endpoint_id": (body or {}).get("endpoint_id") or "ha-voice"}
+        caps = (body or {}).get("capabilities")
+        if isinstance(caps, list):
+            payload["capabilities"] = [c for c in caps if isinstance(c, str)]
+
+        result, status = await request_lease(hass, payload)
+        return web.json_response(result, status=status)
+
+
 def register_voice_views(hass: HomeAssistant) -> None:
     """Register the gateway views (call only via async_register_voice_views)."""
-    hass.http.register_view(ChickadeeVoiceConverseView())
-    hass.http.register_view(ChickadeeVoiceStatusView())
-    hass.http.register_view(ChickadeeVoiceSessionView())
-    hass.http.register_view(ChickadeeAccountAuthorizeView())
-    hass.http.register_view(ChickadeeVoiceLiveTokenView())
-    _LOGGER.info("Registered Chickadee voice gateway views (/api/chickadee/voice/* + legacy /api/dashie/voice/* aliases)")
+    hass.http.register_view(DashieVoiceConverseView())
+    hass.http.register_view(DashieVoiceStatusView())
+    hass.http.register_view(DashieVoiceSessionView())
+    hass.http.register_view(DashieVoiceAccountAuthorizeView())
+    hass.http.register_view(DashieVoiceLiveTokenView())
+    hass.http.register_view(DashieVoiceLeaseView())
+    _LOGGER.info("Registered Dashie Voice gateway views (/api/dashie_voice/voice/* + legacy /api/dashie/voice/* aliases)")

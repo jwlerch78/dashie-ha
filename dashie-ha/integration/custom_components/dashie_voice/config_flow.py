@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Config + options flows for Chickadee.
+"""Config + options flows for Dashie Voice.
 
 Deliberately thin: engine configuration (cloud / BYOK / local, keys, fallbacks)
-lives in the Chickadee add-on's console — the integration is the Assist-pipeline
+lives in the Dashie for Home Assistant add-on's console — the integration is the Assist-pipeline
 surface. The config flow checks the add-on is reachable and names the assistant;
 the options flow renames it and re-surfaces add-on reachability.
 """
@@ -37,7 +37,7 @@ _USER_SCHEMA = vol.Schema(
 )
 
 
-class ChickadeeConfigFlow(ConfigFlow, domain=DOMAIN):
+class DashieVoiceConfigFlow(ConfigFlow, domain=DOMAIN):
     """Single-instance flow: reachability probe + assistant name."""
 
     VERSION = 1
@@ -46,12 +46,12 @@ class ChickadeeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_hassio(
         self, discovery_info: HassioServiceInfo
     ) -> ConfigFlowResult:
-        """Supervisor discovery from the Chickadee add-on: {host, port, secret}.
+        """Supervisor discovery from the Dashie for Home Assistant add-on: {host, port, secret}.
 
         The add-on re-publishes on every start, so an EXISTING entry gets its
         bridge credentials refreshed silently here (the primary secret channel;
         the file copies are the legacy fallback). A fresh install stashes the
-        payload and asks the user to confirm adding Chickadee.
+        payload and asks the user to confirm adding Dashie Voice.
         """
         bridge = {
             CONF_BRIDGE_SECRET: str(discovery_info.config.get("secret") or ""),
@@ -110,11 +110,11 @@ class ChickadeeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> ChickadeeOptionsFlow:
-        return ChickadeeOptionsFlow()
+    def async_get_options_flow(config_entry: ConfigEntry) -> DashieVoiceOptionsFlow:
+        return DashieVoiceOptionsFlow()
 
 
-class ChickadeeOptionsFlow(OptionsFlow):
+class DashieVoiceOptionsFlow(OptionsFlow):
     """Rename the assistant; surface add-on reachability.
 
     The name lives in entry.data (it's identity, not tuning) — saving a changed
@@ -140,7 +140,7 @@ class ChickadeeOptionsFlow(OptionsFlow):
         addon_status = (
             "reachable ✓"
             if await ping_addon(self.hass)
-            else "NOT reachable ✗ — install/start the Chickadee add-on"
+            else "NOT reachable ✗ — install/start the Dashie for Home Assistant add-on"
         )
         return self.async_show_form(
             step_id="init",

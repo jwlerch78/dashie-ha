@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Chickadee speech-to-text entity — streams Assist audio to the add-on's STT engine.
+"""Dashie Voice speech-to-text entity — streams Assist audio to the add-on's STT engine.
 
 The add-on owns which engine actually transcribes (BYO OpenAI-compatible server
-now; hosted Chickadee Cloud engines with the account port). This entity collects
+now; hosted Dashie Cloud engines with the account port). This entity collects
 the pipeline's PCM stream, wraps it in a WAV container, and POSTs it over the
 bridge (CONTRACTS.md: POST /api/voice/stt, audio/wav in → {text} out).
 """
@@ -43,13 +43,13 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([ChickadeeSttEntity()])
+    async_add_entities([DashieVoiceSttEntity()])
 
 
-class ChickadeeSttEntity(stt.SpeechToTextEntity):
+class DashieVoiceSttEntity(stt.SpeechToTextEntity):
     """One STT entity per install; the add-on routes to the configured engine."""
 
-    _attr_name = "Chickadee STT"
+    _attr_name = "Dashie Voice STT"
     _attr_unique_id = UNIQUE_ID_STT
 
     @property
@@ -97,15 +97,15 @@ class ChickadeeSttEntity(stt.SpeechToTextEntity):
                 self.hass, ADDON_STT_PATH, wav, "audio/wav", timeout_s=60
             )
         except AddonUnavailable as err:
-            _LOGGER.warning("DROP: Chickadee STT — add-on unavailable: %s", err)
+            _LOGGER.warning("DROP: Dashie Voice STT — add-on unavailable: %s", err)
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
 
         if status >= 400:
-            _LOGGER.warning("DROP: Chickadee STT — add-on HTTP %s: %s", status, body[:200])
+            _LOGGER.warning("DROP: Dashie Voice STT — add-on HTTP %s: %s", status, body[:200])
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
         try:
             text = str(json.loads(body.decode("utf-8")).get("text") or "")
         except (ValueError, UnicodeDecodeError) as err:
-            _LOGGER.warning("DROP: Chickadee STT — unparseable add-on response: %s", err)
+            _LOGGER.warning("DROP: Dashie Voice STT — unparseable add-on response: %s", err)
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
         return stt.SpeechResult(text, stt.SpeechResultState.SUCCESS)

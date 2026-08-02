@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Chickadee conversation entity — routes Assist utterances to the Chickadee brain.
+"""Dashie Voice conversation entity — routes Assist utterances to the Dashie brain.
 
 Port of the Dashie integration's conversation entity (device-verified there), with
-the brain call redirected from the cloud gateway to the Chickadee add-on bridge:
+the brain call redirected from the cloud gateway to the Dashie for Home Assistant add-on bridge:
 the add-on owns engine routing (cloud / BYOK / local), the entity owns executing
 the HA actions the brain resolves — in-process, because a satellite can't.
 """
@@ -73,10 +73,10 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([ChickadeeConversationEntity(config_entry)])
+    async_add_entities([DashieVoiceConversationEntity(config_entry)])
 
 
-class ChickadeeConversationEntity(conversation.ConversationEntity):
+class DashieVoiceConversationEntity(conversation.ConversationEntity):
     """One conversation agent per install; the display name is the user's persona name."""
 
     _attr_has_entity_name = False
@@ -128,18 +128,18 @@ class ChickadeeConversationEntity(conversation.ConversationEntity):
         try:
             turn, status = await call_addon_brain(hass, payload)
         except AddonUnavailable as err:
-            _LOGGER.warning("DROP: Chickadee conversation — add-on unavailable: %s", err)
+            _LOGGER.warning("DROP: Dashie Voice conversation — add-on unavailable: %s", err)
             return self._result(
-                "I can't reach the Chickadee add-on right now. Please check that it's running.",
+                "I can't reach the Dashie for Home Assistant add-on right now. Please check that it's running.",
                 user_input,
                 language,
             )
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("DROP: Chickadee conversation — brain call failed: %s", err)
+            _LOGGER.warning("DROP: Dashie Voice conversation — brain call failed: %s", err)
             return self._result("Something went wrong reaching the brain.", user_input, language)
 
         if status >= 400 or not isinstance(turn, dict):
-            _LOGGER.warning("DROP: Chickadee brain returned HTTP %s: %s", status, turn)
+            _LOGGER.warning("DROP: Dashie brain returned HTTP %s: %s", status, turn)
             return self._result("I couldn't handle that request.", user_input, language)
 
         # Execute any HA action(s) the brain resolved, in-process (the satellite can't).
@@ -229,7 +229,7 @@ class ChickadeeConversationEntity(conversation.ConversationEntity):
 
                 try:
                     await hass.services.async_call(domain, service, data, blocking=True)
-                    _LOGGER.info("Chickadee executed HA %s.%s %s", domain, service, data)
+                    _LOGGER.info("Dashie Voice executed HA %s.%s %s", domain, service, data)
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("DROP: HA %s.%s failed: %s", domain, service, err)
 

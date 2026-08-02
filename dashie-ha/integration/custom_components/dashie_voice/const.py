@@ -1,10 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Constants for the Chickadee integration."""
+"""Constants for the Dashie Voice integration."""
 
-DOMAIN = "chickadee"
+DOMAIN = "dashie_voice"
+
+# The sibling DEVICE integration of this same brand. Voice-gateway ownership is
+# a within-brand handshake: we stand down when the sibling is present and has
+# NOT ceded, and it cedes when we are configured (its VOICE_SIBLING_DOMAIN).
+# Both halves name each other through a constant, never an inline literal —
+# this pairing has already broken once, when THIS domain was renamed
+# (chickadee -> dashie_voice) and the sibling kept testing the dead name, so it
+# never ceded and we DROP'd forever. Cross-brand pairs never collide: each brand
+# serves its own route prefix.
+DEVICE_SIBLING_DOMAIN = "dashie"
 
 # ── Add-on bridge ──────────────────────────────────────────────────────────────
-# The integration never talks to a brain provider directly: the Chickadee add-on
+# The integration never talks to a brain provider directly: the Dashie for Home Assistant add-on
 # owns engine routing (cloud / BYOK / local) and key custody. The integration is
 # the Assist-pipeline surface; the add-on is the brain. One brain POST site total
 # (seam rule) — it lives in addon_bridge.call_addon_brain.
@@ -13,18 +23,18 @@ DOMAIN = "chickadee"
 # names differ between supervised installs; try both, first reachable wins).
 ADDON_PORT = 8099
 ADDON_CANDIDATES = (
-    "http://local-chickadee:8099",
-    "http://addon_local_chickadee:8099",
+    "http://local-dashie-ha:8099",
+    "http://addon_local_dashie_ha:8099",
 )
 
 # Shared bridge secret. The add-on writes it to its addon_config folder, which HA
 # Core mounts read-only at /config/addon_configs/<slug>/ — readable by this
 # integration, NOT by other add-ons. (Pattern inherited from the Dashie bridge
 # auth hardening; see that repo's 20260702_BRIDGE_AUTH_HARDENING.md.)
-BRIDGE_HEADER = "X-Chickadee-Bridge-Secret"
+BRIDGE_HEADER = "X-Dashie-Voice-Bridge-Secret"
 # Secret location: addon_configs/<installed-slug>/bridge_secret, where the installed
-# slug carries an install-dependent prefix (local_chickadee from /addons,
-# <repo-hash>_chickadee from a repo channel). addon_bridge globs for *chickadee.
+# slug carries an install-dependent prefix (local_dashie_ha from /addons,
+# <repo-hash>_dashie_ha from a repo channel). addon_bridge globs for *dashie_ha.
 
 # Add-on HTTP contract (v1). The add-on serves these on its LAN port, authed by
 # the bridge secret header. Documented in CONTRACTS.md at repo root — change them
@@ -37,7 +47,7 @@ ADDON_TTS_VOICES_PATH = "/api/voice/voices"
 
 # ── Config entry ───────────────────────────────────────────────────────────────
 CONF_ASSISTANT_NAME = "assistant_name"
-DEFAULT_ASSISTANT_NAME = "Chickadee"
+DEFAULT_ASSISTANT_NAME = "Dashie"
 # Bridge credentials delivered by Supervisor discovery (config_flow
 # async_step_hassio; the add-on re-publishes on every start). Primary channel;
 # the file copies under the HA config dir are the legacy fallback.

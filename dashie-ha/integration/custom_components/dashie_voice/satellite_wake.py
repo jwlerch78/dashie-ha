@@ -2,13 +2,13 @@
 """Satellite wake word — deploy our microWakeWord models to the HA box and wire
 the Assist pipeline's wake stage.
 
-Our wake words (`hey_dashie`, `chickadee`) are custom microWakeWord models with
+Our wake words are custom microWakeWord models with
 the identical tensor signature to the community `okay_nabu` model, so they run
 unmodified on the official `rhasspy/wyoming-microwakeword` add-on — the box-side
 wake engine for satellites that don't do wake detection themselves. Model
 provenance and license: see `wake_models/README.md` next to the weights.
 
-Pattern parity: Chickadee never installs third-party add-ons (Piper/Whisper/
+Pattern parity: Dashie never installs third-party add-ons (Piper/Whisper/
 Ollama/Hermes are all detect-and-guide). The one thing STT/TTS don't need is
 model deployment — those add-ons ship their own models; ours are custom, so we
 place the manifest + tflite where the add-on's `--custom-model-dir` reads them.
@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 # the /share/openwakeword convention; /share is the only cross-add-on shared mount.
 SHARE_MWW_DIR = "/share/microwakeword"
 
-# Vendored bundle inside this package (copied from wake-word-training/satellite-mww).
+# Vendored bundle inside this package. Provenance + license: wake_models/README.md.
 _BUNDLE_DIR = Path(__file__).parent / "wake_models"
 
 # console VoiceAiOptions.WAKE_WORDS id -> (manifest, tflite, HA wake-word label).
@@ -82,7 +82,7 @@ async def async_deploy_wake_model(hass: HomeAssistant, wake_id: str | None) -> b
         )
         return False
     _LOGGER.info(
-        "CHICKADEE-WAKE deployed '%s' -> %s (point the wyoming-microwakeword "
+        "DASHIE-WAKE deployed '%s' -> %s (point the wyoming-microwakeword "
         "add-on's --custom-model-dir at %s)",
         wake_id,
         path,
