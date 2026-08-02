@@ -388,7 +388,7 @@ const VoiceAiPage = {
             'voice.searxngUrl', 'voice.localTtsUrl', 'voice.localTtsVoiceId', 'voice.localSttUrl',
             'voice.localLlmKey',   // BYO-model API key (remote endpoints) — WS-I; read server-side by node-io.js
             'voice.hermesUrl',     // Hermes Agent endpoint — WS-I; key lives in the on-box key store (API Keys page)
-            // engine-direct HA voice (detection-gated picker, build plan §8)
+            // engine-direct HA voice (detection-gated picker)
             'voice.haTtsEngineId', 'voice.haTtsVoiceId', 'voice.haSttEngineId'];
         if (dottedKey === 'ai.conversationTimeout') value = Number(rawValue);
         else if (STRING_KEYS.includes(dottedKey)) value = String(rawValue);

@@ -132,7 +132,7 @@ const VoiceAiCards = {
                 : (!isStatic && selected ? `<span style="color: var(--accent); font-weight: 700;">✓</span>` : ''));
         const config = (!isInstall && selected && x.configFields) ? this._config(x, getConfig) : '';
         // One-line note under a selected local engine (e.g. "local voices don't
-        // change per personality"). Build plan §6.
+        // change per personality").
         const note = (!isInstall && selected && x.note)
             ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">${this._esc(x.note)}</div>`
             : '';

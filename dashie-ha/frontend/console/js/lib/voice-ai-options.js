@@ -169,7 +169,7 @@ const VoiceAiOptions = {
     models(detection) {
         const C = window.AiModelCatalog;
         const all = C?.AI_MODEL_CATALOG || [];
-        // "My Local LLM" leads the list — the privacy/local-first option (build plan §16.4).
+        // "My Local LLM" leads the list — the privacy/local-first option.
         // Selecting it stores ai.model='local' (the route signal) + the endpoint/model config
         // fields; the integration + add-on read these to run the on-prem brain (§13.17).
         const out = [{
