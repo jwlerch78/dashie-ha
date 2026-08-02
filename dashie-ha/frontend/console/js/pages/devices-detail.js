@@ -868,24 +868,14 @@ const DevicesDetail = {
         return this._section('danger', 'Danger Zone', `
             <div class="card" style="border-color: var(--status-error, #c00);">
                 <div class="card-body" style="padding: 4px 16px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb);">
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="font-weight: 500;">Remove from your account</div>
-                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Soft delete — the device can re-register on next sign-in and reclaim its identity.</div>
-                        </div>
-                        <button onclick="DevicesDetail._softDelete('${idAttr}', '${nameEsc}')"
-                            style="padding: 6px 14px; border-radius: 6px; border: 1px solid #fca5a5; background: #fff; color: #c00; cursor: pointer; font-size: 13px; font-weight: 500;">
-                            Remove
-                        </button>
-                    </div>
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0;">
                         <div style="flex: 1; min-width: 0;">
-                            <div style="font-weight: 500;">Permanently delete</div>
-                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Hard delete — removes all device records and metrics. Cannot be undone.</div>
+                            <div style="font-weight: 500;">Remove this device</div>
+                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Deletes it from your account and releases it, so it appears again under “devices that can be added”.</div>
                         </div>
-                        <button onclick="DevicesDetail._hardDelete('${idAttr}', '${nameEsc}')"
+                        <button onclick="DevicesDetail._remove('${idAttr}', '${nameEsc}')"
                             style="padding: 6px 14px; border-radius: 6px; border: none; background: #c00; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500;">
-                            Delete Forever
+                            Remove
                         </button>
                     </div>
                 </div>
@@ -893,47 +883,71 @@ const DevicesDetail = {
         `, { defaultExpanded: false, titleColor: 'color: var(--status-error, #c00);' });
     },
 
-    async _softDelete(deviceId, deviceName) {
+    /**
+     * Remove — ONE button now (backlog #14, John's ruling; spec
+     * `20260802_DEVICE_REMOVE_REDISCOVER.md` §5a).
+     *
+     * 🔴 The two it replaces were a placebo and a trap. "Remove" called
+     * `delete_device` SOFT: the row stayed and the credential renewed forever,
+     * and its confirm text promised *"the device can re-register on next
+     * sign-in"* — which `device_revocation_enforce` exists specifically to
+     * PREVENT for a stable-id device. The copy described the behaviour the
+     * guard blocks, so the one button a user reaches for did nothing and said
+     * it had done something else.
+     *
+     * `unclaim_devices` is the whole ruling in one existing call: it clears
+     * `device_installs.account_id` (so the install re-presents under "devices
+     * that can be added") and deletes the caller's `user_devices` row. Nothing
+     * new was built for this — see §5e.
+     */
+    async _remove(deviceId, deviceName) {
+        // `unclaim_devices` keys on install_id; the Console holds device_id.
+        // `list_devices` already returns install_id, so the map is local.
+        const device = (DevicesPage._devices || []).find(d => d.device_id === deviceId);
+        const installId = device?.install_id || null;
+
         const confirmed = await ConfirmModal.confirm({
             title: 'Remove device?',
-            message: `Remove "${deviceName}" from your account?\n\nThe device can re-register on next sign-in.`,
+            // Says what actually happens, and differs by case rather than
+            // promising one outcome for both. A device with no install row
+            // cannot be re-presented — claiming otherwise would reintroduce
+            // exactly the false promise this change removes.
+            message: installId
+                ? `Remove "${deviceName}" from your account?\n\nIt will stop syncing and will appear again under "devices that can be added", so you can re-add it later.`
+                : `Remove "${deviceName}" from your account?\n\nThis deletes it and its history. It will NOT reappear as an addable device.`,
             confirmLabel: 'Remove',
             cancelLabel: 'Cancel',
             danger: true,
         });
         if (!confirmed) return;
+
         try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
+            if (installId) {
+                const res = await DashieAuth.dbRequest('unclaim_devices', { install_ids: [installId] });
+                // 🔴 A rejection is NOT an exception — `unclaim_devices` returns
+                // {unclaimed, rejected} and resolves either way. Removing the card
+                // on a rejection would report a deletion that did not happen, and
+                // the lie would survive until the next refresh repainted the row.
+                const rejected = (res?.rejected || []).find(r => r.id === installId);
+                if (rejected || !(res?.unclaimed || []).includes(installId)) {
+                    const why = rejected?.reason || 'the server did not confirm the removal';
+                    console.warn(`DROP: unclaim rejected device=${deviceId} install=${installId} reason=${why}`);
+                    Toast.error(`Could not remove "${deviceName}" — ${why}.`);
+                    return;
+                }
+            } else {
+                // Residue 2 (spec §6): no install row — nothing to release, so a
+                // hard delete is the honest equivalent. It revokes correctly and
+                // does not re-present, which the confirm text above already said.
+                await DashieAuth.dbRequest('delete_device', { device_id: deviceId, hard_delete: true });
+            }
             DevicesPage._devices = (DevicesPage._devices || []).filter(d => d.device_id !== deviceId);
             DevicesPage._detailDeviceId = null;
             Toast.success(`Removed "${deviceName}"`);
             App.renderPage();
         } catch (e) {
-            console.error('[DevicesDetail] soft delete failed:', e);
+            console.error('[DevicesDetail] remove failed:', e);
             Toast.error(Toast.friendly(e, 'remove this device'));
-        }
-    },
-
-    async _hardDelete(deviceId, deviceName) {
-        const confirmed = await ConfirmModal.confirm({
-            title: 'Permanently delete this device?',
-            message: `This permanently deletes "${deviceName}" and all of its metrics, settings, and history.\n\nThis cannot be undone.`,
-            confirmLabel: 'Delete Forever',
-            cancelLabel: 'Cancel',
-            danger: true,
-            requireTypedConfirmation: deviceName,
-            typedConfirmationLabel: `Type "${deviceName}" to confirm`,
-        });
-        if (!confirmed) return;
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId, hard_delete: true });
-            DevicesPage._devices = (DevicesPage._devices || []).filter(d => d.device_id !== deviceId);
-            DevicesPage._detailDeviceId = null;
-            Toast.success(`Deleted "${deviceName}" permanently`);
-            App.renderPage();
-        } catch (e) {
-            console.error('[DevicesDetail] hard delete failed:', e);
-            Toast.error(Toast.friendly(e, 'permanently delete this device'));
         }
     },
 
