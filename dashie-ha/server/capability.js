@@ -9,7 +9,12 @@
 //   on the satellite's behalf. Metered capabilities are gated. Unmetered ones
 //   never are.
 //
-// Both clauses do work. *Credential OR balance*: Dashie credits and a household
+// ⚠️ Say "account credits", never the brand's — this file is generated into an
+// edition that has no account, where a comment about that brand's credits would
+// substitute cleanly into a confident description of something that does not
+// exist. The predicate is edition-neutral; its prose has to be too.
+//
+// Both clauses do work. *Credential OR balance*: account credits and a household
 // BYOK key are the same thing to the household — money it spends — and the old
 // gate could only see the first. *Which THIS BOX supplies*: a satellite spending
 // its own key is out of scope; this governs what the box LENDS.
