@@ -40,7 +40,7 @@ const PROVIDERS = {
     // the console's provider-manifest.js.
     //
     // ⚠️ A key here means STORED, not working. The on-box adapters that use
-    // these are separate work (see the Thread B plan's 5b boundary), so nothing
+    // these are separate work (a stored key is not a working capability), so nothing
     // may infer "this capability functions" from `status()` alone.
     //
     // Serper is deliberately absent: its terms exclude end-user/consumer
