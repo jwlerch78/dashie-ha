@@ -79,7 +79,7 @@ try {
     // It exists because the real 30-minute TTL prices the lease test suite like a
     // soak — 3+ hours a run — and a suite that expensive is one that stops being
     // run, which is how a revocation mechanism silently rots. At 60s the same
-    // suite is minutes. (Thread T's requirement, and its reasoning.)
+    // suite is minutes.
     const secs = Number(opts.lease_ttl_seconds);
     if (Number.isFinite(secs) && secs > 0) {
         leaseTtlS = Math.min(Math.max(Math.round(secs), 10), 240 * 60);

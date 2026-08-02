@@ -31,8 +31,8 @@
 //               is what lets both screens read ONE list without either of them
 //               growing a special case.
 //   adapter     🔴 'shipped' | 'pending'. Whether the on-box code that USES this
-//               key exists yet. See the 5b boundary in the Thread B plan: 5b
-//               stores and validates keys; adapters are separate work. A
+//               key exists yet. Storing and validating a key is one piece of
+//               work; the adapter that spends it is another. A
 //               provider with adapter:'pending' must never be reported as
 //               working — the console would be asserting something nobody
 //               observed.

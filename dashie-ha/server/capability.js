@@ -2,7 +2,7 @@
 // capability.js — is a capability METERED on this box, and does the household
 // still lend it?
 //
-// ── THE PREDICATE (Thread D's ruling, 2026-08-02) ─────────────────────────────
+// ── THE PREDICATE (decided 2026-08-02) ───────────────────────────────────────
 //
 //   A capability is METERED for this box when exercising it draws on a
 //   credential or balance the household pays for, and which THIS BOX supplies
@@ -80,8 +80,8 @@ function signedIn() {
  *                         add key, satellite works — silently broken, and broken
  *                         in a way indistinguishable from the bug this replaces.
  *
- * (Thread D flagged the second default as the one item worth John's word over
- * its own, since it is a money default. It is one constant, here, by itself.)
+ * (The second default is a MONEY default, so it is one constant, alone, on its
+ * own line — easy to find and easy to flip if the conservative read wins.)
  */
 const ACCOUNTLESS_SHARING_DEFAULT = true;
 

@@ -221,7 +221,7 @@ const { LEASABLE_CAPABILITIES } = capability;
 //
 // It exists because leases are deliberately not in Supabase (D7), so without it
 // NOTHING can answer "who currently holds capability" — which makes the setup
-// state of most lease tests unverifiable (Thread T). Losing it on restart is
+// state of most lease tests unverifiable (the lease test suite). Losing it on restart is
 // therefore fine, and is itself a useful signal that it is not authoritative.
 const LEASE_OBSERVED = new Map();
 const LEASE_OBSERVED_MAX = 50;
@@ -263,7 +263,7 @@ router.get('/voice-lease/debug', (req, res) => {
 
 router.post('/voice-lease', express.json(), async (req, res) => {
     const endpointId = (req.body?.endpoint_id) || 'ha-voice';
-    // 🔴 GREPPABLE MARKERS on every transition (standing rule 2, and Thread T's
+    // 🔴 GREPPABLE MARKERS on every transition (standing rule 2, and the lease suite's
     // requirement: a silent transition makes most lease tests unprovable).
     const deny = (reason) => {
         console.warn(`LEASE: refused endpoint=${endpointId} reason=${reason}`);
@@ -320,7 +320,7 @@ router.post('/voice-lease', express.json(), async (req, res) => {
         capabilities: granted,
         // Additive and optional — the device decides on `capabilities` alone
         // (absent ⇒ use the free engine). This is diagnostic: it is what lets an
-        // operator, and Thread T's suite, tell the two causes apart.
+        // operator, and the lease test suite, tell the two causes apart.
         ...(Object.keys(withheld || {}).length ? { withheld } : {}),
         expires_at: expiresAt,
         ttl_seconds: ttl,
