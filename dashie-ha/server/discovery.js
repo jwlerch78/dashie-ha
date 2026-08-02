@@ -71,4 +71,7 @@ function publishWithRetry(secret, log = console.log) {
     });
 }
 
-module.exports = { publishWithRetry };
+// SERVICE is exported so the lease nudge can call `<voice domain>.lease_nudge`
+// without restating the domain — one holder, so a brand generation cannot
+// rebrand the discovery name and miss the service call.
+module.exports = { publishWithRetry, SERVICE };

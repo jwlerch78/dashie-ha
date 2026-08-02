@@ -8,29 +8,48 @@
 // is the failure the whole lease exists to end; arriving half an hour late is
 // the same failure with a stopwatch.
 //
-// 🔴 A TRIGGER, NEVER A COMMAND. This packet carries no authorization. The
-// device renews and obeys the REAL response, so:
+// 🔴 A TRIGGER, NEVER A COMMAND. This carries no authorization. The device
+// renews and obeys the REAL response, so:
 //   · authorization stays single-source (the renewal, already tested),
-//   · a spoofed packet costs at most one extra renewal — which is why it needs
+//   · a spoofed signal costs at most one extra renewal — which is why it needs
 //     no signing,
-//   · a LOST packet costs only time, because expiry still does the work.
+//   · a LOST signal costs only time, because expiry still does the work.
 // The lease is the guarantee; this is the fast path.
 //
-// Transport chosen on a hard constraint rather than a preference: the add-on
+// ── 🔴 TRANSPORT REPLACED 2026-08-02: an ENTITY, not a custom event ──────────
+//
+// The first cut fired `POST /api/events/voice_lease_renew_now`. It was never
+// delivered in the field: Home Assistant ALLOWLISTS which event types a
+// NON-ADMIN user may subscribe to, and a wall tablet running as a non-admin
+// user is the normal household topology. So the fast path silently degraded to
+// TTL-only — up to 30 minutes — for most real installs. That is exactly the
+// failure this exists to prevent, arriving through authorization, where
+// re-subscribing cannot help. Observed on a real box, with the control beside
+// it on the same connection: `state_changed` subscribed and delivered while the
+// custom event was refused `unauthorized`.
+//
+// `state_changed` is the one event a non-admin user CAN subscribe to, so the
+// integration owns an entity and we ask it to stamp a new instant. The device
+// matches the entity_id SUFFIX `_lease_nudge` and treats any change as "renew
+// now"; the state itself is a meaningless timestamp, deliberately — see the
+// integration's sensor.py for why a readable state would be a durable second
+// source of authorization truth.
+//
+// Still ruled out, unchanged: pushing to the device's own :2323 API (the add-on
 // never learns a satellite's IP — renewals arrive through the integration, so
-// it sees Home Assistant's address — which rules out pushing to the device's
-// own :2323 API. An HA event needs no addressing, no inbound port, crosses NAT,
-// and any satellite that can reach HA can subscribe.
+// it sees Home Assistant's address) and mDNS (needs a listener, unreliable
+// across subnets and with WiFi client isolation).
 
 'use strict';
 
 const SUP = 'http://supervisor';
 const TOKEN = process.env.SUPERVISOR_TOKEN;
 
-// Brand-NEUTRAL and identical in both editions, deliberately. Naming it per
-// brand would force an edition-keyed constant onto the device for no benefit:
-// this is a protocol event, not a product surface.
-const EVENT_TYPE = 'voice_lease_renew_now';
+// The voice integration's own domain — imported from the ONE place that already
+// holds it (the discovery service name) rather than restated here, so a brand
+// generation cannot rebrand one and miss the other.
+const { SERVICE: VOICE_DOMAIN } = require('./discovery');
+const NUDGE_SERVICE = 'lease_nudge';
 
 /**
  * Fire the nudge. Best-effort by design — never throws, never blocks the caller,
@@ -51,13 +70,19 @@ async function nudgeRenewNow(reason, endpointIds) {
     const body = { reason };
     if (Array.isArray(endpointIds) && endpointIds.length) body.endpoint_ids = endpointIds;
     try {
-        const resp = await fetch(`${SUP}/core/api/events/${EVENT_TYPE}`, {
+        const resp = await fetch(`${SUP}/core/api/services/${VOICE_DOMAIN}/${NUDGE_SERVICE}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
         if (!resp.ok) {
-            console.warn(`DROP: lease nudge rejected (HTTP ${resp.status}) — satellites converge at expiry instead`);
+            // A 400 here almost always means the integration predates the nudge
+            // entity — the household still converges at expiry, which is why
+            // this is a warning and not an error.
+            console.warn(
+                `DROP: lease nudge rejected (HTTP ${resp.status}) calling ${VOICE_DOMAIN}.${NUDGE_SERVICE} — ` +
+                'satellites converge at expiry instead (is the voice integration current?)',
+            );
             return false;
         }
         console.log(`LEASE: nudged reason=${reason} endpoints=${body.endpoint_ids?.join(',') || 'all'}`);
@@ -68,4 +93,4 @@ async function nudgeRenewNow(reason, endpointIds) {
     }
 }
 
-module.exports = { EVENT_TYPE, nudgeRenewNow };
+module.exports = { NUDGE_SERVICE, VOICE_DOMAIN, nudgeRenewNow };
