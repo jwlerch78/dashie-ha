@@ -80,6 +80,10 @@ ports: {}
 # install; see server/integration-installer.js). Off = manage it yourself.
 options:
   log_level: info
+  # Capability-lease TTL in minutes (CONTRACTS #65). Bounds the worst-case delay
+  # between turning household sharing off and a satellite noticing. Clamped
+  # 5..240 in server/config.js — a 0 would expire every lease on arrival.
+  lease_ttl_minutes: 30
   cloud_env: beta
   install_integration: true
   llm_url: ""
@@ -93,6 +97,7 @@ options:
   tts_api_key: ""
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+  lease_ttl_minutes: int(5,240)?
   cloud_env: list(beta|stable|development|production)
   install_integration: bool?
   llm_url: str?

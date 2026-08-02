@@ -55,6 +55,22 @@ try {
     if (ENVIRONMENTS[requested]) envName = requested;
 } catch { /* defaults */ }
 
+// Capability-lease TTL (CONTRACTS #65). Config, not a constant, because the
+// revocation window is an operational dial: shorter means a sharing flip takes
+// effect sooner, at the cost of more LAN chatter. 30 min is the default (D3);
+// LAN traffic is free, so the floor is generous and the ceiling is what bounds
+// the worst-case revocation delay.
+//
+// Clamped rather than trusted: a 0 would mean a lease that expires on arrival
+// (every satellite permanently destroyed), and a huge value would make the
+// revocation window unbounded — the exact thing the lease exists to bound.
+let leaseTtlS = 30 * 60;
+try {
+    const opts = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'options.json'), 'utf8'));
+    const mins = Number(opts.lease_ttl_minutes);
+    if (Number.isFinite(mins)) leaseTtlS = Math.min(Math.max(Math.round(mins), 5), 240) * 60;
+} catch { /* default */ }
+
 // Add-on version — single source is package.json (bumped by scripts/release.sh
 // together with config.yaml, so /api/ping can't go stale again).
 let version = '0.0.0';
@@ -64,6 +80,7 @@ module.exports = {
     DATA_DIR,
     CLOUD_ENV: envName,
     CLOUD: ENVIRONMENTS[envName],
+    LEASE_TTL_S: leaseTtlS,
     JWT_FILE: path.join(DATA_DIR, 'dashie_ha_auth.json'),
     // The vendored Dashie console SPA (scripts/sync-console.sh).
     FRONTEND_DIR: path.resolve(__dirname, '..', 'frontend', 'console'),

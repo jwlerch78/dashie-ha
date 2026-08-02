@@ -17,7 +17,7 @@ const express = require('express');
 const auth = require('../auth');
 const { getAccountVoiceConfig } = require('../account-config');
 const bridgeAuth = require('../bridge-auth');
-const { CLOUD } = require('../config');
+const { CLOUD, LEASE_TTL_S } = require('../config');
 
 const router = express.Router();
 
@@ -167,6 +167,76 @@ router.get('/voice-config', async (req, res) => {
         // Never block the gateway on this — default to cloud.
         return res.json({ route: 'cloud', model_is_local: false, agent_mode: '' });
     }
+});
+
+/**
+ * POST /api/internal/voice-lease  — the capability lease (CONTRACTS #65)
+ *
+ * Issue AND renew: there is no separate renew route and no lease handle to
+ * present, because renewal is simply asking again. That is what lets this box
+ * store NOTHING about leases — a renewal is a fresh read of grant state — which
+ * is how D4 ("a lease must survive an add-on restart") is satisfied by
+ * construction rather than by persistence. A stored lease could also outlive a
+ * revocation, which is the failure this whole design exists to remove.
+ *
+ * 🔴 THE STATUS IS THE PROTOCOL. The integration proxies it through verbatim and
+ * the device branches on it:
+ *
+ *   200  granted — here is a fresh expiry
+ *   403  a DEFINITE refusal from a box that is present and answering
+ *        → the device self-destructs IMMEDIATELY (this is the switch that is
+ *          flipped during testing; it has to take effect at once)
+ *   503  never sent from here. Unreachability is expressed by this box not
+ *        answering at all, and the device treats that as UNKNOWN, not withdrawn:
+ *        it keeps its lease and retries until expiry.
+ *
+ * ⚠️ FRAMING (required wording): the lease is a hygiene/operational control, NOT
+ * a security boundary. A granted lease means "the household still grants this";
+ * it does NOT mean "this request is permitted" — that is the scope check, made
+ * server-side on every request.
+ */
+
+// What this box is willing to lease at all. A fixed list is correct rather than
+// lazy: the lease is PERMISSION TO ASK, and whether a given call then succeeds
+// is decided per-request by the scope check and the tool gate. Naming it here
+// keeps a future per-capability refinement to one place.
+const LEASABLE_CAPABILITIES = ['voice', 'ai', 'tools'];
+
+router.post('/voice-lease', express.json(), async (req, res) => {
+    const deny = (reason) => res.status(403).json({ granted: false, reason, capabilities: [] });
+
+    // ── the grant gate ────────────────────────────────────────────────────
+    // Sharing is an ACCOUNT concept: it is the household owner declining to let
+    // a satellite spend the account's metered capability. Where there is no
+    // account there is nothing to withhold, so the gate does not apply.
+    //
+    // Derived from CLOUD.url rather than a new per-brand constant — the same
+    // seam the brain target uses, and self-policing for the same reason: a
+    // branded build that failed to blank it would still carry a real project
+    // URL, which is exactly what the generator's deny scan fails on.
+    if (CLOUD.url) {
+        if (!auth.readStoredJwt()) return deny('not_signed_in');
+        if (!await readSharing()) return deny('sharing_disabled');
+    }
+
+    const asked = Array.isArray(req.body?.capabilities) ? req.body.capabilities : null;
+    const granted = asked
+        ? LEASABLE_CAPABILITIES.filter((c) => asked.includes(c))
+        : LEASABLE_CAPABILITIES;
+    if (!granted.length) return deny('capability_unavailable');
+
+    const ttl = LEASE_TTL_S;
+    return res.json({
+        granted: true,
+        capabilities: granted,
+        expires_at: new Date(Date.now() + ttl * 1000).toISOString(),
+        ttl_seconds: ttl,
+        // The BOX sets the cadence, so the TTL is reconfigurable without
+        // shipping a device build. A third of the TTL gives roughly three
+        // attempts before expiry — enough to ride out an add-on restart
+        // without widening the revocation window.
+        renew_after_seconds: Math.floor(ttl / 3),
+    });
 });
 
 module.exports = router;
