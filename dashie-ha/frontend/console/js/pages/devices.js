@@ -13,6 +13,10 @@
 const DevicesPage = {
     _detailDeviceId: null,
     _devices: null,
+    /** True when the roster came from the box rather than from an account
+     *  (DevicesSource decides). Declared here so it is never undefined: the
+     *  fallback is the account path, which is the behaviour that shipped. */
+    _localMode: false,
     _loading: false,
     _error: null,
     _saving: {},  // { [deviceId_field]: bool }
@@ -210,8 +214,9 @@ const DevicesPage = {
                 return;
             }
             try {
-                const result = await DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true });
-                const newList = result.devices || result.data || [];
+                const result = await DevicesSource.fetch();
+                const newList = result.devices;
+                this._localMode = result.local;
                 const changed = JSON.stringify(newList) !== JSON.stringify(this._devices);
                 this._devices = newList;
                 this._lastListDevicesAt = Date.now();
@@ -241,11 +246,15 @@ const DevicesPage = {
         this._registerSyncOnce();
         try {
             const [devicesResult] = await Promise.all([
-                DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true }),
+                DevicesSource.fetch(),     // account → list_devices; local → the add-on's own poll
                 this._fetchAddonStatus(),  // fire-and-forget inside
                 DevicesClaim.fetch(),      // claimable installs — non-critical, swallows errors
             ]);
-            this._devices = devicesResult.devices || devicesResult.data || [];
+            this._devices = devicesResult.devices;
+            // Local mode has no account, so the account-only affordances have
+            // nothing to act on. Recorded once here rather than re-derived at
+            // each render site.
+            this._localMode = devicesResult.local;
             this._loading = false;
             this._startAutoRefresh();
             this._startScreenshotRefresh();
@@ -340,8 +349,9 @@ const DevicesPage = {
             let listChanged = false;
             if (Date.now() - this._lastListDevicesAt >= this.LIST_DEVICES_REFRESH_MS) {
                 this._lastListDevicesAt = Date.now();
-                const result = await DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true });
-                const newList = result.devices || result.data || [];
+                const result = await DevicesSource.fetch();
+                const newList = result.devices;
+                this._localMode = result.local;
                 if (JSON.stringify(newList) !== JSON.stringify(this._devices)) listChanged = true;
                 this._devices = newList;
             }
@@ -529,6 +539,13 @@ const DevicesPage = {
     },
 
     _isLive(device) {
+        // Local mode has no Supabase fallback below, so liveness rests entirely
+        // on the worker's poll — which means it also has to ask whether that POLL
+        // is still current. Without that, a stopped worker leaves every device
+        // reading "online" forever off a frozen snapshot, and the page would look
+        // healthy precisely when the thing feeding it had died. DevicesSource
+        // owns the threshold; this must not restate it.
+        if (this._localMode) return device._local_online === true;
         // If the worker has a fresh poll for this device with live data, it's live —
         // independent of the Supabase metrics_updated_at timestamp (which only
         // updates on upsert, every 30s).
