@@ -136,6 +136,28 @@ const FeatureGate = {
         // Dashie settings via DashieAuth (user_settings), so signed out there is
         // nothing to show or save. Visible in BOTH builds once signed in.
         'video-feeds',
+        // devices (2026-08-03): the surface John asked for by name — "chickadee
+        // console needs to be able to see online vs. offline devices and use that
+        // UI" — and it had been built, shipped in the artifact, and left
+        // UNREACHABLE because this whitelist was never updated. T proved it on the
+        // running console: isPageEnabled('devices') === false while all nine
+        // devices-*.js loaded. Authored-but-unreached, in its purest form.
+        //
+        // The account-coupling that would have justified omitting it is GONE:
+        // the roster comes from HA via the add-on's own poll (DevicesSource), and
+        // control/rename/events are gated on HA ingress identity rather than on
+        // holding an account. So signed-out is now a state this page SERVES,
+        // which is exactly the bar the video-feeds entry above sets.
+        //
+        // ⚠️ This does NOT move the landing page. `App._homePage()` returns
+        // 'voice-ai' unconditionally for published builds, independent of this
+        // whitelist — checked, because the 07-30 concern that created the gate was
+        // the landing page silently flipping, not the page existing.
+        //
+        // ⚠️ 'family' and 'photos' stay OUT: their account-coupling is real and
+        // untouched. This flips the one page whose coupling was removed, not the
+        // class.
+        'devices',
     ]),
 
     /**
