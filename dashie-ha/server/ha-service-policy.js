@@ -52,13 +52,30 @@ const ALLOWED_SERVICES = new Set([
     'fan.turn_on', 'fan.turn_off', 'fan.toggle', 'fan.set_percentage',
 
     'cover.open_cover', 'cover.close_cover', 'cover.stop_cover', 'cover.set_cover_position',
+    // `cover.toggle` added 2026-08-04 (T's field probe, class B) — the open/close/stop
+    // trio was listed and the toggle was not, which is a gap in the enumeration
+    // rather than a decision. A cover the user can open and close is one they can toggle.
+    'cover.toggle',
     'climate.set_temperature', 'climate.set_hvac_mode', 'climate.set_fan_mode',
     'climate.turn_on', 'climate.turn_off',
+    // `set_preset_mode` (eco/away/comfort) is the same class as set_hvac_mode.
+    'climate.set_preset_mode',
 
     'media_player.turn_on', 'media_player.turn_off',
     'media_player.media_play', 'media_player.media_pause', 'media_player.media_stop',
     'media_player.media_next_track', 'media_player.media_previous_track',
     'media_player.volume_set', 'media_player.volume_mute',
+    // 🔴 `play_media` is VOICE MUSIC PLAYBACK — the single highest-impact entry
+    // T's probe surfaced. Enforcing without it would have silently killed "play
+    // X" on every box. `volume_up`/`volume_down` were the same enumeration gap as
+    // cover.toggle: `volume_set` was listed and the stepwise pair was not.
+    'media_player.play_media', 'media_player.volume_up', 'media_player.volume_down',
+
+    // Generic entity surfaces a voice command reaches constantly. All three were
+    // class B in T's probe — refusing them would break ordinary control while
+    // protecting nothing: none is destructive, and each is reachable already
+    // through the domain allowlist this policy replaced.
+    'select.select_option', 'number.set_value', 'vacuum.start',
 
     'scene.turn_on',
     'script.turn_on',
@@ -85,8 +102,43 @@ function isEnforcing(opts = null) {
  * `reason` still carries what the decision would have been. Callers log the
  * reason regardless; that log IS the deliverable until the flag flips.
  */
+/**
+ * 🔴 STRUCTURAL, not a list gap — and no amount of widening fixes it.
+ *
+ * Home Assistant invokes a script as `script.<entity_name>`: the SERVICE NAME is
+ * the user's own script name. So `script.turn_on` being the only listed entry
+ * refuses `script.goodnight`, `script.movie_night`, and **every user-defined
+ * script that will ever exist**. T's field probe caught exactly this
+ * (`script.goodnight` → `not_allowed`). `scene.<name>` has the same shape.
+ *
+ * Canonicalising to `<domain>.turn_on` is the honest fix because it is what the
+ * call MEANS: invoking `script.goodnight` is turning on the script entity
+ * `script.goodnight`. The policy question — *may this caller run scripts at
+ * all?* — is answered by `script.turn_on`, and that entry was always intended to
+ * be that answer.
+ *
+ * ⚠️ It does NOT widen the boundary. `script.turn_on` was already allowed, so a
+ * caller who could run scripts still can and one who could not still cannot.
+ * What changes is that the answer stops depending on what the user named their
+ * script — which was never a security property, only an accident of the
+ * namespace. The bounding worth having here is ENTITY EXPOSURE (the other half
+ * of this work), not service-name enumeration over a namespace the user owns.
+ *
+ * ⚠️ Deliberately NOT applied to `automation`: HA invokes automations as
+ * `automation.trigger` with the entity in the payload, so the service name is
+ * already bounded and there is nothing to canonicalise.
+ */
+const ENTITY_NAMED_SERVICE_DOMAINS = new Set(['script', 'scene']);
+
+function canonicalise(domain, service) {
+    if (ENTITY_NAMED_SERVICE_DOMAINS.has(domain) && service !== 'turn_on' && service !== 'turn_off') {
+        return 'turn_on';
+    }
+    return service;
+}
+
 function evaluate(domain, service, opts = null) {
-    const key = `${domain}.${service}`;
+    const key = `${domain}.${canonicalise(domain, service)}`;
     const enforcing = isEnforcing(opts);
     if (ALLOWED_SERVICES.has(key)) return { allowed: true, reason: 'ok', enforcing };
     // `not_allowed` is the only reason this half can produce. `no_entity` and
@@ -95,4 +147,4 @@ function evaluate(domain, service, opts = null) {
     return { allowed: !enforcing, reason: 'not_allowed', enforcing };
 }
 
-module.exports = { ALLOWED_SERVICES, evaluate, isEnforcing };
+module.exports = { ALLOWED_SERVICES, evaluate, isEnforcing, canonicalise };
