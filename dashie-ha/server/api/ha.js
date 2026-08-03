@@ -254,7 +254,20 @@ const CONTROL_MAP = {
  * Body: { device_id: '<dashie hex>', role: 'lock'|'volume'|..., value: bool|number }
  * Translates to a HA service call. Console doesn't need to know HA naming.
  */
-router.post('/control', requireSignedIn, express.json(), async (req, res) => {
+// 🔴 Gated on HA ingress identity, not on holding an account (spec §W).
+//
+// This is a service call on a Home Assistant entity, on the household's own box,
+// that HA already exposes to the caller — it spends nothing and mints nothing.
+// `requireSignedIn` asked an ACCOUNT-shaped question about a non-account
+// operation, so on the account-less edition every control was 401 while the very
+// same action was available from HA's own UI. It also never examined the caller
+// at all: it reads a stored JWT, which is a property of the BOX.
+//
+// ⚠️ On the accounted edition this is a LOOSENING, named and accepted rather than
+// slipped in: control moves from "holds an account on this box" to "is an HA user
+// who can open the panel". The blast radius is the closed CONTROL_MAP list on
+// entities this integration created, and HA already owns who can see the panel.
+router.post('/control', requireIngressUser('ha-control'), express.json(), async (req, res) => {
     const { device_id, role, value } = req.body || {};
     if (!device_id) return res.status(400).json({ error: 'device_id required' });
     if (!role) return res.status(400).json({ error: 'role required' });
@@ -286,6 +299,14 @@ router.post('/control', requireSignedIn, express.json(), async (req, res) => {
             return res.status(500).json({ error: 'unsupported control kind' });
         }
 
+        // Attribution, same reasoning as /service: a control that reboots a wall
+        // tablet should not be anonymous. Logged BEFORE the call so a service
+        // that hangs still leaves a record of who asked for it.
+        console.log(
+            `CONTROL: role=${role} value=${value} device=${device_id} ` +
+            `by=${req.haUser.id}${req.haUser.display_name ? ` (${req.haUser.display_name})` : ''} ` +
+            `→ ${entityId}`,
+        );
         await haRegistry.callService(map.domain, serviceName, entityId, serviceData);
         // Trigger a poll so the next /api/ha/status reflects the new state.
         haWorker.triggerRefresh(`post-${role}`);
