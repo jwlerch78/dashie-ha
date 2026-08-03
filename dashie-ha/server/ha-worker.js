@@ -85,13 +85,30 @@ async function runPoll(reason = 'tick') {
             return;
         }
 
-        let jwtStored;
+        // 🔴 THE ACCOUNT IS NEEDED FOR THE UPSERT, NOT FOR THE POLL.
+        //
+        // This used to bail here, before getStates(), the registry read and
+        // buildDeviceMetrics — so on a box with no Dashie account the worker
+        // produced NOTHING, `freshDevices` was never populated, and the Console's
+        // Devices page had no local data at all. On the account-less edition that
+        // is the DEFAULT page, so the product's first screen was permanently
+        // "No devices registered yet."
+        //
+        // Everything below except the upsert reads Home Assistant and needs no
+        // account: `jwtStored` is used at exactly ONE site (the callDbOp below).
+        // So the JWT is fetched, but a failure only disables the CLOUD half.
+        //
+        // Deliberately NOT restructured beyond moving the bail: the authenticated
+        // path runs the same code in the same order it always has, because a
+        // subtle change here would fail QUIET — a Dashie box would keep polling
+        // and silently stop upserting, and nothing on the box would say so.
+        let jwtStored = null;
+        let authError = null;
         try {
             jwtStored = await auth.getValidJwt();
         } catch (e) {
-            lastRun = { at: new Date().toISOString(), ok: false, skipped: 'not_authenticated' };
-            logSkip('Not authenticated — waiting for user to sign in via /api/auth/start-link');
-            return;
+            authError = e;
+            logSkip('Not authenticated — local device data still built; cloud upsert skipped until sign-in');
         }
 
         const states = await haClient.getStates();
@@ -153,6 +170,25 @@ async function runPoll(reason = 'tick') {
         // Throttle Supabase upserts to avoid hammering the DB. The fast in-memory
         // poll runs every POLL_INTERVAL_MS (5s); upserts run every CLOUD_UPSERT_INTERVAL_MS (30s).
         const now = Date.now();
+        // No account ⇒ nothing to upsert TO. Report it as its own state rather
+        // than as an error: on the account-less edition this is the steady,
+        // correct condition, and a box that logged a failure every poll would
+        // train its owner to ignore the log. `freshDevices` is populated above,
+        // which is the whole point — the local surface works, the cloud one is
+        // simply absent.
+        if (!jwtStored) {
+            lastRun = {
+                at: new Date().toISOString(),
+                ok: true,
+                devices: devices.length,
+                live: devices.filter(d => d.hasLiveData).length,
+                durationMs: Date.now() - startedAt,
+                freshDevices,
+                upsertSkipped: 'no_account',
+                ...(authError ? { authNote: authError.message } : {}),
+            };
+            return;
+        }
         const shouldUpsert = (now - lastUpsertAt) >= CLOUD_UPSERT_INTERVAL_MS || reason === 'startup';
         if (!shouldUpsert) {
             lastRun = {
