@@ -23,6 +23,7 @@ const haWorker = require('../ha-worker');
 const haClient = require('../ha-client');
 const config = require('../config');
 const { requireIngressUser } = require('../require-ingress-user');
+const servicePolicy = require('../ha-service-policy');
 
 const router = express.Router();
 
@@ -427,6 +428,22 @@ router.post('/service', requireIngressUser('ha-service'), express.json(), async 
         // — peel entity_id out of `data` for the target field.
         const serviceData = { ...payload };
         delete serviceData.entity_id;
+        // 🔴 SERVICE POLICY (D-status s49). Service-level, not domain-level: the
+        // domain allowlist below already contains `lock`, so a domain check
+        // permits `lock.open`. Ships in OBSERVE mode — the decision is logged and
+        // NOT applied until `service_policy_enforce` is set, because the caller is
+        // an LLM and the service set it uses in the field is not knowable from
+        // here. Harvest, widen, then flip.
+        const verdict = servicePolicy.evaluate(domain, service);
+        if (verdict.reason !== 'ok') {
+            console.warn(
+                `DROP: service-would-refuse service=${domain}.${service} reason=${verdict.reason} ` +
+                `enforcing=${verdict.enforcing} by=${req.haUser.id}`,
+            );
+            if (!verdict.allowed) {
+                return res.json({ success: false, error: `service_not_allowed: ${domain}.${service}` });
+            }
+        }
         // 🔴 ATTRIBUTION. This route can call ANY HA service with the add-on's
         // supervisor token, and until now it logged only failures — so a
         // successful `lock.open` left no record of who asked for it. The caller
