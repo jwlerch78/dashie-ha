@@ -15,6 +15,7 @@ const { detectVoiceEngines } = require('../voice-engines');
 const lanDiscovery = require('../lan-discovery');
 const { readOptions } = require('../options');
 const auth = require('../auth');
+const { classifySharingState } = require('../sharing-state');
 
 const router = express.Router();
 
@@ -184,6 +185,67 @@ router.get('/local-status', (req, res) => {
         stt: opts.stt_url || (signedIn ? 'dashie_cloud' : null),
         tts: opts.tts_url || (signedIn ? 'dashie_cloud' : null),
     });
+});
+
+// ── GET /api/voice/sharing-state — what this household is ACTUALLY lending ───
+//
+// CONTRACTS #72's five states, classified server-side. The console renders the
+// sentences; this decides WHICH state holds.
+//
+// 🔴 WHY THIS EXISTS AT ALL, and it is the whole point: the Household Sharing
+// card already shows the TOGGLE, and the toggle being ON does not mean anything
+// is being lent. Sharing ON with no key configured lends nothing, and the
+// control renders a confident green either way. That is a control-level green
+// standing in for an outcome-level one — the same class as a passing gate on an
+// unreachable feature — sitting in the product rather than in the tooling.
+// This answers the outcome question: what would a satellite get if it asked
+// right now?
+//
+// 🔴 READ-ONLY, and it must stay that way. `grantableCapabilities(null)` is the
+// SAME predicate the lease path uses, called with no side effect: it issues no
+// lease, records nothing in LEASE_OBSERVED, and moves no money. Anything that
+// made this write would turn an indicator into an actor.
+//
+// ⭐ WHY THE LIVE PREDICATE AND NOT `LEASE_OBSERVED`: the observational map
+// (api/internal.js) is in-memory, bounded to 50, lost on every add-on restart,
+// records ONLY successful grants, and does not carry `withheld` at all. So it
+// can never answer "why is nothing being shared" — the question with the two
+// opposite remedies. The live predicate is authoritative, restart-proof, and
+// already carries the reasons. The map remains the only source for the
+// PER-DEVICE view, which is exactly why that view must render nothing when a
+// device is absent rather than inferring a denial (#72).
+//
+// The state machine itself is in ../sharing-state.js — one holder, and a holder
+// a control can actually call. Whether the console renders one sentence or two
+// when `remedy` is present is a RENDERING decision that is not mine alone (#72:
+// "so neither surface invents a third"); the payload carries enough for either,
+// so nothing is thrown away when it is answered.
+router.get('/sharing-state', async (req, res) => {
+    // Fail to UNKNOWN, never to a reassuring answer. An indicator that guesses
+    // "off" when it cannot read is the 2026-07-31 bug — sharing was ON for a
+    // day while the card said Off.
+    const unknown = (why) => {
+        console.warn(`DROP: sharing-state unavailable — ${why}`);
+        return res.json({ ok: true, state: 'unknown', remedy: null, reason: why });
+    };
+
+    try {
+        const capability = require('../capability');
+        const g = await capability.grantableCapabilities(null);
+        const { state, remedy } = classifySharingState(g);
+        return res.json({
+            ok: true,
+            state,
+            remedy,
+            // Supporting facts, so the page can be debugged without re-deriving
+            // the classification from a second copy of these rules.
+            sharing: !!g.sharing,
+            granted: g.granted,
+            withheld: g.withheld || {},
+        });
+    } catch (e) {
+        return unknown(`predicate_failed: ${e.message}`);
+    }
 });
 
 module.exports = router;
