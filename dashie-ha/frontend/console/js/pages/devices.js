@@ -239,6 +239,83 @@ const DevicesPage = {
         console.log('[DevicesPage] Registered device_settings SettingsSync consumer');
     },
 
+    /**
+     * CONTRACTS #72's per-device half: WHICH devices are currently leasing, and
+     * WITH WHAT. Two sources because they answer two different questions —
+     *
+     *   `/api/voice/lease-observations`  is this device leasing?  (observational)
+     *   `/api/voice/sharing-state`       with what?               (live predicate)
+     *
+     * The map carries granted capability NAMES, not metered-ness, and
+     * metered-ness is household-scoped — so "keys" vs "built-in voice" is the
+     * same answer for every device and cannot come from the per-device record.
+     *
+     * 🔴 Best-effort, and null is meaningful: absence renders NOTHING. The
+     * observational map is empty after every add-on restart and records only
+     * SUCCESSFUL grants, so "no record" means *nothing observed*, never *nothing
+     * shared*. A failed read must not become a confident denial.
+     */
+    async _fetchLeaseSharing() {
+        this._leases = null;
+        this._sharingState = null;
+        if (!DashieAuth.isAddonMode) return;
+        try {
+            const [obsRes, shareRes] = await Promise.all([
+                fetch(DashieAuth._addonUrl('/api/voice/lease-observations'), { cache: 'no-store' }),
+                fetch(DashieAuth._addonUrl('/api/voice/sharing-state'), { cache: 'no-store' }),
+            ]);
+            if (obsRes.ok) {
+                const body = await obsRes.json();
+                this._leases = Array.isArray(body?.leases) ? body.leases : null;
+            }
+            if (shareRes.ok) this._sharingState = (await shareRes.json()) || null;
+        } catch (e) {
+            console.warn('[DevicesPage] lease/sharing state unavailable:', e?.message || e);
+            this._leases = null;
+            this._sharingState = null;
+        }
+    },
+
+    /**
+     * The sentence for ONE device, or null to render nothing.
+     *
+     * 🔴 THE TTL GATE IS THE WHOLE CORRECTNESS ARGUMENT (#72, resolved
+     * 2026-08-03). John's five sentences are all PRESENT tense; this source is
+     * observational, i.e. past. Rendering "Using your Home Assistant's AI keys"
+     * for a device that stopped leasing an hour ago is a confident falsehood —
+     * and after an add-on restart the map is empty, so it would be false for
+     * EVERY device.
+     *
+     * So: a sentence shows only while the observed lease is still inside
+     * `expires_at`. Inside the TTL the device IS holding it and the present
+     * tense is fact, so the approved sentence is reused VERBATIM — no new prose,
+     * no third rendering. Expired or absent renders nothing, which is the rule
+     * #72 already pinned for an absent device. The two are the same rule.
+     *
+     * ⚠️ Joins on roster `device_id` == lease `endpoint_id`. T verified those
+     * byte-identical on a real box; do not "normalise" either side.
+     */
+    _leaseSentenceFor(deviceId) {
+        if (!Array.isArray(this._leases) || !deviceId) return null;
+        const rec = this._leases.find(l => l?.endpoint_id === deviceId);
+        if (!rec?.expires_at) return null;
+
+        const expiresAt = Date.parse(rec.expires_at);
+        // An unparseable timestamp is UNKNOWN, not "live" — fail to silence.
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+
+        // WITH WHAT: household-scoped, so it comes from the live predicate. If
+        // that read failed we know the device is leasing but not what with, and
+        // there is no approved sentence for "leasing, something" — so nothing.
+        const s = this._sharingState;
+        if (!s || !s.ok) return null;
+        if (s.state === 'using_keys') return "Using your Home Assistant's AI keys";
+        if (s.state === 'using_free') return "Using your Home Assistant's built-in voice";
+        // sharing_off / unknown: the device holds a lease while the household
+        // reports sharing off — a contradiction we should not narrate. Silence.
+        return null;
+    },
+
     async _fetchDevices() {
         this._loading = true;
         this._error = null;
@@ -249,6 +326,7 @@ const DevicesPage = {
                 DevicesSource.fetch(),     // account → list_devices; local → the add-on's own poll
                 this._fetchAddonStatus(),  // fire-and-forget inside
                 DevicesClaim.fetch(),      // claimable installs — non-critical, swallows errors
+                this._fetchLeaseSharing(), // #72 per-device row — best-effort, absence renders nothing
             ]);
             this._devices = devicesResult.devices;
             // Local mode has no account, so the account-only affordances have

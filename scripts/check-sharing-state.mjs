@@ -280,9 +280,57 @@ if (obs) {
     }
 }
 
+// ── LEG 4 — the per-device row is TTL-GATED ─────────────────────────────────
+//
+// 🔴 The single property the per-device half's correctness rests on (#72, tense
+// resolved 2026-08-03). John's five sentences are all PRESENT tense; the source
+// is observational, i.e. past. Drop the `expires_at` check and the row renders
+// "Using your Home Assistant's AI keys" for a device that stopped leasing an
+// hour ago — and for EVERY device after an add-on restart, since the map is
+// empty then and a naive implementation would fall back to something.
+//
+// Nothing about that failure looks wrong: the card renders, the sentence is one
+// of the approved five, and it is simply not true. Exactly the class this whole
+// gate family exists for.
+//
+// Static, because the function reads page state (`this._leases`) and cannot be
+// called headlessly — so this asserts the CHECK IS PRESENT rather than
+// exercising it. A weaker guarantee, said plainly rather than dressed up.
+const DEVICES_PAGE = join(HERE, '..', 'dashie-ha', 'frontend', 'console', 'js', 'pages', 'devices.js');
+
+if (!existsSync(DEVICES_PAGE)) {
+    console.error('\ncheck-sharing-state: cannot check leg 4 — devices.js not found');
+    process.exit(2);
+}
+
+const devicesSrc = readFileSync(DEVICES_PAGE, 'utf8');
+const fnStart = devicesSrc.indexOf('_leaseSentenceFor(');
+if (fnStart < 0) {
+    console.error('\n❌ leg 4 — _leaseSentenceFor() is gone from devices.js; the per-device row has no TTL gate to check');
+    failed++;
+} else {
+    const fn = devicesSrc.slice(fnStart, fnStart + 1600);
+    const readsExpiry = /expires_at/.test(fn);
+    const comparesToNow = /Date\.now\(\)/.test(fn) && /expiresAt\s*<=\s*Date\.now\(\)|Date\.now\(\)\s*>=\s*expiresAt/.test(fn);
+    const guardsUnparseable = /Number\.isFinite/.test(fn);
+
+    if (readsExpiry && comparesToNow && guardsUnparseable) {
+        console.log('✅ leg 4 — the per-device row is TTL-gated (reads expires_at · compares to now · unparseable ⇒ silent)');
+    } else {
+        console.error(
+            `❌ leg 4 — the TTL gate is incomplete: reads-expires_at=${readsExpiry} ` +
+            `compares-to-now=${comparesToNow} guards-unparseable=${guardsUnparseable}\n` +
+            '     Without all three the row can render a PRESENT-tense sentence off a PAST\n' +
+            '     observation — false for any device that stopped leasing, and for every\n' +
+            '     device after an add-on restart. Nothing about it looks wrong on screen.',
+        );
+        failed++;
+    }
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} control(s)/leg(s) failed`);
     process.exit(1);
 }
-console.log(`✅ ${CASES.length}/${CASES.length} controls + legs 2 & 3 pass — #72 holds on both surfaces`);
+console.log(`✅ ${CASES.length}/${CASES.length} controls + legs 2, 3 & 4 pass — #72 holds on both surfaces`);

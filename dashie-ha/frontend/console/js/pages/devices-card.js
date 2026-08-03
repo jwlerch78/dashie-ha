@@ -174,8 +174,19 @@ const DevicesCard = {
                 <span style="font-weight: 500; color: var(--text-primary); text-align: right; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${DevicesPage._escape(value)}<span style="color: var(--text-muted); margin-left: 6px;">›</span></span>
             </div>
         `;
+        // #72's per-device sharing sentence. Not a `row()` — it is a STATUS, not
+        // a tappable setting, and there is nothing to open. Renders only while
+        // the device's observed lease is still inside its TTL; null otherwise,
+        // which covers "expired", "never observed", and "add-on restarted".
+        const leaseSentence = DevicesPage._leaseSentenceFor(id);
+        const leaseLine = leaseSentence
+            ? `<div style="padding: 6px 0; font-size: var(--font-size-sm); color: var(--text-secondary);">
+                   ${DevicesPage._escape(leaseSentence)}
+               </div>`
+            : '';
         return `
             <div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">
+                ${leaseLine}
                 ${row('Theme', theme, `DevicesDetailModals.openTheme('${id}')`)}
                 ${row('Sleep / Wake', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`)}
                 ${row('AI Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`)}
