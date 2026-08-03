@@ -51,6 +51,27 @@ const { ingressUser } = require('./ingress-identity');
 /**
  * Express middleware. Attaches `req.haUser` and continues, or refuses 403.
  *
+ * ── ⚠️ IF YOU ARE ASSESSING HOW SPOOFABLE THIS IS, READ THIS FIRST ───────────
+ *
+ * This guard needs **`x-remote-user-id` specifically** (it goes through
+ * `ingressUser`). `isIngress()` in the same module accepts `x-ingress-path` **OR**
+ * the user id — a DIFFERENT and looser predicate that this gate does not use.
+ *
+ * 🔴 So a spoof carrying only `X-Ingress-Path` is refused, and that refusal is
+ * **not evidence the gate holds**: it means you tested the header this code does
+ * not read. Anyone reasoning from `isIngress()` would pick exactly that header,
+ * see a 403, and conclude the gate is stronger than it is. (Measured 2026-08-03 —
+ * T's first spoof did precisely this.) The header that matters is
+ * `x-remote-user-id`, and on the Supervisor docker network it is suppliable.
+ *
+ * That is not a defect in the guard — being stricter than `isIngress()` is
+ * correct — it is a trap for the person auditing it, which is why it is written
+ * next to the guard rather than in a report someone has to find.
+ *
+ * ✅ Verified behaviour for a direct (no-header) caller: `POST /api/ha/service`
+ * and `/api/ha/control` both return **403 `ingress_required`** with a greppable
+ * `DROP: <route> refused — no HA ingress identity` marker.
+ *
  * @param {string} what - short label for the log line, e.g. 'ha-service'.
  */
 function requireIngressUser(what) {
