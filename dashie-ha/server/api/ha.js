@@ -610,6 +610,32 @@ async function findMediaEntity(dashieDeviceId, role) {
  *
  * Closes cleanly when the client disconnects (e.g. user closes the modal).
  */
+// ── THE MEDIA ROUTES STAY AS THEY ARE — a DECISION, not an omission ──────────
+//
+// /mjpeg, /image, /stream, /hls were the one §W group left ungated-by-ingress.
+// John ruled 2026-08-03: **do not gate them.** Written here because a future
+// reader will otherwise see the inconsistency with /control and /service and
+// "fix" it.
+//
+// His reason was field knowledge: tablets display video feeds and are NOT
+// ingress callers, so an ingress gate would trade a beta-visible outage for a
+// hardening.
+//
+// ⚠️ MEASURED REFINEMENT, recorded so nobody inherits a rationale that was never
+// checked: the tablet's video feeds do not travel these routes. They ride
+// `/api/dashie/feeds` and `/api/dashie/frigate/cameras` (`ApiPaths.HA` — the
+// INTEGRATION's router; see VideoFeedPreferences.kt / FrigateCameraFetcher.kt).
+// These four are consumed by the CONSOLE's device cards (devices-card.js:381+,
+// screenshots and camera panels). No Android or web-app caller for them exists.
+// So the ruling stands and costs nothing, but the stated mechanism does not
+// apply to these particular routes — if the question is ever reopened, that is
+// the fact that changes the answer.
+//
+// 🔴 The residual, ruled and not to be re-litigated: ungated means anyone who can
+// reach :8099 on the LAN can pull camera frames without HA credentials, since the
+// add-on proxies them with its own token. Guests-on-wifi exposure, not remote.
+// **If revisited, the shape is device-token auth for kiosks, not an ingress
+// gate** — noted so the option is discoverable without re-deriving it.
 router.get('/mjpeg/:deviceId/:role', requireSignedIn, async (req, res) => {
     const { deviceId, role } = req.params;
     if (role !== 'screenshot' && role !== 'camera') {
