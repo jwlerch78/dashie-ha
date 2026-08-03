@@ -260,6 +260,10 @@ const VoiceAiPage = {
                 // BYO-key booleans (add-on API Keys page) — gate the Cloud/Hybrid
                 // presets on credits OR a key. Best-effort — null on failure.
                 this._fetchKeyStatus(),
+                // #72's key-sharing STATE — what a satellite would actually get
+                // right now, as opposed to what the toggle claims. Best-effort;
+                // absence renders nothing.
+                this._fetchSharingState(),
             ]);
             this._defaults = defaults;
             this._storedKeys = storedKeys;
@@ -360,6 +364,56 @@ const VoiceAiPage = {
             console.warn('[VoiceAiPage] key status unavailable:', e?.message || e);
             this._keyStatus = null;
         }
+    },
+
+    /** CONTRACTS #72's key-sharing STATE — what a satellite would actually get
+     *  right now, which is a different question from what the toggle says.
+     *
+     *  🔴 Best-effort, and null is a MEANINGFUL answer: absence renders NOTHING.
+     *  Never a withheld string off a failed read — "nothing is shared" when we
+     *  simply could not ask is the 2026-07-31 shape (the card said Off while
+     *  sharing had been On for a day), and it is the one direction a status
+     *  indicator must never fail in. */
+    async _fetchSharingState() {
+        if (!DashieAuth.isAddonMode) { this._sharingState = null; return; }
+        try {
+            const r = await fetch(DashieAuth._addonUrl('/api/voice/sharing-state'), { cache: 'no-store' });
+            this._sharingState = r.ok ? (await r.json()) || null : null;
+        } catch (e) {
+            console.warn('[VoiceAiPage] sharing state unavailable:', e?.message || e);
+            this._sharingState = null;
+        }
+    },
+
+    /** #72's sentences for the household surface. Prose lives HERE, not on the
+     *  server — the server classifies, each surface words it. The tablet says
+     *  "in the ⟨brand⟩ console"; this console says "in API Keys", because the
+     *  user is already in the console and sending them to it would be absurd.
+     *
+     *  🔴 REMEDY WINS over the state sentence (John's ruling, 2026-08-04). The
+     *  case: a box with no AI key still grants HA's free Whisper/Piper and
+     *  keyless tools, so "Using your Home Assistant's built-in voice" and "No
+     *  AI keys set up" are BOTH true. He chose the remedy alone. The cost he
+     *  accepted, recorded here because it is the thing a future reader will
+     *  question: it hides that voice genuinely works today, so the card reads
+     *  as more broken than the box is.
+     *
+     *  ⚠️ Scoped to `using_free` on purpose. If a remedy ever co-occurs with
+     *  `using_keys`, rendering "No AI keys set up" while keys are demonstrably
+     *  in use would be a confident falsehood — a worse failure than the one
+     *  above. Not reachable today (only `ai` can be absent, and voice/tools are
+     *  always free), which is why it is a guard rather than a branch anyone
+     *  will see. */
+    _sharingSentence() {
+        const s = this._sharingState;
+        if (!s || !s.ok) return null;
+        if (s.state === 'using_free' && s.remedy === 'not_configured') {
+            return 'No AI keys set up — add them in API Keys';
+        }
+        if (s.state === 'using_keys') return "Using your Home Assistant's AI keys";
+        if (s.state === 'using_free') return "Using your Home Assistant's built-in voice";
+        if (s.state === 'sharing_off') return 'AI sharing is off for this device';
+        return null;   // unknown / not started — render nothing, never a guess
     },
 
     getCustom(id) {
@@ -1058,6 +1112,20 @@ const VoiceAiPage = {
               `It applies to <strong>everything on this box</strong>, including this console — not just satellites. ` +
               `Home Assistant's own voice engines keep working either way, because they cost nothing.`
             : `Household Sharing needs to be on for other devices on your network to use this account's voice &amp; AI credits and API keys. You can alternatively sign into this account on your devices. You can turn it off any time.`;
+        // 🔴 The STATE, not the setting — and they are genuinely different
+        // questions. The button above reports what the toggle is set to; this
+        // reports what a satellite would actually be granted if it asked right
+        // now. Sharing ON with no key configured lends NOTHING, and the button
+        // renders a confident "Sharing On" either way. Null renders nothing at
+        // all (#72): an indicator that cannot read its source must be silent,
+        // not reassuring.
+        const sentence = this._sharingSentence();
+        const stateRow = sentence
+            ? `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border-color, rgba(128,128,128,0.2));
+                        color: var(--text-secondary); font-size: var(--font-size-sm);">
+                   ${sentence}
+               </div>`
+            : '';
         return `
             <div class="section-header" style="margin-top: 32px;">${heading}</div>
             <div class="card">
@@ -1074,6 +1142,7 @@ const VoiceAiPage = {
                             ${enabled ? 'Sharing On' : 'Sharing Off'}
                         </button>
                     </div>
+                    ${stateRow}
                 </div>
             </div>
         `;

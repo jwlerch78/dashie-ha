@@ -162,9 +162,62 @@ for (const c of CASES) {
     }
 }
 
+// ── LEG 2 — every state the classifier can EMIT has console prose ────────────
+//
+// 🔴 The failure this exists for is silent in both directions and in the worst
+// possible way: add a state to sharing-state.js and the console's
+// `_sharingSentence()` falls through to `return null`, which is a LEGITIMATE
+// value here — it means "render nothing". So a state the server computes
+// correctly renders as an empty card, no error, no warning, nothing in the
+// console log. The indicator simply stops indicating and looks like a box with
+// nothing to report.
+//
+// ⚠️ This is a COVERAGE check, not a behaviour test, and the distinction is the
+// point: it asserts the console mentions each state, not that it words it
+// correctly. Wording is #72's job and John's — a lint on prose fires on correct
+// code (that argument is why #72 carries no gate). What is checkable without
+// touching prose is whether a branch EXISTS, and that is the half that breaks
+// silently.
+const CONSOLE_PAGE = join(HERE, '..', 'dashie-ha', 'frontend', 'console', 'js', 'pages', 'voice-ai.js');
+const CLASSIFIER = MODULE;
+
+if (!existsSync(CONSOLE_PAGE)) {
+    console.error(`\ncheck-sharing-state: cannot check leg 2 — ${CONSOLE_PAGE} not found`);
+    process.exit(2);
+}
+
+const { readFileSync } = await import('node:fs');
+const classifierSrc = readFileSync(CLASSIFIER, 'utf8');
+const pageSrc = readFileSync(CONSOLE_PAGE, 'utf8');
+
+// The states the classifier can return: `state = '<x>'` assignments.
+const emitted = new Set([...classifierSrc.matchAll(/\bstate\s*=\s*'([a-z_]+)'/g)].map((m) => m[1]));
+if (!emitted.size) {
+    console.error('\ncheck-sharing-state: cannot check leg 2 — found no state assignments in the classifier');
+    process.exit(2);
+}
+
+// `unknown` renders nothing BY DESIGN (#72), so it needs no branch — but it
+// must still be a state the classifier can reach, which the cases above pin.
+const needsProse = [...emitted].filter((s) => s !== 'unknown').sort();
+const sentenceFn = pageSrc.slice(pageSrc.indexOf('_sharingSentence()'));
+const missing = needsProse.filter((s) => !sentenceFn.slice(0, 1200).includes(`'${s}'`));
+
+console.log('');
+if (missing.length) {
+    console.error(
+        `❌ leg 2 — the classifier emits state(s) the console does not handle: ${missing.join(', ')}\n` +
+        `     _sharingSentence() would return null for these, which reads as "nothing to report"\n` +
+        `     rather than as a bug. Add a branch in voice-ai.js.`,
+    );
+    failed++;
+} else {
+    console.log(`✅ leg 2 — all ${needsProse.length} rendering state(s) have console prose (${needsProse.join(', ')})`);
+}
+
 console.log('');
 if (failed) {
-    console.error(`❌ ${failed} of ${CASES.length} control(s) failed`);
+    console.error(`❌ ${failed} control(s)/leg(s) failed`);
     process.exit(1);
 }
-console.log(`✅ ${CASES.length}/${CASES.length} controls pass — #72's classification holds`);
+console.log(`✅ ${CASES.length}/${CASES.length} controls + leg 2 pass — #72's classification holds and the console covers it`);
