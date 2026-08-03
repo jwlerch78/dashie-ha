@@ -42,6 +42,7 @@ const DevicesCard = {
                     ${this._renderStatsRow(device, idAttr, m)}
                     ${this._renderMediaRow(device, idAttr, m)}
                     ${this._renderMusicStrip(m)}
+                    ${this._renderLeaseLine(device)}
                 </div>
             </div>
         `;
@@ -127,6 +128,34 @@ const DevicesCard = {
         `;
     },
 
+    /**
+     * #72's per-device sharing sentence. A STATUS, not a tappable setting —
+     * there is nothing to open. Renders only while the device's observed lease
+     * is inside its TTL; empty otherwise, which covers "expired", "never
+     * observed" and "add-on restarted".
+     *
+     * 🔴 ONE HOLDER, CALLED FROM BOTH RENDER MODES, and that is the entire
+     * reason it is a function. Shipped 2026-08-03 inlined in
+     * `_renderSimpleSettings`, which `render()` reaches ONLY when
+     * `!DevicesPage._techView`. Every HA user gets the technical card, so the
+     * sentence computed correctly and **never reached the DOM for the audience
+     * it was built for** — authored-but-unreached, caught by T on the box
+     * (`_leaseSentenceFor` returned the string, `sentenceAppearsInDOM: false`).
+     *
+     * ⚠️ Worse than the miss: the restart-negative check would have PASSED.
+     * "Every card goes silent after a restart" is trivially true when no card
+     * ever rendered — a green negative on an unreachable feature. If a third
+     * render mode is added, it needs this call; `check-sharing-state` leg 5
+     * fails when a mode is missing it rather than trusting anyone to remember.
+     */
+    _renderLeaseLine(device) {
+        const sentence = DevicesPage._leaseSentenceFor(device.device_id);
+        if (!sentence) return '';
+        return `<div style="padding: 6px 0; font-size: var(--font-size-sm); color: var(--text-secondary);">
+                    ${DevicesPage._escape(sentence)}
+                </div>`;
+    },
+
     /** Simple settings summary: Theme · Sleep · AI Personality · Photos.
      *  Keys here MUST match what the app writes into user_devices.settings.<category>
      *  via SETTINGS_KEY_MAP (device-settings-writer.js) — NOT dot-notated store paths.
@@ -174,16 +203,7 @@ const DevicesCard = {
                 <span style="font-weight: 500; color: var(--text-primary); text-align: right; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${DevicesPage._escape(value)}<span style="color: var(--text-muted); margin-left: 6px;">›</span></span>
             </div>
         `;
-        // #72's per-device sharing sentence. Not a `row()` — it is a STATUS, not
-        // a tappable setting, and there is nothing to open. Renders only while
-        // the device's observed lease is still inside its TTL; null otherwise,
-        // which covers "expired", "never observed", and "add-on restarted".
-        const leaseSentence = DevicesPage._leaseSentenceFor(id);
-        const leaseLine = leaseSentence
-            ? `<div style="padding: 6px 0; font-size: var(--font-size-sm); color: var(--text-secondary);">
-                   ${DevicesPage._escape(leaseSentence)}
-               </div>`
-            : '';
+        const leaseLine = this._renderLeaseLine(device);
         return `
             <div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">
                 ${leaseLine}

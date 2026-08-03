@@ -328,9 +328,60 @@ if (fnStart < 0) {
     }
 }
 
+// ── LEG 5 — EVERY card render mode emits the lease line ─────────────────────
+//
+// 🔴 THE DEFECT THIS EXISTS FOR SHIPPED IN 0.1.12 AND 0.1.13. The sentence was
+// inlined in `_renderSimpleSettings`, which `render()` reaches only when
+// `!DevicesPage._techView`. Every HA user gets the TECHNICAL card, so the
+// sentence computed correctly and never reached the DOM for the audience it was
+// built for. T found it on the box: `_leaseSentenceFor` returned the string,
+// `sentenceAppearsInDOM: false`.
+//
+// ⚠️ Leg 4 was green throughout, and correctly — it asserts the TTL check is
+// PRESENT. Presence is not reachability. That gap is the whole lesson: a
+// component-level green read as an outcome-level green, one more time.
+//
+// 🔴 And the failure was worse than invisible, it was SELF-CONCEALING: the
+// restart-negative check ("every card goes silent") would have PASSED, because
+// it is trivially true when no card ever rendered. A negative check cannot
+// distinguish "correctly silent" from "never spoke".
+//
+// So this leg counts RENDER MODES, not call sites: every `return` branch of
+// `render()` must reach `_renderLeaseLine`. Add a third mode without it and
+// this fails instead of shipping another silent surface.
+const CARD = join(HERE, '..', 'dashie-ha', 'frontend', 'console', 'js', 'pages', 'devices-card.js');
+
+if (!existsSync(CARD)) {
+    console.error('\ncheck-sharing-state: cannot check leg 5 — devices-card.js not found');
+    process.exit(2);
+}
+
+const cardSrc = readFileSync(CARD, 'utf8');
+const holders = (cardSrc.match(/_renderLeaseLine\s*\(/g) || []).length;   // 1 definition + N call sites
+
+// The simple mode reaches it via _renderSimpleSettings; the technical mode
+// inlines it in render(). Both must be present.
+const simpleReaches = /_renderSimpleSettings\s*\([\s\S]{0,4000}?_renderLeaseLine/.test(cardSrc)
+    || /const leaseLine = this\._renderLeaseLine/.test(cardSrc);
+const techReaches = /_renderMusicStrip\([\s\S]{0,200}?_renderLeaseLine/.test(cardSrc);
+
+console.log('');
+if (holders >= 3 && simpleReaches && techReaches) {
+    console.log(`✅ leg 5 — both card render modes emit the lease line (${holders - 1} call sites + 1 holder)`);
+} else {
+    console.error(
+        `❌ leg 5 — a card render mode does not emit the lease line: ` +
+        `simple=${simpleReaches} technical=${techReaches} refs=${holders}\n` +
+        '     A mode that omits it renders NOTHING and looks exactly like "nothing to report".\n' +
+        '     This is the 0.1.12/0.1.13 defect: correct data, correct string, never in the DOM —\n' +
+        '     and the restart-negative check PASSES against it, because silence is what it expects.',
+    );
+    failed++;
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} control(s)/leg(s) failed`);
     process.exit(1);
 }
-console.log(`✅ ${CASES.length}/${CASES.length} controls + legs 2, 3 & 4 pass — #72 holds on both surfaces`);
+console.log(`✅ ${CASES.length}/${CASES.length} controls + legs 2–5 pass — #72 holds, and every render mode shows it`);
