@@ -186,7 +186,14 @@ router.get('/history', async (req, res) => {
  * Console is responsible for calling update_device first/separately to
  * also update Supabase — this endpoint only handles the HA side.
  */
-router.post('/rename', requireSignedIn, express.json(), async (req, res) => {
+// Ingress-gated (§W). 🔴 My own spec was WRONG about this route: W5 filed it as
+// "persists to Supabase … a different mechanism, not a different gate". It does
+// not. `haRegistry.renameDevice` writes HOME ASSISTANT's device registry; the
+// Supabase copy refreshes later as a side effect of the poll it triggers. So this
+// is the same shape as /control — an HA operation behind an account gate — and on
+// the account-less edition it was refusing to rename a device that HA would let
+// the same user rename from its own UI.
+router.post('/rename', requireIngressUser('ha-rename'), express.json(), async (req, res) => {
     const { device_id, new_name } = req.body || {};
     if (!device_id || typeof device_id !== 'string') {
         return res.status(400).json({ error: 'device_id required' });
@@ -199,6 +206,10 @@ router.post('/rename', requireSignedIn, express.json(), async (req, res) => {
     }
 
     try {
+        console.log(
+            `RENAME: device=${device_id} to="${new_name.trim()}" ` +
+            `by=${req.haUser.id}${req.haUser.display_name ? ` (${req.haUser.display_name})` : ''}`,
+        );
         const updated = await haRegistry.renameDevice(device_id, new_name.trim());
         // Trigger an immediate metrics poll so user_devices.metrics + ha_device_name
         // refresh without waiting for the next 30s tick.
@@ -882,7 +893,11 @@ async function _ensureStateChangedFanout() {
     });
 }
 
-router.get('/events', requireSignedIn, async (req, res) => {
+// Ingress-gated (§W). Also mis-filed in W5 as "Supabase-fed": it is a fan-out of
+// Home Assistant's own `state_changed`, with no Supabase anywhere in the path.
+// Without it the account-less Devices page has no real-time updates at all and
+// falls back to the 30s poll, which is a visibly worse page for no reason.
+router.get('/events', requireIngressUser('ha-events'), async (req, res) => {
     res.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',

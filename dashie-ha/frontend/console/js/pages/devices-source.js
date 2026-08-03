@@ -29,10 +29,22 @@
  */
 const DevicesSource = {
 
-    /** How many poll intervals may elapse before the whole poll is stale.
-     *  🔴 ONE HOLDER — the page must not restate a threshold. Expressed in poll
-     *  INTERVALS, not seconds: a bare "90s" silently means "everything is
-     *  offline" the day someone slows the poll down. */
+    /**
+     * How many poll intervals may elapse before the whole poll is stale.
+     *
+     * 🔴 ONE HOLDER — the page must not restate a threshold. Expressed in poll
+     * INTERVALS, not seconds: a bare "90s" silently means "everything is offline"
+     * the day someone slows the poll down.
+     *
+     * **3 was CHOSEN, not inherited** — recorded so the next reader knows it is a
+     * tunable and not a contract. One missed poll is normal (a slow HA response,
+     * a restart); three consecutive misses means the worker is not running, and
+     * that is the condition worth showing. Lower and a healthy box flickers
+     * Offline; higher and a dead worker looks alive for minutes.
+     *
+     * Nothing depends on the exact value: no wire, no money, no user-visible
+     * promise. Change it the moment the field disagrees.
+     */
     STALE_AFTER_POLLS: 3,
 
     /** Is this console running without an account (add-on, published, unauthed)? */
