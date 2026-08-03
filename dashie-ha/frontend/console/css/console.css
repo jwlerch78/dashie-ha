@@ -84,6 +84,24 @@ body {
     transition: width 0.2s ease, min-width 0.2s ease;
 }
 
+/* 🔴 THE LOGO HAS 8px OF WIDTH HEADROOM. Measured 2026-08-04, after the
+   Chickadee wordmark was replaced with a trimmed master (C's lockup spec).
+   Trimming removed ~29% baked-in vertical padding — which is what made the mark
+   legible — but it moved the aspect 3.00 → 3.60, so height-constrained at 50px
+   the mark is ~20% wider: 180px inside 188px of sidebar content width.
+
+   So ALL of these now clip, SILENTLY:
+     · shrinking --sidebar-width
+     · adding horizontal padding to .sidebar-logo
+     · raising .sidebar-logo-full's height
+
+   `width: auto` CLIPS rather than distorting, so the failure looks like a
+   slightly cropped wordmark that nobody files a bug about — and nothing in the
+   build measures rendered logo size. There is no gate here; this comment is it.
+
+   ⚠️ And do NOT raise the height to make the mark bigger: the asset trim already
+   did that. The two fixes stack, and a double-apply ships an oversized (then
+   clipped) mark with every gate green. Sizing lives in the ASSET, not here. */
 .sidebar-logo {
     padding: 14px 16px 6px;
     display: flex;
@@ -91,7 +109,7 @@ body {
 }
 
 .sidebar-logo-full {
-    height: 50px;
+    height: 50px;   /* ⚠️ raising this clips — see above. Size via the asset. */
     width: auto;
 }
 
