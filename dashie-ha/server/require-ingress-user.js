@@ -29,9 +29,13 @@
 // ── WHY THIS IS NOT "identity used as a permission" ──────────────────────────
 //
 // `ingress-identity.js` closes with "this file returns identity and never a
-// permission", and that rule is about DASHIE-ACCOUNT resources — household,
+// permission", and that rule is about ACCOUNT-scoped resources — household,
 // credits, hosted engines. Those are someone else's money and still require a
 // real signed JWT; nothing gated by THIS middleware touches them.
+//
+// ⚠️ "account-scoped", not the brand's name: this file is generated into an
+// edition that HAS no accounts, where naming the other brand would describe a
+// thing that does not exist there. Same rule capability.js carries.
 //
 // What it guards is a service call on a Home Assistant entity, on the user's own
 // box, that Home Assistant already exposes to that user. For that operation HA

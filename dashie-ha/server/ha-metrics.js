@@ -241,7 +241,9 @@ function _buildViaRegistry(states, entityRegistry) {
         // The id is recoverable one field away, and from a source that does not
         // depend on the device being awake: the entity REGISTRY is persistent,
         // and the integration stamps `unique_id = f"{device_id}_device_id"` on
-        // this very anchor (dashie/sensor.py). So state answers "is it alive",
+        // this very anchor (the device integration's sensor.py — brand-neutral
+        // here on purpose; the package name differs per edition). So state
+        // answers "is it alive",
         // registry answers "who is it" — and only the first should go away when
         // the device sleeps.
         const liveId = (anchor.state === 'unavailable' || anchor.state === 'unknown' || !anchor.state)
