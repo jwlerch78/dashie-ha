@@ -163,6 +163,28 @@ router.get('/voice-config', async (req, res) => {
         return res.json({
             route: cfg.route,
             route_reason: cfg.routeReason || (cfg.route === 'local' ? 'local_model' : 'cloud'),
+            // 🔴 SAY WHAT THIS ANSWER IS. `route` is resolved from THIS BOX's
+            // account config — `ai.model` plus the local BYO key store — with no
+            // caller identity anywhere on the path. It is a property of the
+            // HOUSEHOLD, never of the asking device.
+            //
+            // John's Mio bug was that conflation: a fully signed-in device took
+            // this route and was demoted off the cloud brain its own account
+            // pays for. Ruled 2026-08-04 (shape 2): a session a human signed
+            // into consults its OWN entitlement; this answer governs
+            // kiosk-provisioned sessions only — the same predicate A's
+            // `LeaseGovernance` already applies to the lease.
+            //
+            // ⚠️ Sharper than the scope alone: `getAccountVoiceConfig()` replays
+            // the CACHED config when Supabase is unreachable **or signed out**,
+            // so this can be a stale household preference carrying no
+            // entitlement meaning at all. One more reason a device that owns its
+            // session must not obey it.
+            //
+            // The field exists so the NEXT consumer cannot repeat the mistake by
+            // reading `route` and assuming it is about them. Additive, so older
+            // devices ignore it — compat-safe by construction. Contract: #73.
+            route_scope: 'household',
             model_is_local: cfg.route === 'local',
             agent_mode: cfg.agentMode || '',
             ...(typeof cfg.retrievePictures === 'boolean' ? { retrieve_pictures: cfg.retrievePictures } : {}),
