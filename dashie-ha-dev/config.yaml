@@ -94,7 +94,26 @@ options:
   tts_url: ""
   tts_voice: ""
   tts_api_key: ""
+  # ── ENFORCEMENT RUNGS (both default OFF, deliberately) ────────────────────
+  # Two observe->enforce ladders were designed and neither rung was ever built:
+  # the code reads these from add-on options, they were in no schema, so they
+  # could never be true and enforcement was unreachable on every box.
+  #
+  # service_policy_enforce: refuse HA service calls outside the allowlist
+  #   (server/ha-service-policy.js). OFF records what it WOULD refuse; ON
+  #   refuses. Flip per box, after checking the DROP: markers on THAT box --
+  #   the risky set is not knowable from the code, since /service is an
+  #   LLM-driven passthrough.
+  # ai_auth_enforce: the same shape on the AI auth path.
+  #
+  # Default OFF is the whole point: enabling by default would enforce on every
+  # box that takes a release, which is an estate-wide behaviour change rather
+  # than a rollout.
+  service_policy_enforce: false
+  ai_auth_enforce: false
 schema:
+  service_policy_enforce: bool?
+  ai_auth_enforce: bool?
   log_level: list(trace|debug|info|notice|warning|error|fatal)
   lease_ttl_minutes: int(5,240)?
   lease_ttl_seconds: int(0,14400)?
