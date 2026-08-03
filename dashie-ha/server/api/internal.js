@@ -19,6 +19,7 @@ const { getAccountVoiceConfig } = require('../account-config');
 const bridgeAuth = require('../bridge-auth');
 const capability = require('../capability');
 const { CLOUD, LEASE_TTL_S, LEASE_TTL_IS_DEBUG } = require('../config');
+const leaseObservations = require('../lease-observations');
 
 const router = express.Router();
 
@@ -214,37 +215,15 @@ const { LEASABLE_CAPABILITIES } = capability;
 
 // ── OBSERVATIONAL ONLY — this is NOT the lease table, and there isn't one ─────
 //
-// Grant decisions stay stateless: a renewal is a fresh read of grant state, which
-// is what makes a lease survive an add-on restart without persistence and stops a
-// stored lease outliving a revocation. Nothing here is ever consulted to decide
-// whether to grant.
+// The map, its bound and its eviction moved to `../lease-observations.js` on
+// 2026-08-03 so the CONSOLE can read the same record behind its own auth (the
+// per-device sharing indicator, CONTRACTS #72). Extraction only — same Map, same
+// behaviour, same restart-lossiness; the full rationale lives in that file's
+// header. This router still owns the lease PATH; it no longer owns the record of
+// what the path did.
 //
-// It exists because leases are deliberately not in Supabase (D7), so without it
-// NOTHING can answer "who currently holds capability" — which makes the setup
-// state of most lease tests unverifiable (the lease test suite). Losing it on restart is
-// therefore fine, and is itself a useful signal that it is not authoritative.
-const LEASE_OBSERVED = new Map();
-const LEASE_OBSERVED_MAX = 50;
-
-function recordLease(endpointId, expiresAt, capabilities) {
-    const prior = LEASE_OBSERVED.get(endpointId);
-    const now = new Date().toISOString();
-    LEASE_OBSERVED.set(endpointId, {
-        endpoint_id: endpointId,
-        issued_at: prior?.issued_at ?? now,
-        last_renewal: now,
-        renewals: (prior?.renewals ?? 0) + (prior ? 1 : 0),
-        expires_at: expiresAt,
-        capabilities,
-    });
-    // Bounded: evict the oldest by last renewal. A debug surface must not be a
-    // way to grow the add-on's memory without limit.
-    if (LEASE_OBSERVED.size > LEASE_OBSERVED_MAX) {
-        const oldest = [...LEASE_OBSERVED.values()].sort((a, b) => a.last_renewal < b.last_renewal ? -1 : 1)[0];
-        if (oldest) LEASE_OBSERVED.delete(oldest.endpoint_id);
-    }
-    return !prior;
-}
+// Unchanged and still the point: grant decisions stay stateless, and nothing in
+// that module is ever consulted to decide whether to grant.
 
 /**
  * GET /api/internal/voice-lease/debug — who the box has recently leased to.
@@ -256,7 +235,7 @@ router.get('/voice-lease/debug', (req, res) => {
         note: 'observational only — grant decisions are stateless and read live; this list is lost on restart',
         ttl_seconds: LEASE_TTL_S,
         ttl_is_debug_override: LEASE_TTL_IS_DEBUG,
-        leases: [...LEASE_OBSERVED.values()],
+        leases: leaseObservations.list(),
     });
 });
 
@@ -301,7 +280,7 @@ router.post('/voice-lease', express.json(), async (req, res) => {
 
     const ttl = LEASE_TTL_S;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
-    const isNew = recordLease(endpointId, expiresAt, granted);
+    const isNew = leaseObservations.record(endpointId, expiresAt, granted);
     console.log(
         `LEASE: ${isNew ? 'issued' : 'renewed'} endpoint=${endpointId} ` +
         `caps=${granted.join(',')} ttl=${ttl}s expires=${expiresAt}` +

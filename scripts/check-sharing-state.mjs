@@ -215,9 +215,74 @@ if (missing.length) {
     console.log(`✅ leg 2 — all ${needsProse.length} rendering state(s) have console prose (${needsProse.join(', ')})`);
 }
 
+// ── LEG 3 — the per-device route is GATED, and the map still behaves ─────────
+//
+// Two properties, both silent when broken.
+//
+// 🔴 (a) `/lease-observations` must sit behind `requireIngressUser`. Drop the
+// guard and the route still answers 200 with correct data — nothing errors,
+// nothing logs, and the only difference is WHO can read which devices leased.
+// A gate whose removal looks exactly like success needs a check.
+// ⚠️ It is deliberately STRICTER than the roster it joins: the roster rides
+// `/api/ha/status`, which is ungated by design. Measured 2026-08-03, because the
+// ruling that authorised this route assumed the roster was gated and it is not.
+//
+// (b) `list()` must return a COPY. It hands the map's contents to a route; if a
+// caller could mutate it, the observational record of who holds capability would
+// be writable from a request handler.
+const OBS = join(HERE, '..', 'dashie-ha', 'server', 'lease-observations.js');
+const ROUTER = join(HERE, '..', 'dashie-ha', 'server', 'api', 'voice-console.js');
+
+if (!existsSync(OBS) || !existsSync(ROUTER)) {
+    console.error('\ncheck-sharing-state: cannot check leg 3 — lease-observations.js or voice-console.js not found');
+    process.exit(2);
+}
+
+const routerSrc = readFileSync(ROUTER, 'utf8');
+const gated = /router\.get\(\s*'\/lease-observations'\s*,\s*requireIngressUser\(/.test(routerSrc);
+if (!gated) {
+    console.error(
+        "❌ leg 3a — /lease-observations is NOT behind requireIngressUser.\n" +
+        "     The route would still answer 200 with correct data; the only change is who can read it.\n" +
+        "     isIngress() is NOT a substitute — it accepts a client-suppliable header (D, s52).",
+    );
+    failed++;
+} else {
+    console.log('✅ leg 3a — /lease-observations is behind requireIngressUser (stricter than the ungated roster)');
+}
+
+let obs;
+try {
+    obs = require_(OBS);
+} catch (e) {
+    console.error(`❌ leg 3b — lease-observations.js did not load: ${e.message}`);
+    obs = null;
+    failed++;
+}
+if (obs) {
+    obs.record('dev-a', '2026-01-01T00:00:00Z', ['voice']);
+    const first = obs.list();
+    first.push({ endpoint_id: 'INJECTED' });          // mutate the returned array
+    const second = obs.list();
+    const isCopy = second.length === 1 && second[0].endpoint_id === 'dev-a';
+    const absentIsNull = obs.get('never-seen') === null;
+    const presentIsFound = obs.get('dev-a')?.endpoint_id === 'dev-a';
+
+    if (isCopy && absentIsNull && presentIsFound) {
+        console.log('✅ leg 3b — list() returns a copy · get() is null for an unobserved endpoint (UNKNOWN, not denial)');
+    } else {
+        console.error(
+            `❌ leg 3b — copy=${isCopy} absent-is-null=${absentIsNull} present-found=${presentIsFound}\n` +
+            '     get() returning anything but null for an unobserved endpoint would let a consumer\n' +
+            '     render "not shared" for a device the box has simply never heard from.',
+        );
+        failed++;
+    }
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} control(s)/leg(s) failed`);
     process.exit(1);
 }
-console.log(`✅ ${CASES.length}/${CASES.length} controls + leg 2 pass — #72's classification holds and the console covers it`);
+console.log(`✅ ${CASES.length}/${CASES.length} controls + legs 2 & 3 pass — #72 holds on both surfaces`);

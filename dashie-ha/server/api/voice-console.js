@@ -16,6 +16,7 @@ const lanDiscovery = require('../lan-discovery');
 const { readOptions } = require('../options');
 const auth = require('../auth');
 const { classifySharingState } = require('../sharing-state');
+const { requireIngressUser } = require('../require-ingress-user');
 
 const router = express.Router();
 
@@ -245,6 +246,57 @@ router.get('/sharing-state', async (req, res) => {
         });
     } catch (e) {
         return unknown(`predicate_failed: ${e.message}`);
+    }
+});
+
+// ── GET /api/voice/lease-observations — which devices have leased recently ───
+//
+// The PER-DEVICE half of CONTRACTS #72, joined to the Devices roster on
+// `endpoint_id` == roster `device_id` (T verified those byte-identical on a real
+// box, `706675418675e7903cc1d3db95b3b789`).
+//
+// 🔴 A DIFFERENT QUESTION FROM THE HOUSEHOLD CARD, and the copy must not blur
+// them. This answers *"observed leasing recently"*. `/sharing-state` answers
+// *"what would a satellite get right now"* — the live predicate. Sourcing a
+// present-tense claim from this map would be a confident falsehood after every
+// restart, because the map is empty then and this route would honestly report an
+// empty list.
+//
+// 🔴 NOT AUTHORITATIVE, and `[]` NEVER MEANS "NOTHING IS SHARED". The map is
+// in-memory, bounded, lost on restart, and records only SUCCESSFUL grants — a
+// refusal leaves no row. Absence is UNKNOWN. #72 pins the consequence: an absent
+// device renders NOTHING. `authoritative: false` ships in the payload so a
+// consumer cannot read this route's shape without meeting that fact.
+//
+// ── AUTH: requireIngressUser, and it is STRICTER than the roster ─────────────
+//
+// O's s99 ruling said to match the roster's auth. ⚠️ I measured it rather than
+// assuming, and the premise was wrong: the roster rides `/api/ha/status`, which
+// is UNGATED BY DESIGN ("Open (no auth) since the Console needs it on every
+// render"). So "identical to the roster" would have meant NO auth. This gate is
+// deliberately stricter, which satisfies the ruling's actual intent — never
+// WIDER than the roster — trivially. Stricter is not wider.
+//
+// D's s52 amendment applies verbatim: `requireIngressUser` is the load-bearing
+// guard. `isIngress()` is NOT a boundary — it accepts `x-ingress-path`, which
+// any caller can supply, so anyone auditing this by reading `isIngress()` would
+// test the wrong header and conclude the wrong thing.
+router.get('/lease-observations', requireIngressUser('voice-lease-observations'), (req, res) => {
+    try {
+        const leaseObservations = require('../lease-observations');
+        return res.json({
+            ok: true,
+            // Both flags are load-bearing for the consumer, not decoration.
+            authoritative: false,
+            note: 'observational only — empty means NOTHING OBSERVED (lost on every restart), never "nothing is shared"',
+            leases: leaseObservations.list(),
+        });
+    } catch (e) {
+        // Fail to an explicit unknown rather than an empty list: `[]` and "could
+        // not read" are different answers, and only one of them is safe to
+        // render as "no devices have leased".
+        console.warn(`DROP: lease-observations unavailable — ${e.message}`);
+        return res.status(503).json({ ok: false, reason: 'unavailable' });
     }
 });
 
