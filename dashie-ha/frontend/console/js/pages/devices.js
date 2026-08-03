@@ -704,9 +704,21 @@ const DevicesPage = {
                             // the device integration reaches a box: it names the CONDITION (Home
                             // Assistant reports the device) and the likeliest cause of absence,
                             // without promising a path that may not exist yet.
-                            ? `Devices appear here as soon as Home Assistant reports them — there is no
-                               account to sign in to. If a tablet is running and still missing, Home
-                               Assistant probably is not set up to see it yet.`
+                            // 🔴 This string is the ONLY place a user learns that the device
+                            // integration is a separate install (ruled 2026-08-03: keep HACS
+                            // distribution, fix the copy). So it names the requirement, the
+                            // integration, and where to get it — an empty page with an honest
+                            // shrug was the previous version and it left them nowhere to go.
+                            //
+                            // ⚠️ `BRAND.productName` is correct here and is not a guess: the
+                            // integration's HACS entry is named with the product name in BOTH
+                            // editions (`hacs.json` → "Dashie" / "Chickadee"), so this resolves
+                            // per brand with no second holder to keep in step. If the HACS entry
+                            // is ever renamed away from the product name, THIS is the string that
+                            // starts lying — cheap to fix, worth knowing where it lives.
+                            ? `Devices appear here once Home Assistant has the ${BRAND.productName}
+                               integration — install it from HACS, then add each tablet to it.
+                               There is no account to sign in to.`
                             : `Sign in to ${BRAND.productName} on a tablet or Fire TV to register it — or, if HA
                                sees one of your devices, add it from the banner above.`}
                     </div>
