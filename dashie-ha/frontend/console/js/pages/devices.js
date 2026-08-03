@@ -691,10 +691,24 @@ const DevicesPage = {
                 ${DevicesClaim.renderBanner()}
                 <div class="empty-state">
                     <div class="empty-state-icon">📱</div>
-                    <div class="empty-state-text">No devices registered yet.</div>
+                    <div class="empty-state-text">No devices yet.</div>
                     <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 8px;">
-                        Sign in to ${BRAND.productName} on a tablet or Fire TV to register it — or, if HA
-                        sees one of your devices, add it from the banner above.
+                        ${this._localMode
+                            // 🔴 The account-mode copy is WRONG TWICE on an account-less box: it
+                            // tells the user to "sign in" to an edition that has no accounts, and
+                            // points at the "banner above", which is the claim banner — also
+                            // account-only. Instructing someone to do a thing their build does not
+                            // offer is worse than saying nothing, because they go looking for it.
+                            //
+                            // ⚠️ Written to be true in EVERY branch of the open question about how
+                            // the device integration reaches a box: it names the CONDITION (Home
+                            // Assistant reports the device) and the likeliest cause of absence,
+                            // without promising a path that may not exist yet.
+                            ? `Devices appear here as soon as Home Assistant reports them — there is no
+                               account to sign in to. If a tablet is running and still missing, Home
+                               Assistant probably is not set up to see it yet.`
+                            : `Sign in to ${BRAND.productName} on a tablet or Fire TV to register it — or, if HA
+                               sees one of your devices, add it from the banner above.`}
                     </div>
                 </div>
                 ${this._renderDismissedSection([])}
