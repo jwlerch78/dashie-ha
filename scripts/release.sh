@@ -162,6 +162,12 @@ node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
 echo "==> Checking personalities (roster · availability join · voice degradation)"
 node "$ADDON_ROOT/scripts/check-personalities.mjs"
 
+# Device setup: Layout/Orientation are gated on the ACCOUNT seam, not the build
+# seam — and the signed-in rows must survive, because the easy wrong fix passes
+# the removal leg and quietly reverses a documented decision.
+echo "==> Checking the device-setup surface (account-gated rows · no emptied card)"
+node "$ADDON_ROOT/scripts/check-device-setup-surface.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:

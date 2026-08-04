@@ -162,12 +162,30 @@ const DevicesDetailModals = {
         const animationsOn = display.animationsEnabled === true || display['display.animationsEnabled'] === true;
         const themeFamily = display.themeFamily || 'default';
         const layoutMode = display.layoutMode || display['preferences.layoutMode'] || 'widgets';
-        const showOrientation = layoutMode === 'widgets';
+        // 🔴 Console-audit #3, ruled by John 2026-08-04: Layout and Orientation
+        // do not appear on an ACCOUNT-LESS box.
+        //
+        // Gated on `isLocalMode` rather than on `isPublishedBuild`, and the
+        // distinction is the whole ruling. `FAMILY_ONLY_OPTIONS` already drops
+        // the layoutMode VALUE 'widgets' in the published build while
+        // deliberately KEEPING the row — "the HA edition uses
+        // single_panel/kiosk" — and that decision still stands for a signed-in
+        // Dashie-for-HA box. What changes is the account-less case: `widgets`
+        // IS the family dashboard, which cannot run without an account, so
+        // these two rows there configure something that cannot exist.
+        //
+        // ⚠️ `isLocalMode` is the ONLY seam that separates the two editions in
+        // this console — both ship `BRAND.build: 'published'`, so
+        // `isPublishedBuild()` is true for both and cannot express this. Same
+        // seam, same reason, as the managed cloud row in voice-ai-options.js.
+        const showLayout = !(typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true);
+        const showOrientation = showLayout && layoutMode === 'widgets';
         const showAnimationRows = themeFamily !== 'default';
 
         return `
             ${this._subsectionCard('Dashboard', [
-                layoutMode === 'kiosk'
+                !showLayout ? ''
+                    : layoutMode === 'kiosk'
                     ? this._readonlyRow('Layout', this._labelFor(this.LAYOUT_MODES, 'kiosk'))
                     : this._summaryRow('Layout', this._labelFor(this.LAYOUT_MODES, layoutMode),
                         `DevicesDetailModals.openPicker('${idAttr}','display','layoutMode','Layout','WRITABLE_LAYOUT_MODES','widgets')`),
@@ -204,7 +222,18 @@ const DevicesDetailModals = {
         `;
     },
 
+    /** A titled card of rows — or NOTHING when there are no rows.
+     *
+     * 🔴 The empty case became reachable the moment #3 landed, and it is the
+     * failure this whole family keeps producing. On an account-less published
+     * box the "Dashboard" card can now lose EVERY row: Layout and Orientation
+     * are gated off by #3, Theme by `FAMILY_ONLY_OPTIONS['display.themeFamily']`,
+     * and the animation rows only exist for a non-default theme family. Without
+     * this guard the user gets a card with a heading and nothing under it —
+     * which reads as "this section failed to load", not as "there is nothing
+     * here", and nothing logs either way. */
     _subsectionCard(title, rowsHtml) {
+        if (!String(rowsHtml || '').trim()) return '';
         return `
             <div class="card" style="margin-bottom: 12px;">
                 <div class="card-body" style="padding: 0;">
