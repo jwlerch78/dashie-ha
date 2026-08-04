@@ -22,15 +22,15 @@ const ApiKeysPage = {
     _testing: null,       // provider id currently being validated
     _testResult: {},      // { providerId: { ok: true|false|null, detail } } — last validation
 
-    /** Brain providers, read from the SHARED manifest — this page keeps no list
-     *  of its own. It used to, and the copy was the thing that would rot: a
-     *  provider added to onboarding and not here (or the reverse) reads as
-     *  perfectly normal code in both files.
+    /** Providers, read from the SHARED manifest — this page keeps no list of its
+     *  own. It used to, and the copy was the thing that would rot: a provider
+     *  added to one file and not the other reads as perfectly normal code in
+     *  both.
      *
      *  `fields` and `group` still drive the form and the section bucketing, they
-     *  are just declared once now. Tool providers live in the same manifest and
-     *  are rendered by the onboarding flow; this page stays brain-only, which is
-     *  a filter over one list rather than two lists.
+     *  are just declared once now. Since 2026-08-04 this page is the manifest's
+     *  ONLY consumer (the onboarding flow that rendered the tool providers was
+     *  deleted, unmounted), which is why the speech providers are selected here.
      *
      *  Filtered by SURFACE as well as kind, and that is load-bearing: Hermes is
      *  a brain provider whose key is set on the voice page, in its own row

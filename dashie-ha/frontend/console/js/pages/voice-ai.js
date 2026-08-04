@@ -725,9 +725,9 @@ const VoiceAiPage = {
      *  overridden (e.g. own-box Kokoro/Whisper URLs stay picked). */
     _seedProvider(presetId, stageKey, dottedKey) {
         const O = window.VoiceAiOptions;
-        const all = stageKey === 'tts' ? O.ttsOptions(this._engines) : O.sttOptions(this._engines);
-        const opts = O.presetFilter(presetId, this._haFilter(all)).filter(o => !o.install);
         const current = String(this._defaults[dottedKey] || '');
+        const all = stageKey === 'tts' ? O.ttsOptions(this._engines, current) : O.sttOptions(this._engines, current);
+        const opts = O.presetFilter(presetId, this._haFilter(all)).filter(o => !o.install);
         const has = id => opts.some(o => o.id === id);
         // A saved engine REPLACES the inline local_url/local_stt_url row, so the stored
         // provider value has no matching row id — but it's a perfectly valid local
@@ -934,8 +934,14 @@ const VoiceAiPage = {
     /** The full (unfiltered) option list backing a stage card. */
     _stageOptions(stageKey) {
         const O = window.VoiceAiOptions;
-        if (stageKey === 'tts') return O.ttsOptions(this._engines);
-        if (stageKey === 'stt') return O.sttOptions(this._engines);
+        // The stored provider goes in so a dropped managed-cloud row can still
+        // appear as a residual when it is what this box holds — see
+        // VoiceAiOptions._managedCloudRow. Passing it everywhere the list is
+        // built is what keeps "what is offered" and "what is selected" the same
+        // list; a site that forgot it would resolve the selection to opts[0] and
+        // display an engine the box is not using.
+        if (stageKey === 'tts') return O.ttsOptions(this._engines, this._defaults['voice.ttsProvider']);
+        if (stageKey === 'stt') return O.sttOptions(this._engines, this._defaults['voice.sttProvider']);
         if (stageKey === 'model') return this._modelOptions(this._activePreset());
         return [];
     },
@@ -1482,7 +1488,7 @@ const VoiceAiPage = {
         // engines with a selectable voice (Piper ha_engine / Kokoro local_url).
         // The URL/other fields stay in the card.
         const VOICE_FIELD_KEYS = ['voice.haTtsVoiceId', 'voice.localTtsVoiceId'];
-        const ttsAll = this._applyProbed(filtered('tts', O.ttsOptions(this._engines)));
+        const ttsAll = this._applyProbed(filtered('tts', O.ttsOptions(this._engines, d['voice.ttsProvider'])));
         // A saved engine's row id stands in for the raw provider value, so the card
         // shows "Kokoro (Mac)" rather than the generic "Local TTS (your box)".
         const ttsSelectedId = this._engineRowId('tts') || String(d['voice.ttsProvider']);
@@ -1500,7 +1506,7 @@ const VoiceAiPage = {
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
             ${P.renderCustomizeRow(customPipeline, true)}
-            ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines))), sttSelectedId) : ''}
+            ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${P.renderCustomizeRow(customPipeline, true)}
@@ -1516,7 +1522,7 @@ const VoiceAiPage = {
             })}
             ${isLive ? this._renderLiveVoiceRow(d) : ''}
             ${showPipeline ? this._renderEngineDetectionRow() : ''}
-            ${showStt ? card(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines)) : filtered('stt', O.sttOptions(this._engines))), sttSelectedId) + (isLive ? this._renderLiveSttNote() : '') : ''}
+            ${showStt ? card(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) + (isLive ? this._renderLiveSttNote() : '') : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}
             ${showPipeline ? card('Web search source', 'search', this._markKeyed(searchOptions), searchSelected) : ''}

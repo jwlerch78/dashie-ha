@@ -377,25 +377,71 @@ const VoiceAiOptions = {
         llm: '+ Add my own AI',
     },
 
+    /**
+     * Is there a MANAGED cloud lane this box could actually be billed for?
+     *
+     * 🔴 The managed row bills an ACCOUNT. An account-less add-on console has no
+     * account to bill, so offering it names a service the box cannot buy — which
+     * is John's console-audit #4 seen from the other side ("the voice pipeline
+     * shows Cloud selected while NO API keys are set"). His ruling: *"not here
+     * anymore in this model."*
+     *
+     * ⚠️ Asked as the REAL question, not a brand one. `DashieAuth.isLocalMode` is
+     * already the single definition of "this session has no account" (add-on +
+     * published build + unauthenticated), and the same reasoning capability.js
+     * used applies here: a brand check would be a proxy for this, and the proxy
+     * is what goes wrong when a build mis-generates. Consequences, all intended:
+     * the family build never loses the row, the web console never loses it, and a
+     * Dashie-for-HA box that signs in gets it back the moment it does.
+     */
+    hasManagedCloud() {
+        return !(typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true);
+    },
+
+    /**
+     * The managed cloud row, or its RESIDUAL, or nothing.
+     *
+     * 🔴 The residual is the load-bearing half, and dropping the row without it
+     * would have shipped a confident falsehood. `VoiceAiCards.render()` resolves
+     * a selection with `opts.find(...) || opts[0]` — so on a box that already
+     * stored `dashie_cloud` (boxes ARE in this state; it is what John saw on the
+     * VM), removing the row makes the card display the FIRST option as selected
+     * while the stored value, and the device, still say cloud. Nothing errors and
+     * nothing looks wrong.
+     *
+     * So: never OFFERED, but still SHOWN while it is what this box holds — with
+     * copy that says it is not available — and it disappears for good the moment
+     * the user picks anything else. The id stays valid either way: it is a
+     * persisted wire value (brand.js:14-17) and nothing here migrates or clears
+     * it, so a box that later signs in finds its choice intact.
+     */
+    _managedCloudRow(row, currentId) {
+        if (!row) return null;
+        if (this.hasManagedCloud()) return row;
+        if (String(currentId || '') !== 'dashie_cloud') return null;
+        return { ...row, cost: '', description: 'Not available on this box — pick another option.' };
+    },
+
     /** TTS option list in the §3 order: cloud, Piper (if detected), your-box, HA
-     *  pipeline, Android. */
-    ttsOptions(detection) {
+     *  pipeline, Android. `currentId` = the stage's stored provider, so a dropped
+     *  managed row can still render as a residual when it is what is stored. */
+    ttsOptions(detection, currentId) {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
-        const out = [base.dashie_cloud, base.android_voice, this._piperOption(detection),
+        const out = [this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
         return this.withSavedEngines('tts', out.filter(Boolean), 'local_url');
     },
 
     /** STT option list in the §3 order: cloud, Whisper (if detected), your-box,
      *  HA pipeline, Android. */
-    sttOptions(detection) {
+    sttOptions(detection, currentId) {
         const base = Object.fromEntries(this.STT.map(o => [o.id, o]));
         // Order: cloud → On-Device family (Fast/Accurate/Native) → HA → +Add local (bottom).
         // local_stt_url is the inline "+ Add local speech-to-text" row (withSavedEngines swaps
         // it in place), so putting it last lands the Add row at the bottom.
-        const out = [base.dashie_cloud,
+        const out = [this._managedCloudRow(base.dashie_cloud, currentId),
                      base.sherpa_moonshine_tiny, base.sherpa_moonshine_base, base.android_voice,
                      this._whisperOption(detection), base.va_default, base.local_stt_url];
         return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');

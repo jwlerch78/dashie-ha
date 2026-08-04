@@ -10,6 +10,16 @@
 // configuring a provider is a text box, and a registry that assumed one would
 // have to be unpicked rather than extended.
 //
+// ⚠️ STATE OF THIS FILE, 2026-08-04, said plainly rather than left to be
+// discovered: its ONE live caller is the API Keys page, and it calls exactly
+// `statusLine()` — the three-state chip below. `render()`, `register()` and
+// `isSupported()` have NO caller since the unmounted onboarding page was
+// deleted. They are kept because the boot-time shape check further down still
+// guards the manifest (a declared AUTH shape with no renderer warns at load),
+// and because a rebuilt first-run flow is the intended second consumer. Nothing
+// here is load-bearing today except `statusLine`; do not read the rest as
+// evidence that a second surface exists.
+//
 // 🔴 What must never appear here
 //
 // No price, balance, credit meter, quota readout or purchase affordance, for any

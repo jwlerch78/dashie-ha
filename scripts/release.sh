@@ -150,6 +150,11 @@ node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
 # was six individually-correct components adding up to an outcome of zero.
 echo "==> Checking the API Keys surface (speech keys enterable · inert keys say so)"
 node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
+
+# The picker end: no managed cloud row on a box with no account to bill, the
+# residual keeps a box that already stored it honest, and the wire id survives.
+echo "==> Checking the voice picker surface (managed row · residual · id validity)"
+node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
