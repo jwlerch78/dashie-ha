@@ -652,7 +652,7 @@ const DevicesDetailModals = {
         const device = DevicesPage._findDevice(this._wakeWordDeviceId);
         const current = this._wakeWordPending != null
             ? this._wakeWordPending
-            : (device?.settings?.aiVoice?.wakeWord || 'hey_dashie');
+            : (device?.settings?.aiVoice?.wakeWord || VoiceAiApi.defaultWakeWord());
         const optionsHtml = this.WAKE_WORDS.map(({ id, label }) =>
             `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`
         ).join('');

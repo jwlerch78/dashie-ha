@@ -90,11 +90,21 @@ const VoiceAiApi = {
         // the Devices page. '' voice = the personality's own preferred voice.
         'ai.defaultPersonalityId': 'dashie',
         'ai.defaultVoiceKey': '',
+        // 🔴 THE ONE HOLDER of the household wake-word default. Every other site
+        // reads it from here (`VoiceAiApi.defaultWakeWord()`); nothing else may
+        // write the literal. It had FOUR copies — this one plus three
+        // `|| 'hey_dashie'` fallbacks — and that is why the brand table's
+        // per-edition rewrite of it had gone stale without anything noticing:
+        // one line to rewrite is checkable, four scattered literals are not.
+        //
         // Every APK bundles hey_dashie (WakeWordModel.HEY_DASHIE), so it is always a safe
         // household default — no device can report it unavailable via the model-gap rule.
-        // Unconditional since 2026-07-30: the published build used to default to
-        // 'chickadee', which is now nobody's brand. That model is still shipped and
-        // still selectable; it is just not a default.
+        //
+        // ⚠️ The value is PER EDITION and is rewritten by `scripts/brand-gen/`
+        // (John, 08-02: the picker offers both models; only the DEFAULT differs
+        // per brand). Do not "simplify" it to a shared constant, and do not
+        // brand-substitute the LABELS — a rebranded label would instruct the
+        // user to say a phrase the trained weights will never answer to.
         'ai.defaultWakeWord': 'hey_dashie',
         // '' = preset not chosen yet — the page derives one from the granular
         // keys (display-only) and persists on the user's first preset click.
@@ -220,6 +230,14 @@ const VoiceAiApi = {
     // file for exactly that reason). A personality is CONFIG. Panel-writable is
     // the INTENT. Same store, opposite verdicts, and the call sites look
     // identical — which is why this note is here and not only in a status file.
+
+    /** The household wake-word default for THIS edition. The single reader of
+     *  `DEFAULTS['ai.defaultWakeWord']`, so a per-brand rewrite has exactly one
+     *  target and every fallback in the console agrees with the value the page
+     *  actually persists. */
+    defaultWakeWord() {
+        return this.DEFAULTS['ai.defaultWakeWord'];
+    },
 
     /** Where custom personalities live in the account-less settings blob. */
     LOCAL_CUSTOM_KEY: 'personalities.custom',

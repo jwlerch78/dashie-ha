@@ -108,7 +108,7 @@ const VoiceAiDefaultsCards = {
      */
     renderWakeWordCard(o) {
         const words = window.VoiceAiOptions?.WAKE_WORDS || [];
-        const current = String(o.currentId || 'hey_dashie');
+        const current = String(o.currentId || VoiceAiApi.defaultWakeWord());
         const opts = words
             .map(w => `<option value="${this._esc(w.id)}" ${w.id === current ? 'selected' : ''}>${this._esc(w.label)}</option>`)
             .join('');

@@ -1550,7 +1550,7 @@ const VoiceAiPage = {
             ${P.renderCustomizeRow(customPipeline, true)}
             ${card('AI Model', 'model', this._markKeyed(this._applyProbed(this._modelOptions(preset))), this._selectedModelId(agentMode))}
             ${D.renderWakeWordCard({
-                currentId: String(d['ai.defaultWakeWord'] || 'hey_dashie'),
+                currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                 saving: this._savingKey === 'ai.defaultWakeWord',
             })}
             ${D.renderPersonalityCard({
