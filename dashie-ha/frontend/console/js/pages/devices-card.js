@@ -204,6 +204,17 @@ const DevicesCard = {
             </div>
         `;
         const leaseLine = this._renderLeaseLine(device);
+        // 🔴 Local mode: none of the rows. Every one opens an editor that
+        // persists via DevicesPage._onSettingChange → update_device_settings —
+        // an account route — and the summaries would render defaults off the
+        // empty local blob rather than the device's real state (DevicesSource:
+        // null, never invented). The lease line stays: it is a STATUS with a
+        // box-local source, not a setting.
+        if (DevicesPage._localMode === true) {
+            return leaseLine
+                ? `<div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">${leaseLine}</div>`
+                : '';
+        }
         return `
             <div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">
                 ${leaseLine}

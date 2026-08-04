@@ -76,6 +76,14 @@ const DevicesDetail = {
                 <a href="#" onclick="event.preventDefault(); DevicesRename.openModal()">Resolve</a>
             </div>
         ` : '';
+        // Account-only sections, gated off in local mode: Display and Voice & AI
+        // persist via DevicesPage._onSettingChange → update_device_settings, and
+        // the Danger Zone is unclaim_devices / delete_device — routes with no
+        // account to act on here. The control sections (Quick Controls, Device
+        // Behavior, Admin Actions) stay: they ride /api/ha/control, the box's
+        // own transport. Same seam as audit #3 — recorded once on the page
+        // (DevicesPage._localMode) rather than re-derived per render site.
+        const localMode = DevicesPage._localMode === true;
         return `
             <div class="back-link" onclick="DevicesPage.backToList()">← Back to Devices</div>
             <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;">
@@ -100,17 +108,17 @@ const DevicesDetail = {
                 </div>
             </div>
             ${this._renderQuickControls(device, m, live)}
-            ${this._renderDisplaySection(device, display, sleep)}
-            ${this._renderVoiceSection(device, aiVoice, voice)}
+            ${localMode ? '' : this._renderDisplaySection(device, display, sleep)}
+            ${localMode ? '' : this._renderVoiceSection(device, aiVoice, voice)}
             ${this._renderHomeAssistantSection(device)}
             ${this._renderPhotosSection(device, photos)}
             ${this._renderBehaviorSection(device, m)}
             ${this._renderAdminSection(device, m)}
-            ${this._renderDangerZone(device)}
-            <p class="page-summary">
+            ${localMode ? '' : this._renderDangerZone(device)}
+            ${localMode ? '' : `<p class="page-summary">
                 Changes apply to the device immediately via Supabase real-time broadcast.
                 Last check-in: ${DevicesPage._formatTime(device.last_seen_at)}
-            </p>
+            </p>`}
             ${DevicesRename.conflictModal ? DevicesRename.renderModal(DevicesPage._conflictDevices(), d => DevicesPage._conflictHaName(d)) : ''}
             ${DevicesCard.renderSliderModal()}
             ${DevicesCard.renderScreenshotModal()}
@@ -229,16 +237,20 @@ const DevicesDetail = {
             screensaverOn ? 'Screensaver on — tap to disable' : 'Screensaver off — tap to enable'));
 
         // Change PIN / Set PIN — green when a PIN is set on the device,
-        // gray "Set PIN" when not. Click opens the PIN modal.
-        const pinSet = !!(controls.pin_set || settings.security?.pinSet);
-        buttons.push(`
-            <button title="${pinSet ? 'PIN is set — tap to change' : 'No PIN set — tap to create one'}"
-                onclick="DevicesDetailModals.openPinModal('${idAttr}', ${pinSet})"
-                style="${this._controlBtnStyle(false, pinSet)}">
-                <img src="assets/icons/icon-lock.svg" alt="" style="width: 14px; height: 14px; ${pinSet ? 'filter: brightness(0) invert(1);' : ''}">
-                <span>${pinSet ? 'Change PIN' : 'Set PIN'}</span>
-            </button>
-        `);
+        // gray "Set PIN" when not. Click opens the PIN modal — which persists
+        // via DevicesPage._onSettingChange → update_device_settings, so it is
+        // an account affordance: local mode must not render it.
+        if (DevicesPage._localMode !== true) {
+            const pinSet = !!(controls.pin_set || settings.security?.pinSet);
+            buttons.push(`
+                <button title="${pinSet ? 'PIN is set — tap to change' : 'No PIN set — tap to create one'}"
+                    onclick="DevicesDetailModals.openPinModal('${idAttr}', ${pinSet})"
+                    style="${this._controlBtnStyle(false, pinSet)}">
+                    <img src="assets/icons/icon-lock.svg" alt="" style="width: 14px; height: 14px; ${pinSet ? 'filter: brightness(0) invert(1);' : ''}">
+                    <span>${pinSet ? 'Change PIN' : 'Set PIN'}</span>
+                </button>
+            `);
+        }
 
         if (buttons.length === 0) return '';
         return this._section('quick-controls', 'Quick Controls', `

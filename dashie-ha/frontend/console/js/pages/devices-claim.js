@@ -27,6 +27,15 @@ const DevicesClaim = {
     _claiming: false,              // request in flight (claim or adopt)
     _selected: new Set(),          // uids currently checked
 
+    /** Account-less (add-on, published, unauthenticated) — same predicate
+     *  DevicesSource uses. Claiming ATTACHES a device to an ACCOUNT, so with
+     *  no account this whole surface has nothing to act on: every route it
+     *  touches (list_claimable_devices, claim_devices, archive_install) and
+     *  the adopt path's backend half all require one. */
+    _isLocal() {
+        return typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true;
+    },
+
     /**
      * Refresh the claimable installs list. Discovered devices come from
      * DevicesPage._discoveredDevices() (which reads the worker's status
@@ -34,6 +43,9 @@ const DevicesClaim = {
      * failure here doesn't block the devices page.
      */
     async fetch() {
+        // Local mode: skip the account route entirely rather than letting it
+        // fail on every poll — list_claimable_devices requires an account.
+        if (this._isLocal()) { this._claimable = []; this._selected.clear(); return; }
         // Hydrate dismissals before computing visibility. ConsoleState.load()
         // is idempotent — multiple callers await the same promise.
         if (typeof ConsoleState !== 'undefined') {
@@ -59,6 +71,11 @@ const DevicesClaim = {
      *   { uid, kind, name, deviceType, lastSeen, installId?, haDeviceId? }
      */
     _addable() {
+        // Local mode: nothing is "addable" — there is no account to add TO.
+        // Emptying the list here empties every consumer in one place: the
+        // banner (claim_devices), the hidden-card Delete (archive_install)
+        // and the signature, so no claim affordance can render account-less.
+        if (this._isLocal()) return [];
         const list = [];
         // install rows from list_claimable_devices
         for (const d of (this._claimable || [])) {

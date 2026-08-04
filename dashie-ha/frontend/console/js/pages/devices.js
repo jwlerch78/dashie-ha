@@ -864,6 +864,13 @@ const DevicesPage = {
             const idAttr = this._escape(d.device_id);
             const nameAttr = this._escape(d.device_name || 'this device');
             const icon = this._deviceIcon(d.device_type);
+            // Delete is delete_device — an account write. Local mode keeps
+            // Restore (a ConsoleState visibility flip) but must not offer a
+            // row deletion no backend here can perform.
+            const deleteBtn = this._localMode ? '' : `
+                            <button class="btn btn-secondary btn-sm"
+                                title="Delete this device from your account. If it reconnects later, it'll reappear as a fresh discovered/install."
+                                onclick="DevicesPage.deleteDismissedDevice('${idAttr}', '${nameAttr}')">Delete</button>`;
             return `
                 <div class="card" style="margin-bottom: 8px;">
                     <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
@@ -877,10 +884,7 @@ const DevicesPage = {
                             </div>
                         </div>
                         <div style="flex-shrink: 0; display: flex; gap: 6px;">
-                            <button class="btn btn-secondary btn-sm" onclick="DevicesPage.restoreDevice('${idAttr}')">Restore</button>
-                            <button class="btn btn-secondary btn-sm"
-                                title="Delete this device from your account. If it reconnects later, it'll reappear as a fresh discovered/install."
-                                onclick="DevicesPage.deleteDismissedDevice('${idAttr}', '${nameAttr}')">Delete</button>
+                            <button class="btn btn-secondary btn-sm" onclick="DevicesPage.restoreDevice('${idAttr}')">Restore</button>${deleteBtn}
                         </div>
                     </div>
                 </div>
@@ -947,6 +951,9 @@ const DevicesPage = {
             `;
         }
 
+        // Delete is delete_device — an account write, gated off in local mode.
+        // (A local roster never carries last_seen_at, so this section should
+        // be unreachable there — the gate is the guarantee, not the shape.)
         const rows = devices.map(d => `
             <div class="card" style="margin-bottom: 8px;">
                 <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
@@ -960,10 +967,10 @@ const DevicesPage = {
                         </div>
                     </div>
                     <div style="flex-shrink: 0;">
-                        <button class="btn btn-secondary btn-sm" ${this._deletingId === d.device_id ? 'disabled' : ''}
+                        ${this._localMode ? '' : `<button class="btn btn-secondary btn-sm" ${this._deletingId === d.device_id ? 'disabled' : ''}
                             onclick="DevicesPage._deleteArchived('${this._escape(d.device_id)}', '${this._escape(d.device_name || 'this device')}')">
                             ${this._deletingId === d.device_id ? 'Deleting…' : 'Delete'}
-                        </button>
+                        </button>`}
                     </div>
                 </div>
             </div>
