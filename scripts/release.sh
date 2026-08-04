@@ -211,6 +211,14 @@ echo "==> Checking the service policy (class A stays refused; script.<name> stil
 node "$ADDON_ROOT/scripts/check-service-policy.mjs"
 echo "==> Checking /service target resolution (an area target is expanded BEFORE it is judged)"
 node "$ADDON_ROOT/scripts/check-service-targets.mjs"
+
+# Device removal: every Remove/Delete button reaches ONE holder and none of them
+# calls the SOFT delete_device. #14 §5a re-pointed the button its spec named and
+# left two others on the placebo for two days — so this asserts the CALL, which
+# cannot be under-counted the way a list of surfaces can. It also pins D's §5c
+# precondition ("retire the soft path once nothing calls it").
+echo "==> Checking device removal (one holder, no soft delete_device, a refusal cleans up nothing)"
+node "$ADDON_ROOT/scripts/check-device-removal.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
