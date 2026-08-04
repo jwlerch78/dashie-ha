@@ -349,6 +349,20 @@ const DevicesClaim = {
      * Aggregates success/failure counts into a single toast.
      */
     async claimSelected() {
+        // 🔴 The adopt path was hidden only as a SIDE-EFFECT: `_addable()`
+        // returns [] account-less, so nothing renders and nothing is selected,
+        // so this never runs. That is true today and true by accident — it holds
+        // because of what a DIFFERENT function returns, not because this one
+        // refuses. Restore one row from any future code path and this POSTs
+        // /api/ha/adopt with no account behind it.
+        //
+        // ⚠️ `claim_devices` (the other half of this function) is one of leg 3's
+        // six routes and `/api/ha/adopt` is NOT — it is an add-on fetch, not a
+        // dbRequest — so the gate that covers this function covered half of it.
+        if (this._isLocal()) {
+            console.warn('DROP: claim/adopt suppressed reason=local_mode selected=' + this._selected.size);
+            return;
+        }
         if (this._selected.size === 0 || this._claiming) return;
         this._claiming = true;
         App.renderPage();

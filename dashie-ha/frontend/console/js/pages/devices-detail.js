@@ -451,6 +451,17 @@ const DevicesDetail = {
      *  button entities aren't wired yet — clicks toast a "coming soon" so
      *  the UI doesn't 400 while we plumb the entities + server route. */
     _renderHeaderActions(device, m, live) {
+        // 🔴 Account-only, and it was the one account-backed affordance the s151
+        // sweep did not reach (outside the six-route charter, so leg 3 was green
+        // on it). Both buttons publish on a SUPABASE REALTIME channel
+        // (_publishDeviceCommand), which needs an account — account-less they
+        // rendered enabled and failed on click with "No realtime client".
+        //
+        // ⚠️ That is worse than the routes the sweep did cover. A missing button
+        // reads as "not available here"; a button that is present, enabled, and
+        // errors reads as a BROKEN PRODUCT — the user cannot tell an unsupported
+        // action from a broken one, so they retry, and then report it.
+        if (DevicesPage._localMode === true) return '';
         const idAttr = DevicesPage._escape(device.device_id);
         const hasCrash = !!m?.app?.has_crash_report;
         const btn = (label, title, onClick, disabled) => `
@@ -503,6 +514,16 @@ const DevicesDetail = {
      *  DashieNative bridge method, and runs the existing upload path —
      *  same one the sidebar dialog uses. */
     async _publishDeviceCommand(deviceId, cmd, pendingToast) {
+        // 🔴 The ACTION guard, separate from the render guard above, and not
+        // redundant with it. Hiding the buttons is the UX; this is the
+        // invariant. Every account-less hole this sweep has found was a surface
+        // that stopped rendering while its function stayed callable — one new
+        // caller and it is reachable again, silently, because the thing that was
+        // "fixed" was the markup. A loud drop is what makes the next one visible.
+        if (DevicesPage._localMode === true) {
+            console.warn(`DROP: device-command suppressed cmd=${cmd} device=${deviceId} reason=local_mode`);
+            return;
+        }
         const sb = DashieAuth._getSupabaseClient?.();
         if (!sb) {
             Toast.error('No realtime client — cannot send command');
