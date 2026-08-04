@@ -15,6 +15,7 @@ const auth = require('./auth');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const byokTts = require('./byok-tts');
+const sttUsage = require('./stt-usage');
 
 /** Signed-in JWT or null (never throws — engine handlers decide the fallback). */
 async function cloudJwt() {
@@ -58,6 +59,11 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
  * guessable from the provider docs, and its failure mode ("the last words of a
  * sentence go missing") looks like a model quality problem rather than a proxy
  * bug.
+ *
+ * ⭐ The lane IS instrumented already (`stt-usage.js`), which is not the same
+ * thing as being BYOK. I once reported that this box makes no STT/TTS calls at
+ * all; it makes both, and always has — three true measurements aimed at the
+ * wrong three files. So usage capture never had to wait for an adapter.
  */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
@@ -111,6 +117,9 @@ async function handleStt(req, res, sendJson) {
         }
         const text = String(data.text || '').trim();
         console.log(`DASHIE-STT text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        // Success path ONLY — the two failure returns above made no successful
+        // provider call, so there is no usage to record (D §8c: no zero rows).
+        sttUsage.recordSttCall(audio, opts, 'local');
         sendJson(res, 200, { text });
     } catch (e) {
         clearTimeout(timer);
@@ -145,6 +154,11 @@ async function cloudStt(audio, jwt, res, sendJson) {
         }
         const text = String(data.transcript || data.text || '').trim();
         console.log(`DASHIE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        // Success path only. Recorded as `metered` — a SEPARATE store key from
+        // the local branch, because merging metered and BYOK spend into one row
+        // is what §5a forbids. This row is for the at-a-glance view; the issuer
+        // stays authoritative for its cost.
+        sttUsage.recordSttCall(audio, readOptions(), 'cloud');
         sendJson(res, 200, { text });
     } catch (e) {
         console.warn('DROP: cloud stt unreachable:', e.message);

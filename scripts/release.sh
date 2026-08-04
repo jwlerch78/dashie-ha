@@ -151,6 +151,12 @@ node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
 echo "==> Checking the API Keys surface (speech keys enterable · inert keys say so)"
 node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 
+# The STT lane's usage capture: bytes always, seconds only when a real WAV header
+# derived it, the two branches never merged, and failures recorded as nothing.
+# Every failure here is a plausible wrong NUMBER rather than a crash.
+echo "==> Checking STT usage capture (derived seconds · no zero rows · lanes apart)"
+node "$ADDON_ROOT/scripts/check-stt-usage.mjs"
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"

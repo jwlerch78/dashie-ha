@@ -70,7 +70,13 @@ const BILLINGS = new Set(['byok', 'metered', 'free']);
  *  single grep of one lane yields one comparable number. */
 const MARKER_UNIT = {
     tts: ['chars', 'characters'],
-    stt: ['seconds', 'seconds'],
+    // 🔴 BYTES, not seconds, and deliberately so. Providers bill STT in seconds,
+    // but the lane only has `seconds` when a canonical WAV header yielded one —
+    // it is OPTIONAL by design (D §8c.2: a wrong seconds is worse than a missing
+    // one). A marker whose number is sometimes absent cannot be grepped and
+    // summed, so the marker reports the unit that is ALWAYS there. `seconds`
+    // still lands in the store whenever it was derived.
+    stt: ['bytes', 'bytes'],
     brain: ['tokens', 'total_tokens'],
 };
 
@@ -79,6 +85,10 @@ const MARKER_UNIT = {
  *  a silently-created column is unaggregatable later. */
 const UNIT_FIELDS = new Set([
     'input_tokens', 'output_tokens', 'total_tokens', 'seconds', 'characters',
+    // STT records bytes ALWAYS and seconds only when a real WAV header derived
+    // it, so a row may legitimately carry bytes with no seconds. The view must
+    // not read a missing `seconds` as zero usage.
+    'bytes',
 ]);
 
 /** UTC day bucket. Stored in UTC so a box that moves timezone neither
