@@ -145,7 +145,7 @@ function wav(seconds, { rate = 16000, channels = 1, bits = 16 } = {}) {
     });
     const keys = Object.keys(rows()).sort();
     check('leg 3a — a local turn and a hosted turn land in DIFFERENT store rows',
-        keys.length === 2 && keys.includes('192.168.1.50:8000|whisper-1|free') && keys.includes('dashie-cloud|-|metered'),
+        keys.length === 2 && keys.includes('192.168.1.50:8000|whisper-1|free') && keys.includes('dashie_cloud|-|metered'),
         `rows: ${JSON.stringify(keys)}`,
         'billing is part of the store key precisely so metered spend and the household\'s own spend can never merge into one number (§5a) — and the hosted row is server-authoritative, so a merged row would also make the local store look like a cost authority it is not');
 

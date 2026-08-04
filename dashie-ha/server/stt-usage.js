@@ -122,8 +122,30 @@ function recordSttCall(audio, opts, route) {
         }
 
         if (route === 'cloud') {
+            // 🔴 `dashie_cloud`, with an UNDERSCORE — a deliberate deviation
+            // from D's §8c.3, which wrote the same name HYPHENATED.
+            //
+            // ⚠️ The hyphenated form is not written out anywhere in this file,
+            // deliberately: the brand-residue gate scans text, so quoting it
+            // even in a comment re-breaks the regeneration. (It did, once —
+            // this comment was the second offender after the code was fixed.)
+            //
+            // That hyphenated form would have been a SECOND SPELLING of an
+            // identity this codebase already has: `dashie_cloud` is the engine
+            // id, a wire value on the account contract, and it is already on the
+            // brand table's annotated keep-list for exactly that reason. The
+            // usage view joins to the provider surface ON PROVIDER IDENTITY
+            // (D §7), so two spellings of one provider would split a household's
+            // own history across two store keys — invisibly, because both rows
+            // look correct.
+            //
+            // ⭐ The brand-residue gate is what found it: the hyphenated token
+            // is not on the keep-list, so the regeneration REFUSED. A gate
+            // written for brand leakage caught a hand-mirror instead, which is
+            // the second time this week a check has been more useful than the
+            // property it was written for.
             recordLocalUsage({
-                lane: 'stt', provider: 'dashie-cloud', model: null,
+                lane: 'stt', provider: 'dashie_cloud', model: null,
                 billing: 'metered', success: true, units,
             });
             return;
