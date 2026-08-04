@@ -192,6 +192,25 @@ echo "==> Checking the sharing-state classifier (#72 must never fail to the reas
 node "$ADDON_ROOT/scripts/check-sharing-state.mjs"
 echo "==> Checking console endpoints (every route the SPA calls is served)"
 node "$ADDON_ROOT/scripts/check-console-endpoints.mjs"
+
+# ── /service, both halves — and check-service-policy was a FOURTH unrun gate ──
+#
+# 🔴 The block above says this defect was "found while wiring the four above".
+# It was not finished: `check-service-policy.mjs` ran nowhere either, and it is
+# the one guarding `lock.open`. Found on 2026-08-04 by grepping for its own name
+# while adding its sibling. That is now four gates in this repo that were written,
+# correct, green and never executed — the pattern is not a slip, it is that
+# writing a gate and wiring a gate are separate acts and only one of them feels
+# like finishing.
+#
+# Both are read from the DECISION FUNCTIONS, not the wire: in observe mode every
+# call returns HTTP 200 (`allowed` is `!enforcing`), so a status-code harness
+# reads all-green against a policy that would refuse music, scripts and scenes
+# the moment it is enforced. T's field probe is the evidence for that.
+echo "==> Checking the service policy (class A stays refused; script.<name> still works)"
+node "$ADDON_ROOT/scripts/check-service-policy.mjs"
+echo "==> Checking /service target resolution (an area target is expanded BEFORE it is judged)"
+node "$ADDON_ROOT/scripts/check-service-targets.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
