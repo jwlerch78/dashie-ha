@@ -143,6 +143,13 @@ echo "==> Checking disclosure (docs still describe the code)"
 # number rather than an error.
 echo "==> Checking the BYOK speech lane (adapter/key join · no key in logs · one USAGE: per call)"
 node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
+
+# The other end of the same lane: a household can ENTER a speech key, the brain
+# routability filter does not eat it, and one with no adapter yet says so in the
+# shared words. Driven against the real page object, because the defect it closes
+# was six individually-correct components adding up to an outcome of zero.
+echo "==> Checking the API Keys surface (speech keys enterable · inert keys say so)"
+node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
