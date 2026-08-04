@@ -24,6 +24,7 @@ const haClient = require('../ha-client');
 const config = require('../config');
 const { requireIngressUser } = require('../require-ingress-user');
 const servicePolicy = require('../ha-service-policy');
+const haTargets = require('../ha-target-resolver');
 
 const router = express.Router();
 
@@ -444,16 +445,47 @@ router.post('/service', requireIngressUser('ha-service'), express.json(), async 
                 return res.json({ success: false, error: `service_not_allowed: ${domain}.${service}` });
             }
         }
+        // 🔴 TARGET RESOLUTION, and it runs BEFORE the target verdict for the
+        // reason in ha-target-resolver's header: `{area_id:'kitchen'}` names no
+        // entity, so anything judging the raw payload sees nothing to object to
+        // and passes the call to every light in the kitchen. The looser the
+        // selector, the less there is to check — which is the wrong way round.
+        //
+        // This is layer 1 of D's "no entity_id ⇒ REFUSE" (s49 §4 item 2). Same
+        // OBSERVE ladder as the service verdict above: logged, not applied, until
+        // `service_policy_enforce` flips. The exposure half (item 1) hangs off
+        // `resolution.entities` and needs an integration release — see
+        // B-status addendum 89 for why the view it was specced against is not
+        // reachable from this box.
+        const resolution = await haTargets.resolve(domain, service, payload, haRegistry, servicePolicy);
+        const targetVerdict = servicePolicy.evaluateTargets(domain, service, resolution);
+        if (targetVerdict.reason !== 'ok') {
+            console.warn(
+                `DROP: service-would-refuse service=${domain}.${service} reason=${targetVerdict.reason} ` +
+                `enforcing=${targetVerdict.enforcing} by=${req.haUser.id}` +
+                (resolution.failure ? ` failure="${resolution.failure}"` : ''),
+            );
+            if (!targetVerdict.allowed) {
+                return res.json({ success: false, error: `service_${targetVerdict.reason}: ${domain}.${service}` });
+            }
+        }
         // 🔴 ATTRIBUTION. This route can call ANY HA service with the add-on's
         // supervisor token, and until now it logged only failures — so a
         // successful `lock.open` left no record of who asked for it. The caller
         // is an LLM acting on someone's behalf, which makes "on whose behalf"
         // the interesting half. A household where anyone at the panel can open a
         // lock is a choice; one where nobody can tell who did is not.
+        // 🔴 Log the RESOLVED targets, not `payload.entity_id`. An area- or
+        // label-targeted call has no entity_id, so the old line recorded the
+        // service and the caller and left "what did it actually touch" blank —
+        // for exactly the calls that touch the most. Attribution that thins out
+        // as the blast radius grows is attribution pointed the wrong way.
         console.log(
             `HA-SERVICE: ${domain}.${service} by=${req.haUser.id}` +
             (req.haUser.display_name ? ` (${req.haUser.display_name})` : '') +
-            (payload.entity_id ? ` target=${payload.entity_id}` : ''),
+            (resolution.entities.length
+                ? ` targets=${resolution.entities.join(',')} via=${resolution.sources.join('+')}`
+                : ' targets=none'),
         );
         const result = await haRegistry.callService(domain, service, entityId, serviceData);
         return res.json({ success: true, result });

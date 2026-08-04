@@ -147,4 +147,57 @@ function evaluate(domain, service, opts = null) {
     return { allowed: !enforcing, reason: 'not_allowed', enforcing };
 }
 
-module.exports = { ALLOWED_SERVICES, evaluate, isEnforcing, canonicalise };
+/**
+ * Services that may legitimately run with NO target entity.
+ *
+ * 🔴 EMPTY BY MEASUREMENT, not by omission — and the distinction is the point,
+ * because an empty collection is this project's most repeated false signal
+ * ("residue 0" meant *not looked*, five times).
+ *
+ * D's item 2 anticipated an "explicit allow-list for the residue". The residue
+ * turned out to be ONE shape — `script.<name>`, where the service name IS the
+ * target — and that shape is DERIVABLE (see `entityNamedTarget` in
+ * ha-target-resolver.js), so it is resolved rather than exempted. Nothing else in
+ * ALLOWED_SERVICES takes no target: every entry is an entity surface.
+ *
+ * So this list stays empty until the field says otherwise. In observe mode a
+ * genuinely-targetless legitimate call costs one `no_entity` marker and nothing
+ * else, which is exactly the evidence needed to add a line here with a reason
+ * attached. That is the same harvest-then-flip ladder ALLOWED_SERVICES itself
+ * was built on.
+ */
+const TARGETLESS_SERVICES = new Set([]);
+
+/**
+ * Second verdict: does this call have a target we can name?
+ *
+ * Takes the RESOLVED output of ha-target-resolver — never a raw payload, because
+ * judging before resolution is the bypass the resolver's header describes.
+ *
+ * Reasons: `ok` · `no_entity` (resolved to nothing) · `target_unresolved` (the
+ * registry read FAILED). 🔴 Both refuse, and they stay separate on purpose: only
+ * one of them is a defect, and a broken WebSocket that renders as ordinary policy
+ * refusals is a broken WebSocket nobody finds.
+ */
+function evaluateTargets(domain, service, resolution, opts = null) {
+    const enforcing = isEnforcing(opts);
+    const r = resolution || {};
+    if (r.failed) {
+        // Fail CLOSED once enforcing — same direction as the integration's
+        // is_exposed, which treats an unavailable predicate as "not exposed"
+        // rather than "allowed". An unanswerable question is not a yes.
+        return { allowed: !enforcing, reason: 'target_unresolved', enforcing };
+    }
+    if (Array.isArray(r.entities) && r.entities.length > 0) {
+        return { allowed: true, reason: 'ok', enforcing };
+    }
+    if (TARGETLESS_SERVICES.has(`${domain}.${canonicalise(domain, service)}`)) {
+        return { allowed: true, reason: 'ok', enforcing };
+    }
+    return { allowed: !enforcing, reason: 'no_entity', enforcing };
+}
+
+module.exports = {
+    ALLOWED_SERVICES, TARGETLESS_SERVICES,
+    evaluate, evaluateTargets, isEnforcing, canonicalise,
+};
