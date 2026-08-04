@@ -131,6 +131,18 @@ echo "==> Checking console tree (canonical here since the repo inversion)"
 # writes a new one).
 echo "==> Checking disclosure (docs still describe the code)"
 "$ADDON_ROOT/scripts/check-disclosure.sh"
+
+# The BYOK speech lane: only an ADAPTED key is ever spent, the key is never
+# logged, and one call records exactly one USAGE: line.
+#
+# 🔴 Wired HERE, by name, rather than left as a run-on-demand script — and that
+# is the whole reason it is in this file. `lint:wire-values` leg 5 was written,
+# was correct, was green for days, and was run by NOTHING; "green" meant "never
+# executed" (B, addendum 74). A gate on a money path that nobody runs is a gate
+# that does not exist, and this one guards a lane where the failure is a wrong
+# number rather than an error.
+echo "==> Checking the BYOK speech lane (adapter/key join · no key in logs · one USAGE: per call)"
+node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"

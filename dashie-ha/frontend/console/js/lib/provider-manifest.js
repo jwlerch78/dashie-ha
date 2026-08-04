@@ -216,10 +216,14 @@
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
         {
+            // 🔴 The ONLY speech provider with adapter:'shipped'. `server/byok-tts.js`
+            // spends this key on the box (2026-08-04). Deepgram and Inworld are
+            // still storable-and-unspent, which is what their 'pending' says —
+            // do not flip either without an adapter row in ADAPTERS beside it.
             id: 'elevenlabs', name: 'ElevenLabs', kind: 'tool', group: 'speech',
             surfaces: ['api-keys', 'onboarding'],
             capabilities: [CAP.TTS], credential: CRED_STATIC,
-            auth: AUTH.API_KEY, required: false, adapter: ADAPTER.PENDING,
+            auth: AUTH.API_KEY, required: false, adapter: ADAPTER.SHIPPED,
             unlocks: 'More natural text-to-speech',
             keySource: { url: 'https://elevenlabs.io/app/settings/api-keys', free: 'Free tier is non-commercial, with attribution' },
             note: 'An upgrade over Home Assistant’s built-in Piper, which works without any key.',

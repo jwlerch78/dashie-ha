@@ -14,6 +14,7 @@
 const auth = require('./auth');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
+const byokTts = require('./byok-tts');
 
 /** Signed-in JWT or null (never throws — engine handlers decide the fallback). */
 async function cloudJwt() {
@@ -43,7 +44,21 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
     });
 }
 
-/** POST /api/voice/stt — body: audio/wav bytes → { text }. */
+/**
+ * POST /api/voice/stt — body: audio/wav bytes → { text }.
+ *
+ * ⚠️ NO BYOK BRANCH HERE YET, and that is deliberate rather than an oversight.
+ * John's ruling split the adapter: TTS first (small request, small response, no
+ * streaming), STT measured separately before anyone commits to proxying live
+ * audio through the add-on. `deepgram` is therefore storable and unspent, which
+ * is what the console manifest's `adapter: 'pending'` says about it.
+ *
+ * 🔴 When the STT twin IS built, read the two ported lessons at the top of
+ * `byok-tts.js` first — the `Finalize`-forwarding one is this lane's, it is not
+ * guessable from the provider docs, and its failure mode ("the last words of a
+ * sentence go missing") looks like a model quality problem rather than a proxy
+ * bug.
+ */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
     const base = String(opts.stt_url || '').trim().replace(/\/+$/, '');
@@ -182,11 +197,28 @@ async function handleTts(req, res, sendJson) {
     if (!text) { sendJson(res, 400, { error: 'bad_request', message: 'text is required' }); return; }
     const voice = String(payload.voice || opts.tts_voice || '');
     if (!base) {
+        // BYOK: the household's own speech key, spent ON THE BOX (byok-tts.js
+        // carries the precedence rationale). Ahead of the account path — a
+        // stored key has one meaning — and behind `tts_url`, so no existing
+        // install changes behaviour unless it holds a speech key.
+        if (byokTts.available()) {
+            const r = await byokTts.synthesize({ text, voice, model: payload.model });
+            if (r.ok) {
+                res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
+                res.end(r.audio);
+                return;
+            }
+            // Deliberately no silent fall-through to the cloud. The household
+            // asked for its own key; billing it to the account instead because
+            // ElevenLabs 401'd would spend somebody's money to hide a fault.
+            sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+            return;
+        }
         // Hosted fallback: Dashie Cloud voice under the account (metered).
         const jwt = await cloudJwt();
         if (!jwt) {
-            console.warn('DROP: tts requested but no tts_url and not signed in');
-            sendJson(res, 503, { error: 'tts_unconfigured', message: 'Sign in, or set tts_url in the add-on configuration.' });
+            console.warn('DROP: tts requested but no tts_url, no BYOK speech key and not signed in');
+            sendJson(res, 503, { error: 'tts_unconfigured', message: 'Sign in, add a speech provider key in API Keys, or set tts_url in the add-on configuration.' });
             return;
         }
         await cloudTts(text, voice, jwt, res, sendJson);

@@ -172,11 +172,20 @@ router.post('/converse-local', express.json(), async (req, res) => {
 });
 
 // GET /api/voice/local-status — debug/info probe: where would a turn route?
+//
+// ⭐ `tts` reports the route the lane would ACTUALLY take, BYOK included, and
+// that is the point of touching it: a household with a speech key gets a
+// different engine and nothing else on the box says so. A route you cannot ask
+// about is one you have to reproduce a bug to discover — and the same field
+// previously answered from the options file alone, which is a description of
+// configuration rather than of behaviour.
 router.get('/local-status', (req, res) => {
     const opts = readOptions();
     const endpoint = String(opts.llm_url || '').trim();
     const model = String(opts.llm_model || '').trim();
     const signedIn = !!auth.readStoredJwt();
+    const byokTts = require('../byok-tts');
+    const byokTtsProvider = byokTts.resolveProvider();
     res.json({
         ok: true,
         route: endpoint && model ? 'local' : (signedIn ? 'cloud' : 'unconfigured'),
@@ -184,7 +193,10 @@ router.get('/local-status', (req, res) => {
         model: model || null,
         signed_in: signedIn,
         stt: opts.stt_url || (signedIn ? 'dashie_cloud' : null),
-        tts: opts.tts_url || (signedIn ? 'dashie_cloud' : null),
+        // Same precedence as engines.handleTts, in the same order. If these two
+        // ever disagree the probe is the thing that is wrong.
+        tts: opts.tts_url || byokTtsProvider || (signedIn ? 'dashie_cloud' : null),
+        tts_byok_provider: byokTtsProvider,
     });
 });
 
