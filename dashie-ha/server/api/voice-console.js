@@ -145,6 +145,29 @@ router.post('/preview', express.json(), async (req, res) => {
     }
 });
 
+// GET /api/voice/personality-templates — the built-in roster, account-less.
+//
+// 🔴 The whole point: the console previously asked `list_personality_templates`,
+// an ACCOUNT-backed call, so a box with no account rendered an empty list — not
+// a bug in the page, a question only an account could answer. This re-sources
+// the answer rather than faking it.
+//
+// No auth gate, matching `/engines` above: it returns static data that ships in
+// the image and is readable by anyone who can already read the add-on's files.
+// Gating it would be theatre, and the console needs it on every render.
+router.get('/personality-templates', (req, res) => {
+    try {
+        const personalityTemplates = require('../personality-templates');
+        return res.json({ ok: true, templates: personalityTemplates.listTemplates() });
+    } catch (e) {
+        // Fail LOUD and EMPTY-WITH-A-REASON rather than quietly returning [].
+        // A silent empty list here is indistinguishable from "this household has
+        // no personalities", which is the exact state this route exists to end.
+        console.warn(`DROP: personality-templates unavailable — ${e.message}`);
+        return res.status(503).json({ ok: false, reason: 'unavailable', templates: [] });
+    }
+});
+
 // POST /api/voice/discover  { subnet? } — the Local Engines "Scan network"
 // button. USER-INITIATED ONLY, private /24 only (lan-discovery.js).
 router.post('/discover', express.json(), async (req, res) => {

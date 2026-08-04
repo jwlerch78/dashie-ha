@@ -50,6 +50,7 @@ const VoiceAiPersonalityEdit = {
                 family_notes: p.family_notes || '',
                 voice_mode: p.voice_mode || 'preferred',
                 voice: p.voice || '',
+                voices: (p.voices || []).join('\n'),
             },
         };
         this._ensureVoices();
@@ -80,11 +81,19 @@ const VoiceAiPersonalityEdit = {
             name: '', base_personality: '', personality_overview: '',
             similar_persona: '', adjectives: '', topics: '',
             example_phrases: '', family_notes: '', voice_mode: 'preferred', voice: '',
+            voices: '',
         };
     },
 
     async _ensureVoices() {
         if (this._voices !== null) return;
+        // `list_voices` is an ACCOUNT call. On an account-less box it cannot be
+        // answered, and the honest result is an empty catalog — the "Voice"
+        // select degrades to Default, while the preference list below (free
+        // text, opaque refs) is the field that actually carries voice choice in
+        // this edition. Skipping the call rather than letting it throw keeps a
+        // pointless failure out of the log.
+        if (DashieAuth.isLocalMode) { this._voices = []; if (this._open) App.renderPage(); return; }
         try {
             this._voices = await VoiceAiApi.listVoices();
         } catch (e) {
@@ -137,6 +146,12 @@ const VoiceAiPersonalityEdit = {
             family_notes: d.family_notes.trim() || null,
             voice_mode: d.voice_mode,
             voice: d.voice || null,
+            // Preference-ordered, most preferred first. `_splitLines` returns
+            // null for an empty box; the API layer normalises that to [], which
+            // is a MEANINGFUL value — "this personality prefers nothing in
+            // particular, use the standard voice" — and not the same as a
+            // personality whose preferences all failed to resolve.
+            voices: this._splitLines(d.voices) || [],
         };
 
         m.busy = true; m.error = null; App.renderPage();
@@ -202,6 +217,19 @@ const VoiceAiPersonalityEdit = {
             ${this._select('Voice', 'voice', voiceOptions, d.voice)}
             ${voicesLoading ? '<div style="font-size: 12px; color: var(--text-muted); margin: -6px 0 12px;">Loading voices…</div>' : ''}
             ${this._select('Voice mode', 'voice_mode', this.VOICE_MODES, d.voice_mode)}
+            ${this._textarea('Preferred voices', 'voices', d.voices, 3, 'One per line, most preferred first — e.g. elevenlabs:butler')}
+            <div style="font-size: 12px; color: var(--text-muted); margin: -6px 0 12px; line-height: 1.5;">
+                Tried in order; the first one this box can actually speak wins. If none can be,
+                this personality still works and speaks in the standard voice.
+            </div>
+            <!-- 🔴 FREE TEXT, not a dropdown, and deliberately so: the voice
+                 vocabulary has not settled (a per-personality default-voice
+                 matrix across Kokoro/Piper/Inworld/Gemini Live is still being
+                 decided, and it may reshape voice mapping on BOTH editions). A
+                 select here would pin a vocabulary — and it would LOOK
+                 FINISHED, which is worse than looking unfinished, because the
+                 next reader treats a settled list as a decision rather than a
+                 placeholder. It becomes a picker when the matrix lands. -->
         `, m.busy ? 'Saving…' : (m.mode === 'create' ? 'Create' : 'Save'));
     },
 

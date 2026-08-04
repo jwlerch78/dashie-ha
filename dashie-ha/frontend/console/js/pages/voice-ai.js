@@ -40,6 +40,7 @@ const VoiceAiPage = {
     // (household sharing is now the ACCOUNT setting voice.householdSharing — it rides in
     //  _defaults with the other account defaults; the old per-instance _sharing fetch is gone)
     _templates: null,       // built-in personality rows
+    _templatesError: null,  // why the built-ins could not be read — NOT the same as "none"
     _custom: null,          // custom personality rows
     _overrides: null,       // {template_key: {family_notes}}
     _loading: false,
@@ -321,8 +322,21 @@ const VoiceAiPage = {
     },
 
     async _fetchPersonalities() {
+        // 🔴 `.catch(() => [])` on the TEMPLATE fetch is the failure this whole
+        // unit exists to undo. An account-less box used to render an empty
+        // personality list *correctly and permanently* — the page asked an
+        // account-backed question and the catch turned "nobody answered" into
+        // "you have none". Templates now come from the box, and a failure to
+        // read them is reported as a failure rather than as an empty household.
+        // The other two legitimately default to empty: a household really can
+        // have no custom personalities and no overrides.
+        this._templatesError = null;
         const [templates, custom, overrides] = await Promise.all([
-            VoiceAiApi.listTemplates().catch(() => []),
+            VoiceAiApi.listTemplates().catch((e) => {
+                console.warn(`DROP: personality templates unavailable — ${e?.message || e}`);
+                this._templatesError = e?.message || String(e);
+                return [];
+            }),
             VoiceAiApi.listCustom().catch(() => []),
             VoiceAiApi.listOverrides().catch(() => []),
         ]);
@@ -330,6 +344,30 @@ const VoiceAiPage = {
         this._custom = custom;
         this._overrides = {};
         for (const o of overrides) this._overrides[o.template_key] = o;
+        // The key half of the voice join, refreshed alongside the roster it is
+        // used to resolve — one fetch, one place, so a personality's voice state
+        // can never be computed from a key status older than the list.
+        if (window.ProviderAvailability) await window.ProviderAvailability.refresh();
+    },
+
+    /** The voice line for a personality row: the resolved ref, or the degraded
+     *  state.
+     *
+     *  ⚠️ "(voice not available)" is a UI STATE, NEVER A STORED VALUE. It is
+     *  computed here on every render, from live key status, and written
+     *  nowhere. Persisting it would freeze a transient fact — the key may
+     *  arrive tomorrow — the same class as writing "Not shared" off an empty
+     *  observation map.
+     *
+     *  A personality with NO preferred voices is not degraded; it simply uses
+     *  the standard voice, which is what it always meant to do. Only a
+     *  personality that ASKED for voices and got none says so. */
+    _voiceStateFor(p) {
+        const list = Array.isArray(p?.voices) ? p.voices : [];
+        if (!list.length) return '';
+        const A = window.ProviderAvailability;
+        if (!A) return '';
+        return A.resolveVoice(list) ? '' : '(voice not available)';
     },
 
     /** Fetch local voice engine detection (GET /api/voice/engines). Add-on mode
@@ -2010,7 +2048,17 @@ const VoiceAiPage = {
                 ${custom.length ? `<div style="padding: 12px 16px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Custom</div>` : ''}
                 ${custom.map(p => this._personalityRow(p, true)).join('')}
                 <div style="padding: 12px 16px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Built-in</div>
-                ${templates.map(t => this._personalityRow(t, false)).join('')}
+                ${this._templatesError
+                    // An empty built-in list and an unreadable one are different
+                    // answers, and only one of them means "there is nothing
+                    // here". Saying so is the whole correction: the previous
+                    // behaviour rendered the unreadable case as the empty one,
+                    // permanently and without a word.
+                    ? `<div style="padding: 12px 16px 16px; font-size: 13px; color: var(--status-error, #c00);">
+                        Couldn't load the built-in personalities (${this._escape(this._templatesError)}).
+                        <button class="btn btn-secondary btn-sm" style="margin-left: 8px;" onclick="VoiceAiPage.refresh()">Retry</button>
+                       </div>`
+                    : templates.map(t => this._personalityRow(t, false)).join('')}
             </div></div>
         `;
     },
@@ -2020,7 +2068,7 @@ const VoiceAiPage = {
         // Voice name intentionally hidden here — matches the tablet's Voice & AI menu,
         // which doesn't surface the underlying voice on the personality list.
         const notes = isCustom ? '' : this.overrideNotes(p.key || p.id);
-        const subtitle = [p.description || '', notes ? '✏️ family notes set' : '']
+        const subtitle = [p.description || '', notes ? '✏️ family notes set' : '', this._voiceStateFor(p)]
             .filter(Boolean).join(' · ');
 
         const actions = isCustom

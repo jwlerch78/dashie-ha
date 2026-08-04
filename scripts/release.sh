@@ -155,6 +155,12 @@ node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"
 node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
+
+# Personalities: the roster ships account-less, the key/adapter join is ONE
+# function, and a voice that cannot be spoken degrades the VOICE, not the
+# personality. The failure mode of every leg there looks like a working console.
+echo "==> Checking personalities (roster · availability join · voice degradation)"
+node "$ADDON_ROOT/scripts/check-personalities.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
