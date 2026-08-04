@@ -589,24 +589,29 @@ const DevicesPage = {
         App.renderPage();
     },
 
-    /** Delete a dismissed user_devices row entirely (soft-delete via
-     *  delete_device — sets is_active=false). Also drops the dismissal
-     *  entry so the row doesn't linger in ConsoleState after the row
-     *  is gone. If the device reconnects later, it'll surface fresh
-     *  via discovered / install paths. */
+    /**
+     * Delete a dismissed device — delegates to `DevicesDetail._remove`, the one
+     * holder (backlog #14 §5a).
+     *
+     * 🔴 This called the SOFT `delete_device` until 2026-08-04, and its confirm
+     * said *"The row will be removed. If the device reconnects later, it'll
+     * reappear as a fresh discovered/install entry."* Both halves were false: the
+     * soft path leaves the row (`is_active=false`) with the credential renewing
+     * forever, and a stable-id device cannot reappear — that is precisely what
+     * `device_revocation_enforce` exists to prevent. It is the same sentence the
+     * Danger-Zone `_softDelete` was retired for, on a button the spec's table did
+     * not list.
+     *
+     * The dismissal entry is dropped in `onRemoved`, so it survives a REFUSED
+     * removal — un-dismissing a device that is still there would hide the failure
+     * by making the row look handled.
+     */
     async deleteDismissedDevice(deviceId, deviceName) {
-        const label = deviceName || 'this device';
-        if (!confirm(`Delete "${label}" from your account?\n\nThe row will be removed. If the device reconnects later, it'll reappear as a fresh discovered/install entry.`)) return;
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
-            this._devices = (this._devices || []).filter(d => d.device_id !== deviceId);
-            if (typeof ConsoleState !== 'undefined') ConsoleState.restore('devices', deviceId);
-            if (typeof Toast !== 'undefined') Toast.success(`Deleted "${label}"`);
-        } catch (e) {
-            console.error('[DevicesPage] delete_device failed:', e);
-            if (typeof Toast !== 'undefined') Toast.error(Toast.friendly(e, 'delete this device'));
-        }
-        App.renderPage();
+        await DevicesDetail._remove(deviceId, deviceName || 'this device', {
+            onRemoved: () => {
+                if (typeof ConsoleState !== 'undefined') ConsoleState.restore('devices', deviceId);
+            },
+        });
     },
 
     /** Toggle for the unified Dismissed section at the bottom of the page. */
@@ -989,22 +994,20 @@ const DevicesPage = {
         App.renderPage();
     },
 
+    /**
+     * Delete an archived device — same one holder as the dismissed button above.
+     *
+     * 🔴 Its confirm said *"This cannot be undone"*, which was false in the
+     * opposite direction to the dismissed one: the soft path left the row and the
+     * credential renewing, so there was nothing to undo because nothing had been
+     * done. Two buttons, two confidently wrong sentences, one missing call-site
+     * re-point.
+     */
     async _deleteArchived(deviceId, deviceName) {
-        if (!confirm(`Delete "${deviceName}" from your devices? This cannot be undone.`)) return;
-        this._deletingId = deviceId;
-        App.renderPage();
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
-            // Drop it from the local cache
-            this._devices = this._devices.filter(d => d.device_id !== deviceId);
-            Toast.success(`Deleted "${deviceName}"`);
-        } catch (e) {
-            console.error('[DevicesPage] Delete failed:', e);
-            Toast.error(Toast.friendly(e, 'delete this device'));
-        } finally {
-            this._deletingId = null;
-            App.renderPage();
-        }
+        await DevicesDetail._remove(deviceId, deviceName, {
+            onStart: () => { this._deletingId = deviceId; App.renderPage(); },
+            onSettled: () => { this._deletingId = null; App.renderPage(); },
+        });
     },
 
     _renderDeviceCard(device) { return DevicesCard.render(device); },

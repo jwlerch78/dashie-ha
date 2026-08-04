@@ -911,8 +911,35 @@ const DevicesDetail = {
      * `device_installs.account_id` (so the install re-presents under "devices
      * that can be added") and deletes the caller's `user_devices` row. Nothing
      * new was built for this — see §5e.
+     *
+     * ── 🔴 THE ONE HOLDER, and it did not start as one (B, 2026-08-04) ───────
+     *
+     * The spec's table listed TWO buttons to collapse (Danger-Zone Remove and
+     * Delete Forever) and there were FOUR: the dismissed-row Delete and the
+     * archived-row Delete in `devices.js` both called the soft path too, each
+     * with its own confirm copy, each false in its own direction —
+     *   dismissed: "The row will be removed… it'll reappear as a fresh entry"
+     *              (the row is NOT removed, and a stable-id device cannot
+     *               reappear — the exact promise the revocation guard exists to
+     *               prevent, the same sentence _softDelete was retired for)
+     *   archived:  "This cannot be undone"
+     *              (it very much can — the row survives and the credential keeps
+     *               renewing, so nothing was undone in the first place)
+     *
+     * Re-pointing only the button the spec named would have left the placebo
+     * reachable from two other places and kept `is_active`'s soft path alive,
+     * which is the precondition D's §5c waits on. So both delegate HERE. The
+     * lesson is my own from audit #8: **four copies are what made the drift
+     * invisible**, and a spec that enumerates call sites is a spec that can
+     * under-count them — grep for the CALL, not for the button.
+     *
+     * @param {object} [opts]
+     * @param {function} [opts.onStart]    after confirmation, before the write
+     * @param {function} [opts.onRemoved]  after a CONFIRMED removal only
+     * @param {function} [opts.onSettled]  always, success or failure
+     * @returns {Promise<boolean>} true only if the server confirmed the removal
      */
-    async _remove(deviceId, deviceName) {
+    async _remove(deviceId, deviceName, opts = {}) {
         // `unclaim_devices` keys on install_id; the Console holds device_id.
         // `list_devices` already returns install_id, so the map is local.
         const device = (DevicesPage._devices || []).find(d => d.device_id === deviceId);
@@ -931,8 +958,9 @@ const DevicesDetail = {
             cancelLabel: 'Cancel',
             danger: true,
         });
-        if (!confirmed) return;
+        if (!confirmed) return false;
 
+        opts.onStart?.();
         try {
             if (installId) {
                 const res = await DashieAuth.dbRequest('unclaim_devices', { install_ids: [installId] });
@@ -945,7 +973,7 @@ const DevicesDetail = {
                     const why = rejected?.reason || 'the server did not confirm the removal';
                     console.warn(`DROP: unclaim rejected device=${deviceId} install=${installId} reason=${why}`);
                     Toast.error(`Could not remove "${deviceName}" — ${why}.`);
-                    return;
+                    return false;
                 }
             } else {
                 // Residue 2 (spec §6): no install row — nothing to release, so a
@@ -955,11 +983,20 @@ const DevicesDetail = {
             }
             DevicesPage._devices = (DevicesPage._devices || []).filter(d => d.device_id !== deviceId);
             DevicesPage._detailDeviceId = null;
+            // 🔴 onRemoved runs ONLY here — after the server confirmed. The
+            // rejection branch above returns early for the same reason: a caller
+            // that drops its own dismissal entry on a removal that did not happen
+            // reports a deletion twice over, and the second lie outlives the first.
+            opts.onRemoved?.();
             Toast.success(`Removed "${deviceName}"`);
             App.renderPage();
+            return true;
         } catch (e) {
             console.error('[DevicesDetail] remove failed:', e);
             Toast.error(Toast.friendly(e, 'remove this device'));
+            return false;
+        } finally {
+            opts.onSettled?.();
         }
     },
 
