@@ -161,6 +161,25 @@ node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
 # personality. The failure mode of every leg there looks like a working console.
 echo "==> Checking personalities (roster · availability join · voice degradation)"
 node "$ADDON_ROOT/scripts/check-personalities.mjs"
+
+# ── The gates that were already here and were run by NOTHING ─────────────────
+#
+# 🔴 Found while wiring the four above, and it is the same defect one floor up:
+# check-sharing-state, check-capability-predicate and check-console-endpoints
+# were written, are correct, and have been green for days because no script,
+# deploy path or CI job invoked them. `lint:wire-values` leg 5 taught this
+# exactly once already (B, addendum 74) — "green" meant "never executed", and
+# the reassurance of a passing gate was the only thing it was producing.
+#
+# They cover a money predicate, a #72 indicator that must fail LOUD rather than
+# reassuringly, and whether every route the console calls is actually served.
+# All three pass as of 2026-08-04; wiring them here is what keeps that true.
+echo "==> Checking the capability predicate (what this box lends, and to whom)"
+node "$ADDON_ROOT/scripts/check-capability-predicate.mjs"
+echo "==> Checking the sharing-state classifier (#72 must never fail to the reassuring answer)"
+node "$ADDON_ROOT/scripts/check-sharing-state.mjs"
+echo "==> Checking console endpoints (every route the SPA calls is served)"
+node "$ADDON_ROOT/scripts/check-console-endpoints.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
