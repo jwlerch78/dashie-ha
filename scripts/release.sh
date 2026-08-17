@@ -230,6 +230,24 @@ node "$ADDON_ROOT/scripts/check-device-removal.mjs"
 # which runs the same gate against ITS tree. Neither one covers the other.
 echo "==> Checking devices liveness (the Online section is reachable without Home Assistant)"
 node "$ADDON_ROOT/scripts/check-devices-liveness.mjs"
+
+# A malformed PUT /api/keys used to DELETE a stored credential and return 200 —
+# one wrong inner field name emptied `clean` and fell into the same branch an
+# explicit `value: null` takes, so "I made a typo" and "I meant to remove it"
+# shared a code path. Driven against the real router over a temp DATA_DIR; it
+# skips loudly if express isn't installed.
+# ⚠️ Wired 2026-08-17, two sessions after it was written — found by
+# check-gate-wiring below, which is the whole argument for that gate existing.
+echo "==> Checking the keys write guard (a malformed PUT must not destroy a stored key)"
+node "$ADDON_ROOT/scripts/check-keys-write-guard.mjs"
+
+# Meta: every check-*/scan-* in scripts/ is invoked by something. Four gates in
+# this repo were authored, committed with a message describing what they
+# protected, and never run by anything (BACKLOG #16) — the repo looked
+# well-gated when it was only well-authored. Exemptions live in the script with
+# their reasons; "not wired yet" is not one of them.
+echo "==> Checking gate wiring (a gate nobody runs is not a gate)"
+node "$ADDON_ROOT/scripts/check-gate-wiring.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"
