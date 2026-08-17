@@ -87,6 +87,15 @@ const sandbox = {
     ConsoleState: { dismiss() {}, restore() {}, isDismissed: () => false },
     Toast: { success() {}, error() {}, friendly: (e) => String(e) },
     App: { renderPage() {} },
+    // Leg 6 loads devices-card.js beside devices.js; these are the collaborators
+    // its render path reaches. Kept minimal on purpose — a stub that is too
+    // generous hides a missing dependency.
+    DevicesDetailModals: { personalityName: () => 'Friendly', immichAlbumSummary: () => 'Album' },
+    DevicesRename: { conflictHaName: () => null, conflictDevices: () => [], renderBanner: () => '' },
+    DevicesClaim: { renderBanner: () => '', fetch: async () => {} },
+    DevicesCamera: { _open: false },
+    BRAND: { consoleName: 'Dashie Console' },
+    iconImg: () => '',
     setTimeout, clearTimeout, setInterval, clearInterval,
     fetch: async () => { throw new Error('no network in this harness'); },
 };
@@ -95,6 +104,11 @@ sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
 try {
     vm.runInContext(readFileSync(FILE, 'utf8'), ctx, { filename: FILE });
+    // Leg 6 needs the card renderer. OPTIONAL: an older vendored tree may not
+    // carry it beside devices.js, and a missing sibling must skip that leg
+    // rather than fail the whole gate.
+    const CARD = FILE.replace(/devices\.js$/, 'devices-card.js');
+    if (existsSync(CARD)) vm.runInContext(readFileSync(CARD, 'utf8'), ctx, { filename: CARD });
 } catch (e) {
     console.error(`check-devices-liveness: cannot check — devices.js did not evaluate: ${e.message}`);
     process.exit(2);
@@ -201,6 +215,47 @@ check(
         + '(js/core/initialization/device-registration.js), change DASHBOARD_HEARTBEAT_SECONDS here '
         + 'and HEARTBEAT_LIVE_SECONDS in devices.js together. See .reference/JS_KOTLIN_CONTRACTS.md.',
 );
+
+// ── leg 6 — the surface the liveness fix UN-HID ─────────────────────────────
+//
+// The simple card wraps settings + controls in
+// `!live ? 'opacity:0.4; pointer-events:none'`. Before leg 1's fix NO family
+// device was ever live, so the control pills were permanently dimmed and inert
+// and nobody could tell they were broken. Making Online work switched them on —
+// and off the add-on lane `control()` throws, while the pill STATE is read from
+// `m.controls`, which only the add-on worker ever writes (so every device reads
+// "light mode, screen on" no matter what it is actually doing).
+//
+// 📌 Kept in THIS file rather than its own: it is not a separate defect, it is
+// the second-order effect of the fix above, and the two must not drift apart.
+{
+    const DC = vm.runInContext('typeof DevicesCard !== "undefined" ? DevicesCard : null', ctx);
+    if (!DC || typeof DC._renderSimpleControls !== 'function') {
+        console.log('\u2796 leg 6 — SKIPPED: devices-card.js not present beside devices.js');
+    } else {
+        sandbox.DashieAuth.isAddonMode = false;
+        const off = DC._renderSimpleControls({ device_id: 'fam-1' }, 'fam-1', {});
+        const offPill = DC._renderPill({ idAttr: 'fam-1', role: 'screen', currentlyOn: true, iconFile: 'x.svg', title: 't', palette: {} });
+        sandbox.DashieAuth.isAddonMode = true;
+        const on = DC._renderSimpleControls({ device_id: 'fam-1' }, 'fam-1', {});
+        sandbox.DashieAuth.isAddonMode = false;
+
+        check(
+            'leg 6 — no device-control affordance is rendered off the add-on lane',
+            off === '' && offPill === '',
+            `simple controls ${off === '' ? 'ok' : 'rendered ' + off.length + ' chars'}, pill ${offPill === '' ? 'ok' : 'rendered'}`,
+            'control() throws off the add-on lane, and the pill state comes from add-on-only metrics — so the '
+                + 'user gets a button that cannot work AND that reports the wrong state. The liveness fix above '
+                + "is what made these tappable, so this leg is that fix's own blast radius.",
+        );
+        check(
+            'leg 6b — POSITIVE CONTROL: the add-on lane still gets its controls',
+            on.length > 0,
+            'controls rendered nothing even inside the add-on',
+            'without this, leg 6 is satisfiable by deleting device controls for everyone.',
+        );
+    }
+}
 
 if (failed) {
     console.error(`\ncheck-devices-liveness: ${failed} violation(s)`);

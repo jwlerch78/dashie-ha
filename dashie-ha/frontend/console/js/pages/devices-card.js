@@ -227,14 +227,43 @@ const DevicesCard = {
     },
 
     /** Compact controls: reload · screen on/off · light/dark · volume. */
+    /**
+     * Can this console actually DRIVE a device, or only describe it?
+     *
+     * 🔴 Only inside the add-on. `control()` posts to /api/ha/control and throws
+     * `Device controls require running inside …` anywhere else — so on the
+     * family (account) lane every pill below is an affordance the user cannot
+     * use, and worse, one that MISREPORTS state: the values come from
+     * `m.controls`, and `m` is `fresh?.metrics || device.metrics || {}`, both of
+     * which are written only by the add-on's polling worker. Off that lane
+     * `m.controls` is always undefined, so `dark_mode` reads false and
+     * `screen !== false` reads TRUE — every device shows "light mode, screen on"
+     * regardless of what it is doing.
+     *
+     * ⚠️ This became reachable because of the liveness fix in this same series.
+     * The simple card wraps its settings + controls in
+     * `!live ? 'opacity:0.4; pointer-events:none'`, and before that fix NO
+     * family device was ever live — so the pills were dimmed and inert, and the
+     * defect was invisible. Making the Online section work switched them on.
+     * Repairing one surface un-hid a broken one behind it; that is worth
+     * remembering as a shape, not just fixing here.
+     *
+     * The settings rows above are unaffected — they read `device.settings`,
+     * which is genuine account-lane data and populates for everyone.
+     */
+    _controlsAvailable() {
+        return typeof DashieAuth !== 'undefined' && DashieAuth.isAddonMode === true;
+    },
+
     _renderSimpleControls(device, idAttr, m) {
+        if (!this._controlsAvailable()) return '';
         const dark = !!m.controls?.dark_mode;
         const screenOn = m.controls?.screen !== false;
         const reloadBusy = !!this._busyControl[`${device.device_id}:reload`];
         const screenBusy = !!this._busyControl[`${device.device_id}:screen`];
         const darkBusy = !!this._busyControl[`${device.device_id}:dark_mode`];
 
-        const reloadIcon = `
+        const reloadIcon = !this._controlsAvailable() ? '' : `
             <button title="Reload dashboard" ${reloadBusy ? 'disabled' : ''}
                 onclick="event.stopPropagation(); DevicesCard.pressButton('${idAttr}', 'reload')"
                 style="display: inline-flex; align-items: center; justify-content: center; padding: 4px 10px; border-radius: 999px; border: 1px solid #d1d5db; background: #f3f4f6; cursor: ${reloadBusy ? 'wait' : 'pointer'}; opacity: ${reloadBusy ? 0.5 : 1}; line-height: 0;">
@@ -484,7 +513,7 @@ const DevicesCard = {
         const camBusy = !!this._busyControl[`${device.device_id}:camera_stream_enabled`];
 
         // Reload in a pill so it matches the screen + light/dark visual style.
-        const reloadIcon = `
+        const reloadIcon = !this._controlsAvailable() ? '' : `
             <button title="Reload dashboard" ${reloadBusy ? 'disabled' : ''}
                 onclick="event.stopPropagation(); DevicesCard.pressButton('${idAttr}', 'reload')"
                 style="display: inline-flex; align-items: center; justify-content: center; padding: 4px 10px; border-radius: 999px; border: 1px solid #d1d5db; background: #f3f4f6; cursor: ${reloadBusy ? 'wait' : 'pointer'}; opacity: ${reloadBusy ? 0.5 : 1}; line-height: 0;">
@@ -703,6 +732,9 @@ const DevicesCard = {
      * on colored bg without authoring multiple files.
      */
     _renderPill({ idAttr, role, currentlyOn, iconFile, title, busy = false, palette }) {
+        // Covers the TECH card too — a family user can toggle tech view on and
+        // would otherwise get the same unusable, state-misreporting pills.
+        if (!this._controlsAvailable()) return '';
         const p = palette;
         const bg = currentlyOn ? p.onBg : p.offBg;
         const border = currentlyOn ? p.onBorder : p.offBorder;
