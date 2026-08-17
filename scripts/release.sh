@@ -219,6 +219,17 @@ node "$ADDON_ROOT/scripts/check-service-targets.mjs"
 # precondition ("retire the soft path once nothing calls it").
 echo "==> Checking device removal (one holder, no soft delete_device, a refusal cleans up nothing)"
 node "$ADDON_ROOT/scripts/check-device-removal.mjs"
+
+# Devices liveness: the Online section must be REACHABLE on the non-HA lane.
+# _isLive's two original inputs were both add-on-fed, so on an account without
+# Home Assistant it could not return true for any device, ever — measured in
+# prod 2026-08-17, 1 of 207 user_devices rows had a non-null metrics_updated_at.
+# Nothing was red: the section rendered, the query ran, the data was truthful.
+# ⚠️ This leg guards the ADD-ON tree. The defect is a FAMILY-lane defect and the
+# family console is vendored separately (dashie-console/scripts/vendor-core.sh),
+# which runs the same gate against ITS tree. Neither one covers the other.
+echo "==> Checking devices liveness (the Online section is reachable without Home Assistant)"
+node "$ADDON_ROOT/scripts/check-devices-liveness.mjs"
 # Default: the source is whatever HEAD holds. A prod PROMOTION overwrites this
 # with the SHA recorded by the dev release it is promoting (see below).
 CONSOLE_SHA="$(git rev-parse --short HEAD)"

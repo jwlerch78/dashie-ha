@@ -32,6 +32,25 @@ const DevicesPage = {
 
     ARCHIVE_THRESHOLD_DAYS: 30,
     LIVE_THRESHOLD_SECONDS: 90,   // metrics_updated_at newer than this → "live" chip
+    /**
+     * Non-HA fallback for the same question — `user_devices.last_seen_at` newer
+     * than this → "live". See _isLive() for why a second constant exists at all.
+     *
+     * ⚠️ CROSS-REPO CONTRACT, and it is the whole reason this is not just
+     * LIVE_THRESHOLD_SECONDS: this window is derived from the DASHBOARD's
+     * heartbeat cadence, which lives in another repo —
+     * `dashieapp_staging/js/core/initialization/device-registration.js`,
+     * `startDeviceHeartbeat(deviceId, intervalMs = 30 * 60 * 1000)`. A 30-minute
+     * beat cannot satisfy a 90-second window under any circumstances, so reusing
+     * LIVE_THRESHOLD_SECONDS here would have been a fix that measured green and
+     * changed nothing. 35 min = the cadence + one missed beat's worth of slack.
+     *
+     * 🔴 If that interval changes, THIS MUST CHANGE WITH IT. Too small and the
+     * Online section silently empties again (the exact defect this repairs);
+     * too large and a dead dashboard reads "online" for the difference.
+     * Registered in `.reference/JS_KOTLIN_CONTRACTS.md`.
+     */
+    HEARTBEAT_LIVE_SECONDS: 35 * 60,
     HA_STATUS_MAX_AGE_MS: 15 * 1000, // refetch /api/ha/status if older than this on render
     // SSE pushes per-state changes in real time, so this poll just acts as a
     // backstop. 30s is plenty — at 5s we were re-rendering the entire page
@@ -634,9 +653,35 @@ const DevicesPage = {
         // updates on upsert, every 30s).
         const fresh = this._freshDeviceFor(device.device_id);
         if (fresh?.has_live_data) return true;
-        if (!device.metrics_updated_at) return false;
-        const age = (Date.now() - new Date(device.metrics_updated_at).getTime()) / 1000;
-        return age < this.LIVE_THRESHOLD_SECONDS;
+
+        // 🔴 THE NON-HA LANE HAS NO METRICS AT ALL, so without the fallback below
+        // this function could only ever return false for a family user. Both
+        // branches above are fed exclusively by the add-on: `has_live_data` comes
+        // from the worker's poll (add-on mode only), and `metrics_updated_at` is
+        // written by exactly ONE op in the estate — update_device_metrics, whose
+        // only caller is dashie-ha/server/ha-worker.js. Measured in prod on
+        // 2026-08-17: 1 of 207 user_devices rows had a non-null
+        // metrics_updated_at. So every account without Home Assistant rendered
+        // "ONLINE (0) — No online devices right now" permanently, with its live
+        // tablet sitting in the Offline list underneath. The Online section was
+        // not empty; it was unreachable.
+        //
+        // The fallback is the dashboard's own heartbeat (user_devices.last_seen_at).
+        // It is deliberately gated on metrics being ABSENT rather than stale:
+        //   • metrics present + fresh  → live      (HA lane, 90s precision, unchanged)
+        //   • metrics present + stale  → NOT live  (HA lane; the add-on is watching
+        //                                          and says it's gone — do not let a
+        //                                          35-minute window override a
+        //                                          90-second one and resurrect a
+        //                                          device that genuinely died)
+        //   • metrics absent           → heartbeat (non-HA lane, the case above)
+        if (device.metrics_updated_at) {
+            const age = (Date.now() - new Date(device.metrics_updated_at).getTime()) / 1000;
+            return age < this.LIVE_THRESHOLD_SECONDS;
+        }
+        if (!device.last_seen_at) return false;
+        const beatAge = (Date.now() - new Date(device.last_seen_at).getTime()) / 1000;
+        return beatAge < this.HEARTBEAT_LIVE_SECONDS;
     },
 
     _discoveredDevices() {
