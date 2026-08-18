@@ -25,6 +25,9 @@ import { classifyTimerIntent, classifyMediaIntent, classifyVolumeIntent, parseDu
 // "what time / date / day is it" on-device instead of a billable brain round-trip.
 import { answerTimeQuery } from '../../js/core/voice/time-fast-path.js';
 import { DASHIE_CONFIG, isLLMEnabled } from './config.js';
+// Own module, NOT brand.js: importing it from there pulled the whole BRANDS table (Dashie's
+// legal URLs included) into this bundle. See ha-api-prefix.js for why it is not a brand fact.
+import { getHaApiPrefix } from './ha-api-prefix.js';
 import kioskSleepTimerService from './services/sleep-timer-service.js';  // Sleep/Wake timer scheduler
 
 // NOTE: Visual rendering code removed - overlay now runs headless (display:none)
@@ -183,13 +186,19 @@ async function buildHaVoiceContext() {
     // voice-config); absent / old APK → 'assist' (exposed), the safe historical default.
     let source = 'assist';
     try { source = window.DashieNative?.getVoiceEntitySource?.() || 'assist'; } catch (_) { /* default */ }
+    // 🔴 The prefix is EDITION-specific (#63) and this bundle is shared by both editions, so it
+    // must be asked, never hardcoded: a Chickadee box serves /api/chickadee/… and 404s
+    // /api/dashie/…, which lands here as an empty entity list — the brain then gets no HA
+    // context and every device command falls through with nothing to act on, visible only as a
+    // console.warn in a headless iframe nobody is watching.
+    const api = getHaApiPrefix();
     let entities = null;
     if (source === 'dashboard') {
       const deviceId = localStorage.getItem('dashie-device-id') || '';
-      entities = await fetchEntities('/api/dashie/dashboard_entities' + (deviceId ? ('?device_id=' + encodeURIComponent(deviceId)) : ''));
+      entities = await fetchEntities(api + '/dashboard_entities' + (deviceId ? ('?device_id=' + encodeURIComponent(deviceId)) : ''));
     }
     // Fallback floor (mirrors the webapp): 'dashboard' empty/unknown → exposed; 'assist' → exposed.
-    if (!entities || entities.length === 0) entities = await fetchEntities('/api/dashie/exposed_entities');
+    if (!entities || entities.length === 0) entities = await fetchEntities(api + '/exposed_entities');
     entities = entities || [];
     console.log(`[KioskServices] 🏠 ha voice context (${source}): ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'}`);
     return { ha_entities: entities, device_area: null };
@@ -922,9 +931,9 @@ class KioskServicesController {
 
       // ── AI lane → native handler ───────────────────────────────────────────
       // Not a local command. Hand off to native Kotlin, which decides by voice
-      // control method: in Dashie Cloud mode it calls the integration's
-      // /api/dashie/voice/converse (HA token) → cloud brain → speaks the result;
-      // otherwise it speaks a graceful "needs Dashie Cloud" note. The legacy
+      // control method: in cloud mode it calls the integration's
+      // <ApiPaths.HA>/voice/converse (HA token) → brain → speaks the result;
+      // otherwise it speaks a graceful "needs cloud" note. The legacy
       // local AI path below is retired (kiosk no longer orchestrates — WS5).
       console.log('[KioskServices] AI lane → native handler');
       return { success: true, ai_lane: true };

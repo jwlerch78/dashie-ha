@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RTSP Test - Dashie Camera Card</title>
+    <title>RTSP Test - Native Camera Card</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -199,7 +199,7 @@
                 bridgeStatus.classList.add('error');
                 rtspStatus.textContent = 'N/A';
                 rtspStatus.classList.add('error');
-                log('DashieNative bridge not found - not running in Dashie Lite?', 'error');
+                log('DashieNative bridge not found - not running inside a kiosk tablet WebView?', 'error');
             }
         }
 

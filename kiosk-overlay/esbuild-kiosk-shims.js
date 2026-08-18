@@ -146,4 +146,28 @@ const kioskShimPlugin = {
   }
 };
 
-module.exports = { kioskShimPlugin };
+/**
+ * CHICKADEE-only additions, applied on top of [kioskShimPlugin] for the Chickadee shell bundle.
+ *
+ * Separate plugin rather than an `edition` flag inside the shared one, deliberately: the shared
+ * plugin describes what the KIOSK does not need (maps keys, the heavyweight logger, dev-only
+ * settings pages) and is edition-blind. What an EDITION does not have is a different axis, and
+ * folding the two together is how an edition check ends up in shared machinery — the seam rule's
+ * whole subject. Composing two plugins keeps each one's reason for existing legible.
+ *
+ * Today it carries exactly one redirect. It is a plugin rather than an inline `onResolve` so the
+ * next edition-scoped stub has an obvious home instead of being appended to the shared list.
+ */
+const chickadeeShellShimPlugin = {
+  name: 'chickadee-shell-shims',
+  setup(build) {
+    // The account/session bridge does not exist in this edition (John, 2026-08-02). Replacing
+    // the module at BUILD time is what removes the transitive auth tree — and with it the PROD
+    // Supabase project id — from the artifact; a runtime gate would leave the string in place.
+    build.onResolve({ filter: /kiosk-settings-sync\.js$/ }, () => ({
+      path: path.join(SHIM_DIR, 'kiosk-settings-sync-shim.js'),
+    }));
+  },
+};
+
+module.exports = { kioskShimPlugin, chickadeeShellShimPlugin };

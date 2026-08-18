@@ -777,18 +777,46 @@ body.sidebar-overlay .dashboard-sidebar {
 }
 
 /* Dashie logo in hamburger popout */
+/* Mark slot. The box used to be 100x44 — a 2.27:1 aspect that matches DASHIE's mark
+   (dashie-logo-orange.png is 2.29:1) and nothing else. Chickadee's is 3.00:1, so
+   `object-fit: contain` fitted it by WIDTH and rendered it 100x33 in a 44px-tall box:
+   24% shorter than Dashie's in the same slot, with its wordmark at ~12px. That is the
+   "tough to make out" John reported — a slot sized for one brand's proportions, not a
+   contrast or an art problem. The asset is already a horizontal lockup (bird left,
+   wordmark right), so the arrangement was never stacked.
+
+   Widening the box lets the wide mark fit by width and use the full 44px height, while
+   Dashie, being taller-proportioned, still fits by HEIGHT at 44px and renders essentially
+   unchanged. One box, both brands better served, no per-edition branching — which is the
+   property this slot should keep.
+
+   max-width is 171px because 44 x 3.88 = 170.8, and 3.88 is the trimmed mark's aspect
+   (854x220 — the lockup spec, see the Chickadee brand-assets README). Sized this way
+   Chickadee fits by height and fills the slot exactly. If that spec's aspect ever changes,
+   this number is its dependent — recompute, do not nudge.
+
+   ⚠️ RECOMPUTED 2026-08-04, doing exactly what the line above says. John's new art moved the
+   trimmed lockup from 867x241 (3.60) to 854x220 (3.88), so the old 158px was no longer
+   44 x aspect: the mark would have fitted by WIDTH and rendered ~41px tall in a 44px slot —
+   a silently under-filled box, which is the failure this comment exists to prevent. The two
+   theme inks share the 854x220 canvas by construction, so one number serves both. */
 .hamburger-menu-logo {
-  padding: 6px 16px 4px;
+  padding: 4px 4px 2px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .hamburger-menu-logo-img {
-  width: 100px;
+  width: 100%;
+  max-width: 171px;
   height: 44px;
   object-fit: contain;
-  opacity: 0.85;
+  /* Was 0.85. Measured on the default #252525 surface, that cost Chickadee 8.08:1 → 6.24:1
+     and Dashie 6.90:1 → 5.36:1 — a legibility tax on the exact thing being reported.
+     ⚠️ This affects BOTH brands; if Dashie's mark is meant to stay subdued, restoring 0.85
+     for Dashie alone is the revert, not re-dimming both. */
+  opacity: 1;
 }
 
 /* Locked/unlocked menu sections — toggle visibility based on data-locked.

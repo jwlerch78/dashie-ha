@@ -11,6 +11,8 @@
  * - Control Center Tip (hamburger menu + arrow)
  */
 
+import { getBrand } from '../brand.js';
+
 // Inline SVGs for icons (avoids asset path issues in kiosk bundle)
 const HA_LOGO_SVG = `<svg width="40" height="40" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M229.39 109.153L130.61 10.3725C124.78 4.5425 115.23 4.5425 109.4 10.3725L10.61 109.153C4.78 114.983 0 126.512 0 134.762V224.762C0 233.012 6.75 239.762 15 239.762H107.27L66.64 199.132C64.55 199.852 62.32 200.262 60 200.262C48.7 200.262 39.5 191.062 39.5 179.762C39.5 168.462 48.7 159.262 60 159.262C71.3 159.262 80.5 168.462 80.5 179.762C80.5 182.092 80.09 184.322 79.37 186.412L111 218.042V102.162C104.2 98.8225 99.5 91.8425 99.5 83.7725C99.5 72.4725 108.7 63.2725 120 63.2725C131.3 63.2725 140.5 72.4725 140.5 83.7725C140.5 91.8425 135.8 98.8225 129 102.162V183.432L160.46 151.972C159.84 150.012 159.5 147.932 159.5 145.772C159.5 134.472 168.7 125.272 180 125.272C191.3 125.272 200.5 134.472 200.5 145.772C200.5 157.072 191.3 166.272 180 166.272C177.5 166.272 175.12 165.802 172.91 164.982L129 208.892V239.772H225C233.25 239.772 240 233.022 240 224.772V134.772C240 126.522 235.23 115.002 229.39 109.162V109.153Z" fill="#18bcf2"/>
@@ -41,7 +43,18 @@ const HA_LOGO_LARGE_SVG = `<svg width="64" height="64" viewBox="0 0 240 240" fil
 </svg>`;
 
 /**
- * Render a generic loading card — Dashie logo + spinner + status line.
+ * The brand mark, as an `<img>` tag string.
+ *
+ * Every brand's mark is now drawn for the card's dark #1C1C1E, so there is no plate branch —
+ * see the mark-slot note in `brand.js`.
+ */
+function brandLogoImg(brand, extraClass = '') {
+  const cls = extraClass ? `onboarding-logo ${extraClass}` : 'onboarding-logo';
+  return `<img src="${brand.logo}" alt="${escapeHtml(brand.name)}" class="${cls}" />`;
+}
+
+/**
+ * Render a generic loading card — brand logo + spinner + status line.
  * Shown briefly while the network scan runs. Modeled after the loading
  * card on the login page for visual consistency.
  *
@@ -50,11 +63,12 @@ const HA_LOGO_LARGE_SVG = `<svg width="64" height="64" viewBox="0 0 240 240" fil
  * @returns {HTMLElement}
  */
 export function renderLoading({ message = 'Setting things up...' } = {}) {
+  const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card onboarding-card--welcome';
   card.innerHTML = `
     <div class="onboarding-welcome-main" style="align-items: center; justify-content: center; gap: 20px;">
-      <img src="artwork/Dashie_Full_Logo_Orange_Transparent.png" alt="Dashie" class="onboarding-logo" />
+      ${brandLogoImg(brand)}
       <div class="onboarding-spinner" style="width: 48px; height: 48px;"></div>
       <div class="onboarding-subtitle">${escapeHtml(message)}</div>
     </div>
@@ -63,48 +77,131 @@ export function renderLoading({ message = 'Setting things up...' } = {}) {
 }
 
 /**
+ * "192.168.1.116:8123" from a base URL — what a user recognises as "their box".
+ * Returns '' for anything unparseable so callers can treat it as "not configured".
+ */
+function hostLabel(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return u.port ? `${u.hostname}:${u.port}` : u.hostname;
+  } catch (e) {
+    return String(url).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  }
+}
+
+/**
+ * Do two HA references point at the same box?
+ *
+ * ⚠️ Compares HOST ONLY, deliberately. The configured value is a full base URL
+ * while a scan hit is an ip:port, and they legitimately differ in scheme, in
+ * trailing slash, and in whether the default port is spelled out. Comparing
+ * strings would report "different box" for two spellings of one box — a false
+ * alarm in the exact banner whose job is to be trustworthy about which box it
+ * means.
+ */
+function sameHaTarget(a, b) {
+  const ha = hostLabel(a).split(':')[0];
+  const hb = hostLabel(b).split(':')[0];
+  return !!ha && ha === hb;
+}
+
+/**
  * Render the Welcome screen (Screen 1).
  *
- * Two layouts depending on scan results:
- *   HA detected: HA primary, "Use Dashie without HA" secondary.
- *   HA not detected: "Create a Dashie Account" + "I already have a Dashie
- *     Account" primary, "Use Dashie with HA" secondary.
+ * Two layouts depending on scan results, and — in an account-free edition
+ * (`brand.hasAccounts === false`) — only the HA half of either:
+ *   HA detected: HA primary, "Use <brand> without HA" secondary.
+ *   HA not detected: "Sign in with Google" + "Sign up for <brand>" primary,
+ *     "Use <brand> with HA" secondary.
  * While scanning, render the HA-detected layout with an info status.
  *
  * @param {object} opts
  * @param {object|null} opts.scanResults - {ha: [{ip, port, name, url}]} or null while scanning
  * @param {boolean} opts.scanning - true while scan in progress
+ * @param {object|null} [opts.configuredHa] - the HA this device is ALREADY configured against
+ *   ({url}), from `DashieNative.getHaConnectionSettings()`. Outranks anything the scan found —
+ *   see the discovery-vs-configuration note in the body.
  * @param {function} opts.onHaPath - callback when user chooses HA path (detected or via "Use with HA")
  * @param {function} opts.onStandalonePath - callback when user picks "Use Dashie without HA"
  * @param {function} opts.onCreateAccount - callback when user picks "Create a Dashie Account"
  * @param {function} opts.onSignIn - callback when user picks "I already have a Dashie Account"
  * @returns {HTMLElement}
  */
-export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePath, onCreateAccount, onSignIn, onClose }) {
+export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, onStandalonePath, onCustomUrlPath, onCreateAccount, onSignIn, onClose }) {
+  const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card onboarding-card--welcome';
 
   const haInst = scanResults?.ha?.[0] || null;
-  const haUrl = haInst?.url || null;
   const haFound = !scanning && haInst;
-  const haNotDetected = !scanning && !haInst;
 
   // Status row — only shown while scanning or when HA found.
   // When HA isn't detected we drop the gray box entirely and lead with
   // Dashie account buttons.
+  //
+  // 🔴 DISCOVERY IS A GUESS; CONFIGURATION IS A FACT. Do not let them render
+  // with the same weight (T cont.55, proved across three repoints): a Samsung
+  // CONFIGURED at .116 — a host-forwarded qemu VM, which advertises no
+  // mDNS/SSDP and therefore cannot be discovered — was offered `.72`, an
+  // unrelated Termux box, in a line that reads like a setting. Repointed at a
+  // box that DOES advertise, the banner agreed again. So the failure is not
+  // random: it is systematic for every non-advertising HA, which includes any
+  // VM, any reverse-proxied or remote box, and anything on another subnet.
+  //
+  // The rule this encodes: when we already KNOW the configured box, say that
+  // first and label the scan result as an alternative. Only when there is
+  // nothing configured does a scan hit lead — and even then it is worded as a
+  // find on the network, not as this device's Home Assistant.
+  const configuredUrl = configuredHa?.url || '';
+  const configuredHost = hostLabel(configuredUrl);
+  const detectedHost = haInst ? `${haInst.ip}:${haInst.port}` : '';
+  const detectedDiffers = !!(configuredHost && detectedHost && !sameHaTarget(configuredUrl, haInst?.url || detectedHost));
+
   let scanText = '';
   if (scanning) {
     scanText = `<div class="onboarding-scan-status"><div class="onboarding-spinner"></div> Scanning your network...</div>`;
+  } else if (configuredHost) {
+    const alt = detectedDiffers
+      ? `<div class="onboarding-scan-alt">Also found ${escapeHtml(detectedHost)} on your network — a different box.</div>`
+      : '';
+    scanText = `<div class="onboarding-scan-status onboarding-scan-found-box">Using your configured Home Assistant at ${escapeHtml(configuredHost)}.</div>${alt}`;
   } else if (haFound) {
-    scanText = `<div class="onboarding-scan-status onboarding-scan-found-box">Found Home Assistant running at ${haInst.ip}:${haInst.port}.</div>`;
+    scanText = `<div class="onboarding-scan-status onboarding-scan-found-box">Found a Home Assistant on your network at ${escapeHtml(detectedHost)}.</div>`;
   }
 
-  // Dashie account paths are hidden on the prod APK while accounts are
-  // staging-only. Kiosk users on prod see HA-only paths — no dead end on
-  // a half-implemented account flow. Bridge falls open (true) on web /
-  // older APKs that don't expose the bridge method, preserving existing
-  // behavior there.
-  const dashieAccountEnabled = (() => {
+  // What the HA button carries forward. A CONFIGURED box always wins over a
+  // scan hit — renderHaConfig already prefers savedConfig over prefilledUrl,
+  // so this is belt-and-braces, but it keeps the two screens telling the user
+  // the same story instead of one saying .116 and the other .72.
+  const haUrl = configuredUrl || haInst?.url || null;
+
+  // A device with HA already configured is NOT a device with no HA, even when
+  // the scan comes back empty — which is the normal case for a non-advertising
+  // box. Without `!configuredUrl` here, T's VM-configured Samsung would be
+  // offered the "no Home Assistant found → create an account" layout while it
+  // was, at that moment, pointed at a working HA.
+  const haNotDetected = !scanning && !haInst && !configuredUrl;
+
+  // Whether this screen may offer a Dashie account at all. TWO independent
+  // questions, ANDed — do not collapse them:
+  //
+  //  1. brand.hasAccounts — does the EDITION have accounts? Chickadee is
+  //     account-free by construction, so "Create an account" describes a
+  //     thing that does not exist. Structural, and the reason this gate is
+  //     no longer bridge-only.
+  //  2. isDashieAccountEnabled — the pre-existing intent to hide account
+  //     paths on the prod APK while accounts were staging-only.
+  //
+  // ⚠️ (2) has NO Kotlin implementation — verified 2026-08-01 by grepping the
+  // whole android repo for `isDashieAccountEnabled`: zero hits outside the
+  // built bundles. So it has always fallen open to `true` and the prod
+  // gating it describes has never once happened. Kept, feature-detected and
+  // documented rather than deleted, because it is someone's unfinished
+  // intent and quietly dropping it would be the silent-drop failure; but it
+  // must not be mistaken for a working gate. Reported to Thread A status
+  // 2026-08-01 as a Dashie-side authored-but-unreached site.
+  const bridgeAllowsAccounts = (() => {
     try {
       const fn = window.DashieNative?.isDashieAccountEnabled;
       return typeof fn === 'function' ? !!fn.call(window.DashieNative) : true;
@@ -112,6 +209,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
       return true;
     }
   })();
+  const dashieAccountEnabled = brand.hasAccounts && bridgeAllowsAccounts;
 
   // Path buttons differ between the two layouts. While scanning we show the
   // HA-first layout (most users have HA); the buttons re-render when scan
@@ -136,7 +234,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
         <button class="onboarding-path-btn secondary" id="ob-create-btn">
           <span class="onboarding-path-icon onboarding-path-icon--grid">${GRID_ICON_SVG}</span>
           <span class="onboarding-path-text">
-            <span class="onboarding-path-label">Sign up for Dashie</span>
+            <span class="onboarding-path-label">Sign up for ${escapeHtml(brand.name)}</span>
             <span class="onboarding-path-desc">Calendar, photos, family sharing, and more</span>
           </span>
         </button>
@@ -146,7 +244,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
         <button class="onboarding-path-btn secondary" id="ob-ha-btn">
           <span class="onboarding-path-icon">${HA_LOGO_SVG}</span>
           <span class="onboarding-path-text">
-            <span class="onboarding-path-label">Use Dashie with Home Assistant</span>
+            <span class="onboarding-path-label">Use ${escapeHtml(brand.name)} with Home Assistant</span>
             <span class="onboarding-path-desc">Connect manually if Home Assistant isn't on this network</span>
           </span>
         </button>
@@ -169,7 +267,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
       <button class="onboarding-path-btn primary" id="ob-ha-btn">
         <span class="onboarding-path-icon">${HA_LOGO_SVG}</span>
         <span class="onboarding-path-text">
-          <span class="onboarding-path-label">${haUrl ? 'Configure Home Assistant' : 'Connect to Home Assistant'}</span>
+          <span class="onboarding-path-label">${haUrl ? 'Configure Home Assistant' : 'Connect to Home Assistant'} or Host Your Own Dashboard</span>
           <span class="onboarding-path-desc">Display dashboards & enable voice control for a smarter smart home</span>
         </span>
       </button>
@@ -181,7 +279,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
         <button class="onboarding-path-btn secondary" id="ob-standalone-btn">
           <span class="onboarding-path-icon onboarding-path-icon--grid">${GRID_ICON_SVG}</span>
           <span class="onboarding-path-text">
-            <span class="onboarding-path-label">Use Dashie without Home Assistant</span>
+            <span class="onboarding-path-label">Use ${escapeHtml(brand.name)} without Home Assistant</span>
             <span class="onboarding-path-desc">Calendar, photos, family sharing, and more</span>
           </span>
         </button>
@@ -189,11 +287,36 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
     }
   }
 
+  // Custom-URL path: NO chooser button any more (John, 2026-08-17). It sat
+  // beside "Use <brand> without Home Assistant" with the same grid icon and the
+  // two were visually indistinguishable — and it is a minority case. It now
+  // lives as an alt-path link on the HA config screen (renderHaConfig's
+  // onCustomUrl), which is why the HA button above says "…or Host Your Own
+  // Dashboard". The welcome card's #ob-custom-url-btn wiring below stays
+  // null-guarded so this removal is inert there.
+
+  // Legal footer only where the brand HAS published pages. Chickadee's
+  // (`brand.legal === null`) are Thread C's to publish; linking invented URLs
+  // would put a 404 on the very first screen a beta tester sees, which is
+  // worse than no link. Rendering nothing is deliberate, not forgotten.
+  const legalFooter = brand.legal ? `
+    <div class="onboarding-footer">
+      <div class="onboarding-legal-links">
+        <a href="${brand.legal.privacyUrl}" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+        <span class="onboarding-legal-sep">&bull;</span>
+        <a href="${brand.legal.termsUrl}" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+      </div>
+    </div>
+  ` : '';
+
   card.innerHTML = `
     <button class="onboarding-close-btn" id="ob-close-btn" aria-label="Close">&times;</button>
     <div class="onboarding-welcome-main">
-      <img src="artwork/Dashie_Full_Logo_Orange_Transparent.png" alt="Dashie" class="onboarding-logo" />
-      <div class="onboarding-title">Welcome to Dashie!</div>
+      <!-- No "Welcome to <brand>!" line here (John, 2026-08-05): the mark IS the greeting, at
+           double size. The alt text still carries the brand name, so a screen reader announces
+           the card exactly as before — dropping the heading must not drop the only accessible
+           statement of what this app is. -->
+      ${brandLogoImg(brand, 'onboarding-logo--hero')}
       ${scanText}
 
       <div class="onboarding-path-buttons">
@@ -201,13 +324,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
       </div>
     </div>
 
-    <div class="onboarding-footer">
-      <div class="onboarding-legal-links">
-        <a href="https://dashieapp.com/privacy-policy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-        <span class="onboarding-legal-sep">&bull;</span>
-        <a href="https://dashieapp.com/terms-of-service.html" target="_blank" rel="noopener noreferrer">Terms of Service</a>
-      </div>
-    </div>
+    ${legalFooter}
   `;
 
   // Wire up handlers — only the buttons that exist in the chosen layout.
@@ -216,6 +333,9 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
 
   const standaloneBtn = card.querySelector('#ob-standalone-btn');
   if (standaloneBtn) standaloneBtn.addEventListener('click', () => onStandalonePath && onStandalonePath());
+
+  const customUrlBtn = card.querySelector('#ob-custom-url-btn');
+  if (customUrlBtn) customUrlBtn.addEventListener('click', () => onCustomUrlPath && onCustomUrlPath());
 
   const createBtn = card.querySelector('#ob-create-btn');
   if (createBtn) createBtn.addEventListener('click', () => onCreateAccount && onCreateAccount());
@@ -239,7 +359,7 @@ export function renderWelcome({ scanResults, scanning, onHaPath, onStandalonePat
  * @param {function} opts.onBack - go back to welcome
  * @returns {HTMLElement}
  */
-export function renderHaConfig({ prefilledUrl, savedConfig, onConnect, onBack }) {
+export function renderHaConfig({ prefilledUrl, savedConfig, onConnect, onBack, onCustomUrl }) {
   const card = document.createElement('div');
   card.className = 'onboarding-card';
 
@@ -258,10 +378,18 @@ export function renderHaConfig({ prefilledUrl, savedConfig, onConnect, onBack })
   // back to this screen.
   const autoBuildOn = savedConfig ? savedConfig.autoBuild !== false : true;
 
+  // 🔴 The badge and the URL field can name DIFFERENT boxes, and the badge is
+  // the one that sounds authoritative. `baseUrl` above prefers savedConfig, so
+  // on a device configured against a non-advertising HA the field correctly
+  // holds .116 while the scan handed us .72 — and the old badge said, flatly,
+  // "Detected at .72" beside it (T cont.55). Say which is which when they
+  // disagree; keep the short form when they agree.
   const hasDetected = !!prefilledUrl;
-  const detectedBadge = hasDetected
-    ? `<span class="onboarding-detected-badge">Detected at ${escapeHtml(prefilledUrl)}</span>`
-    : '';
+  const detectedBadge = !hasDetected
+    ? ''
+    : (savedConfig?.url && !sameHaTarget(savedConfig.url, prefilledUrl))
+      ? `<span class="onboarding-detected-badge onboarding-detected-badge--mismatch">Scan found a different box at ${escapeHtml(hostLabel(prefilledUrl))} — the address above is the one you configured</span>`
+      : `<span class="onboarding-detected-badge">Detected at ${escapeHtml(prefilledUrl)}</span>`;
 
   card.innerHTML = `
     <div class="onboarding-ha-config-header">
@@ -441,10 +569,153 @@ export function renderHaConfig({ prefilledUrl, savedConfig, onConnect, onBack })
   btnRow.appendChild(connectBtn);
   card.appendChild(btnRow);
 
+  // Alt path BELOW the Back/Connect row (John, 2026-08-17): the custom-URL
+  // option moved off the welcome chooser (it read identically to the
+  // no-HA path there) and lives here as a quiet link — the chooser's HA
+  // button says "…or Host Your Own Dashboard", this is where that lands.
+  if (onCustomUrl) {
+    const altPath = document.createElement('button');
+    altPath.type = 'button';
+    altPath.className = 'onboarding-alt-path';
+    altPath.id = 'ob-host-other-btn';
+    altPath.textContent = 'Host a different dashboard instead →';
+    altPath.addEventListener('click', () => onCustomUrl());
+    card.appendChild(altPath);
+  }
+
   // Make text inputs readonly by default for d-pad navigation.
   // This prevents the virtual keyboard from appearing when d-pad moves to an input.
   // The d-pad CENTER/ENTER handler in OnboardingController removes readonly to trigger keyboard.
   // Touch/click also removes readonly so tapping a field opens the keyboard.
+  card.querySelectorAll('input.onboarding-input').forEach(input => {
+    input.readOnly = true;
+    input.addEventListener('click', () => {
+      input.readOnly = false;
+      input.focus();
+    });
+  });
+
+  return card;
+}
+
+/**
+ * Render the Custom URL config screen — the non-HA sibling of [renderHaConfig].
+ *
+ * A deliberately SMALLER form, not a copy: it keeps the URL field and the API
+ * block, and drops auto-build, dashboard path, hide-sidebar and hide-tabs. Those
+ * four are Home-Assistant-chrome concepts — there is no Lovelace path to build
+ * and no HA sidebar to hide on an arbitrary web page, so offering them would be
+ * four controls that quietly do nothing.
+ *
+ * The caller is responsible for the part that actually differs: this path must
+ * NOT trigger an HA login afterwards (see OnboardingController._applyCustomUrlConfig).
+ *
+ * @param {object} opts
+ * @param {object} [opts.savedConfig] - restore values ({url, apiEnabled, apiPort, apiPassword})
+ * @param {function} opts.onConnect - callback({url, apiEnabled, apiPort, apiPassword})
+ * @param {function} opts.onBack
+ */
+export function renderCustomUrlConfig({ savedConfig, onConnect, onBack }) {
+  const card = document.createElement('div');
+  card.className = 'onboarding-card';
+
+  const url = savedConfig?.url || '';
+  const apiEnabled = savedConfig ? savedConfig.apiEnabled : false;
+  const apiPort = savedConfig?.apiPort || 2323;
+  const apiPassword = savedConfig?.apiPassword || '';
+
+  card.innerHTML = `
+    <div class="onboarding-title">Use another dashboard</div>
+    <div class="onboarding-subtitle">Enter the address of the page you want to display.</div>
+
+    <div class="onboarding-form-group">
+      <label class="onboarding-form-label">Dashboard URL</label>
+      <div class="onboarding-form-hint">You can change this later in Settings.</div>
+      <input class="onboarding-input" id="ob-custom-full-url" type="url"
+             placeholder="https://example.com/dashboard"
+             value="${escapeHtml(url)}" autocomplete="off" />
+    </div>
+
+    <div class="onboarding-toggle-row" style="border-bottom: none;">
+      <span class="onboarding-toggle-label">Enable API</span>
+      <input type="checkbox" class="onboarding-toggle" id="ob-api-enabled" ${apiEnabled ? 'checked' : ''} />
+    </div>
+    <div id="ob-api-details" style="${apiEnabled ? '' : 'display: none;'}">
+      <div class="onboarding-url-row">
+        <div class="onboarding-form-group onboarding-url-base">
+          <label class="onboarding-form-label">API Password</label>
+          <input class="onboarding-input" id="ob-api-password" type="password"
+                 placeholder="Optional" value="${escapeHtml(apiPassword)}" autocomplete="new-password" />
+        </div>
+        <div class="onboarding-form-group onboarding-url-path">
+          <label class="onboarding-form-label">API Port</label>
+          <input class="onboarding-input" id="ob-api-port" type="number"
+                 value="${apiPort}" min="1024" max="65535" />
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Same reveal behaviour as the HA screen, including the readonly re-assert:
+  // some Android WebViews auto-focus the first input of a newly-visible section
+  // and pop the numeric IME. See renderHaConfig for the full rationale.
+  const apiToggle = card.querySelector('#ob-api-enabled');
+  const apiDetails = card.querySelector('#ob-api-details');
+  apiToggle.addEventListener('change', () => {
+    apiDetails.style.display = apiToggle.checked ? '' : 'none';
+    if (apiToggle.checked) {
+      requestAnimationFrame(() => {
+        apiDetails.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        apiDetails.querySelectorAll('input').forEach(i => { i.readOnly = true; });
+        if (document.activeElement && document.activeElement !== apiToggle && document.activeElement.blur) {
+          document.activeElement.blur();
+        }
+      });
+    }
+  });
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'onboarding-btn-row';
+
+  // Same classes as renderHaConfig's row — the page previously used
+  // 'onboarding-btn secondary/primary', classes that exist in NO stylesheet,
+  // so Back/Continue rendered as unstyled browser defaults (John's 08-17
+  // screenshot). Consistency here IS the fix.
+  const backBtn = document.createElement('button');
+  backBtn.className = 'onboarding-btn-back';
+  backBtn.id = 'ob-custom-back-btn';
+  backBtn.textContent = 'Back';
+  backBtn.addEventListener('click', () => onBack && onBack());
+
+  const connectBtn = document.createElement('button');
+  connectBtn.className = 'onboarding-btn-primary';
+  connectBtn.id = 'ob-custom-connect-btn';
+  connectBtn.textContent = 'Continue';
+  connectBtn.addEventListener('click', () => {
+    const input = card.querySelector('#ob-custom-full-url');
+    let value = normalizeHaUrl(input.value.trim());
+    if (!value) { input.focus(); return; }
+    try {
+      const parsed = new URL(value);
+      if (!parsed.hostname || !parsed.protocol.startsWith('http')) throw new Error('Invalid URL');
+    } catch (e) {
+      showUrlError(card, '#ob-custom-full-url',
+        'Invalid URL — check the format (e.g. https://example.com/dashboard)');
+      return;
+    }
+    onConnect({
+      url: value,
+      apiEnabled: apiToggle.checked,
+      apiPort: parseInt(card.querySelector('#ob-api-port').value) || 2323,
+      apiPassword: card.querySelector('#ob-api-password').value
+    });
+  });
+
+  btnRow.appendChild(backBtn);
+  btnRow.appendChild(connectBtn);
+  card.appendChild(btnRow);
+
+  // Readonly-by-default for d-pad nav — identical to the HA screen.
   card.querySelectorAll('input.onboarding-input').forEach(input => {
     input.readOnly = true;
     input.addEventListener('click', () => {
@@ -465,6 +736,7 @@ export function renderHaConfig({ prefilledUrl, savedConfig, onConnect, onBack })
  * @returns {HTMLElement}
  */
 export function renderPermissionPrompt({ onGrantNow, onLater }) {
+  const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card';
 
@@ -489,7 +761,7 @@ export function renderPermissionPrompt({ onGrantNow, onLater }) {
 
   card.innerHTML = `
     <div class="onboarding-title">Device Permissions</div>
-    <div class="onboarding-subtitle">Dashie works best with a few permissions for voice control, screen management, and timers.</div>
+    <div class="onboarding-subtitle">${escapeHtml(brand.name)} works best with a few permissions for voice control, screen management, and timers.</div>
 
     <ul class="onboarding-perm-summary">
       ${permissions.map(p => `<li>${p}</li>`).join('\n      ')}
@@ -531,12 +803,21 @@ export function renderPermissionPrompt({ onGrantNow, onLater }) {
  * @returns {HTMLElement}
  */
 export function renderDataCollection({ onContinue, onLearnMore }) {
+  const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card';
 
+  // Same rule as the welcome footer: link the Privacy Policy only where one
+  // is published. The "Learn how we use your data" link is in-app and always
+  // renders, so the row never collapses to nothing.
+  const privacyLink = brand.legal
+    ? `<a href="${brand.legal.privacyUrl}" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+      <span class="onboarding-data-links-sep">&bull;</span>`
+    : '';
+
   card.innerHTML = `
     <div class="onboarding-title">Data Collection</div>
-    <div class="onboarding-subtitle">Help improve Dashie by sharing anonymous usage data. You can change these settings at any time.</div>
+    <div class="onboarding-subtitle">Help improve ${escapeHtml(brand.name)} by sharing anonymous usage data. You can change these settings at any time.</div>
 
     <div class="onboarding-optout-row">
       <input type="checkbox" class="onboarding-checkbox" id="ob-perf-checkbox" checked>
@@ -555,9 +836,8 @@ export function renderDataCollection({ onContinue, onLearnMore }) {
     </div>
 
     <div class="onboarding-data-links">
-      <a href="https://dashieapp.com/privacy-policy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-      <span class="onboarding-data-links-sep">&bull;</span>
-      <a href="#" id="ob-learn-more">Learn how we use your data to improve Dashie</a>
+      ${privacyLink}
+      <a href="#" id="ob-learn-more">Learn how we use your data to improve ${escapeHtml(brand.name)}</a>
     </div>
   `;
 
@@ -591,6 +871,7 @@ export function renderDataCollection({ onContinue, onLearnMore }) {
  * @returns {HTMLElement}
  */
 export function renderDataCollectionInfo({ onBack }) {
+  const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card';
 
@@ -600,9 +881,9 @@ export function renderDataCollectionInfo({ onBack }) {
     <div class="onboarding-data-info-section">
       <div class="onboarding-data-info-heading">Performance Data</div>
       <div class="onboarding-data-info-text">
-        When enabled, Dashie collects anonymous performance metrics such as memory usage,
+        When enabled, ${escapeHtml(brand.name)} collects anonymous performance metrics such as memory usage,
         refresh timing, and WebSocket stability. This data helps us identify crashes,
-        optimize resource usage, and ensure Dashie runs smoothly on every device.
+        optimize resource usage, and ensure ${escapeHtml(brand.name)} runs smoothly on every device.
         No personal information, photos, or calendar data is ever included.
       </div>
     </div>
@@ -682,16 +963,17 @@ export function renderSwipeTip({ onGotIt }) {
  * @returns {HTMLElement}
  */
 export function renderControlCenterTip({ onGoToControlCenter, onStart }) {
+  const brand = getBrand();
   const overlay = document.createElement('div');
   overlay.className = 'onboarding-tip-overlay';
 
   overlay.innerHTML = `
     <div class="onboarding-tip-card onboarding-tip-card--menu">
       <div class="onboarding-tip-arrow onboarding-tip-arrow--left"></div>
-      <div class="onboarding-title" style="font-size: 20px; margin-bottom: 8px;">Setting up Dashie</div>
-      <div class="onboarding-subtitle" style="margin-bottom: 20px;">You can configure everything in Dashie from the Control Center, which you can reach from the sidebar</div>
+      <div class="onboarding-title" style="font-size: 20px; margin-bottom: 8px;">Setting up ${escapeHtml(brand.name)}</div>
+      <div class="onboarding-subtitle" style="margin-bottom: 20px;">You can configure everything in ${escapeHtml(brand.name)} from the Control Center, which you can reach from the sidebar</div>
       <div class="onboarding-btn-row">
-        <button class="onboarding-btn-back" id="ob-tip-start">Start using Dashie</button>
+        <button class="onboarding-btn-back" id="ob-tip-start">Start using ${escapeHtml(brand.name)}</button>
         <button class="onboarding-btn-primary" id="ob-tip-config">Go to Control Center</button>
       </div>
     </div>

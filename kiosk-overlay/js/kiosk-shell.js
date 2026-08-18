@@ -10,6 +10,7 @@
 
 // NOTE: DashMenuController removed (2026-03-11) — native Kotlin sidebar replaces JS sidebar.
 import { initOverlayBridge } from './kiosk-overlay-bridge.js';
+import { getBrand } from './brand.js';
 import { OnboardingController } from './onboarding/onboarding-controller.js';
 import { renderSwipeTip, renderControlCenterTip } from './onboarding/onboarding-renderer.js';
 import { PowerManagementEngine } from './power-management-engine.js';
@@ -923,6 +924,21 @@ window.dashieShowOnboardingTips = function() {
   console.log('[KioskShell] Showing onboarding tips');
   // Clear stale onboarding reference — controller already destroyed by _complete()
   onboarding = null;
+
+  // 🔴 ORPHAN SWEEP. Every call to this function builds a FRESH closure with its
+  // own `tipOverlay`, so a card appended by a previous call is invisible to this
+  // one's removeTip() — it would sit in the DOM with no reference able to remove
+  // it. Sweep before we add anything, so a second invocation can never leave a
+  // stuck card behind. Observed on a Fire tablet (2026-08-18): the "Setting up
+  // Dashie" card could not be dismissed by either of its buttons — a
+  // programmatic .click() left the node AND its `visible` class untouched,
+  // proving removeTip()'s `if (tipOverlay)` guard was false while the card was
+  // on screen.
+  document.querySelectorAll('.onboarding-tip-overlay').forEach(el => {
+    console.log('[KioskShell] Removing orphaned tip overlay from a previous invocation');
+    el.remove();
+  });
+
   let tipOverlay = null;
   let tipFocusIndex = 0;
 
@@ -971,10 +987,26 @@ window.dashieShowOnboardingTips = function() {
     }
   }
 
-  function removeTip() {
-    if (tipOverlay) {
-      const toRemove = tipOverlay;
-      tipOverlay = null; // Clear immediately so next tip can claim the slot
+  /**
+   * Dismiss a tip card.
+   *
+   * @param {HTMLElement} [node] the overlay to remove. Callers that OWN a
+   *   specific card (its own buttons) pass it explicitly — see below.
+   *
+   * 🔴 Do NOT go back to gating solely on the closure's `tipOverlay`. That
+   * variable is mutable and is nulled by several paths (this function itself,
+   * and `dashieOnSidebarDismissed`), so a click handler could run when it was
+   * already null and silently remove NOTHING — leaving the card on screen with
+   * no way to dismiss it, which is exactly the bug this shape fixes. A card's
+   * own button must always be able to remove that card, whatever the shared
+   * state happens to be.
+   */
+  function removeTip(node) {
+    const toRemove = node || tipOverlay;
+    if (toRemove) {
+      // Only clear the shared slot if we are removing what it points at —
+      // otherwise an explicit removal would null out an unrelated live card.
+      if (toRemove === tipOverlay) tipOverlay = null;
       toRemove.classList.remove('visible');
       setTimeout(() => toRemove.remove(), 300);
     }
@@ -1029,9 +1061,14 @@ window.dashieShowOnboardingTips = function() {
         }
       } catch(e) {}
 
-      const el = renderControlCenterTip({
+      // `el` is referenced inside its own handlers — declared with `let` and
+      // assigned below so both closures capture the binding. Each handler
+      // removes THE CARD IT BELONGS TO rather than whatever the shared
+      // `tipOverlay` currently points at, so a card's own button always works.
+      let el;
+      el = renderControlCenterTip({
         onGoToControlCenter: () => {
-          removeTip();
+          removeTip(el);
           dismissSidebarAndMenu();
           setTimeout(() => {
             if (typeof DashieNative !== 'undefined' && DashieNative.openControlCenter) {
@@ -1044,7 +1081,7 @@ window.dashieShowOnboardingTips = function() {
           }, 300);
         },
         onStart: () => {
-          removeTip();
+          removeTip(el);
           dismissSidebarAndMenu();
         }
       });
@@ -1129,7 +1166,9 @@ window.dashieShowOnboardingTips = function() {
 
   const swipeTipEl = renderSwipeTip({
     onGotIt: () => {
-      removeTip();
+      // Explicit node, same reason as the Control Center card: this button
+      // dismisses THIS card regardless of the shared slot's current value.
+      removeTip(swipeTipEl);
       showControlCenterTip();
     }
   });
@@ -1210,3 +1249,9 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// ── Brand ──
+// The document title is set HERE rather than in kiosk-shell.html: the HTML is static and
+// shared by both editions, so a literal there is a Dashie string shipped to every Chickadee
+// device. Same reason the onboarding strings moved into the brand table.
+try { document.title = getBrand().name; } catch (e) { /* pre-DOM or no bridge; harmless */ }

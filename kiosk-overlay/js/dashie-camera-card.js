@@ -140,8 +140,11 @@ class DashieCameraCard extends HTMLElement {
 
         const bridge = this._getBridge();
         if (!bridge) {
-            console.warn(TAG, 'DashieNative bridge not available - not on a Dashie tablet?');
-            this._showStatus('Not on Dashie tablet', '#ff9800');
+            // Neutral wording for the same reason as the card-picker metadata below: this
+            // status renders ON SCREEN, in whichever edition is running.
+            console.warn(TAG, 'DROP: [expected] DashieNative bridge unavailable — ' +
+                'not running inside a kiosk tablet WebView; cannot start native RTSP.');
+            this._showStatus('Not on a supported tablet', '#ff9800');
             return;
         }
 
@@ -377,11 +380,38 @@ class DashieCameraCard extends HTMLElement {
 // Register
 customElements.define('dashie-camera-card', DashieCameraCard);
 
+/**
+ * Card-picker metadata — deliberately BRAND-NEUTRAL in both editions.
+ *
+ * ⚠️ `type` is a WIRE VALUE and must never change: it is what users write in their Lovelace
+ * YAML (`type: custom:dashie-camera-card`), so renaming it breaks every existing dashboard.
+ * Only the human-readable `name`/`description` are branded, and those are what get fixed here.
+ *
+ * ## Why neutral rather than resolved per edition
+ *
+ * The obvious fix is `DashieNative.getEdition()` → "Dashie Camera" / "Chickadee Camera". Three
+ * things rule that out, and the third is decisive:
+ *
+ *  - It needs an edition→display-name table in THIS file, which cannot import `brand.js`: the
+ *    card is deployed by COPYING one file into HA's `/config/www/`, so a sibling `./brand.js`
+ *    resolves to `/local/brand.js` and 404s. That makes it a bare hand-mirror of the brand
+ *    table — the thing standing rule 1 forbids — for one card label.
+ *  - Deriving the name from the edition id instead (capitalise `chickadee`) fails quiet the
+ *    first time a brand's display name differs from its id.
+ *  - 🔑 **The bridge is absent for a large share of real loads anyway.** The card picker is
+ *    normally browsed from a LAPTOP, where there is no `DashieNative` — so a brand-aware build
+ *    would read "Dashie Camera" on the tablet and the neutral fallback on the laptop, i.e. one
+ *    card under two names depending on where you opened HA. Consistently neutral beats that.
+ *
+ * Cost is a little findability in the Dashie picker. If John wants the brand word back, it is a
+ * small change — but it buys the mirror, the fails-quiet derivation, or the two-names problem
+ * above, so it should be a deliberate call rather than a default.
+ */
 window.customCards = window.customCards || [];
 window.customCards.push({
     type: 'dashie-camera-card',
-    name: 'Dashie Camera',
-    description: 'Native RTSP camera card for Dashie Lite tablets (go2rtc)',
+    name: 'RTSP Camera (Native)',
+    description: 'Native RTSP camera card for kiosk tablets (go2rtc)',
     preview: false,
 });
 

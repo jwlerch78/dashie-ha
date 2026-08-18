@@ -21,9 +21,9 @@ const defaultConfig = {
     localEndpoint: '/api/llm/chat',
     localModel: 'qwen2.5:1.5b',    // Ollama model
 
-    // Cloud: Supabase Edge Function (same as Dashie Standard)
-    cloudEndpoint: 'https://cwglbtosingboqepsmjk.supabase.co/functions/v1/ai-gateway',
-    cloudModel: 'claude-sonnet-4-20250514',
+    // NOTE: the `cloud*` endpoints that used to sit here were Dashie Supabase URLs with no
+    // readers — see the deletion note at the bottom of this file. Do not reintroduce one
+    // without a caller: this bundle ships in BOTH editions, and Chickadee is account-free.
 
     // Provider-specific options
     max_tokens: 300,                // Keep low for faster local model responses
@@ -42,9 +42,6 @@ const defaultConfig = {
 
     // Local: Wyoming Whisper via addon server
     localEndpoint: '/api/voice/transcribe',
-
-    // Cloud: Deepgram via Supabase Edge Function
-    cloudEndpoint: 'https://cwglbtosingboqepsmjk.supabase.co/functions/v1/deepgram-stt',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -56,10 +53,6 @@ const defaultConfig = {
     // Local: Wyoming Piper via addon server
     localEndpoint: '/api/voice/synthesize',
     localVoice: 'en_US-lessac-medium',
-
-    // Cloud: ElevenLabs via Supabase Edge Function
-    cloudEndpoint: 'https://cwglbtosingboqepsmjk.supabase.co/functions/v1/elevenlabs-tts',
-    cloudVoice: 'pMsXgVXv3BLzUgSXRplE',  // Dashie voice
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -118,38 +111,16 @@ export const DASHIE_CONFIG = deepMerge(defaultConfig, serverConfig);
 // Also expose globally for debugging and non-module scripts
 window.DASHIE_CONFIG = DASHIE_CONFIG;
 
-// Helper functions for common config access patterns
-export function getLLMEndpoint() {
-  const { llm } = DASHIE_CONFIG;
-  return llm.provider === 'cloud' ? llm.cloudEndpoint : llm.localEndpoint;
-}
-
-export function getLLMModel() {
-  const { llm } = DASHIE_CONFIG;
-  return llm.provider === 'cloud' ? llm.cloudModel : llm.localModel;
-}
-
-export function getSTTEndpoint() {
-  const { stt } = DASHIE_CONFIG;
-  return stt.provider === 'cloud' ? stt.cloudEndpoint : stt.localEndpoint;
-}
-
-export function getTTSEndpoint() {
-  const { tts } = DASHIE_CONFIG;
-  return tts.provider === 'cloud' ? tts.cloudEndpoint : tts.localEndpoint;
-}
-
-export function isLocalLLM() {
-  return DASHIE_CONFIG.llm.provider === 'local';
-}
-
-export function isCloudLLM() {
-  return DASHIE_CONFIG.llm.provider === 'cloud';
-}
-
-export function isHybridLLM() {
-  return DASHIE_CONFIG.llm.provider === 'hybrid';
-}
+// 🔴 REMOVED 2026-08-02 (2g): getLLMEndpoint / getLLMModel / getSTTEndpoint / getTTSEndpoint /
+// isLocalLLM / isCloudLLM / isHybridLLM. All seven were exported and **nothing imported any of
+// them** — grepped the whole overlay. They were the last readers of the `cloud*` fields deleted
+// above, and they are dead for a known reason: the kiosk stopped orchestrating voice at WS5
+// (see kiosk-services.js, "the legacy local AI path below is retired"). The call moved to native
+// Kotlin and this config was left behind still describing it.
+//
+// Deleted rather than rebranded, which is the whole point: the leak was three PROD/staging
+// Supabase URLs riding into an account-free artifact inside an object that only a console.log
+// still reads. Rebranding unreachable code would have preserved the reachability lie.
 
 export function isLLMEnabled() {
   return DASHIE_CONFIG.llm.enabled === true;

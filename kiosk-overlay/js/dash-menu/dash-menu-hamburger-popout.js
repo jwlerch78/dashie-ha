@@ -8,6 +8,7 @@
  */
 
 import { POPOUT_ICONS } from './dash-menu-items.js';
+import { getBrand, getSidebarLogo } from '../brand.js';
 
 /**
  * Creates the hamburger popout DOM.
@@ -55,8 +56,11 @@ function buildUnlockedSection(container, isPinned) {
   const logoWrapper = document.createElement('div');
   logoWrapper.className = 'hamburger-menu-logo';
   const logo = document.createElement('img');
-  logo.src = 'images/dashie-logo-orange.png';
-  logo.alt = 'Dashie';
+  // Per-render, not cached: the theme can flip under a live page (the Android 14+ toggle), and
+  // the popout is rebuilt on open — so reading it here is what keeps the mark on the surface it
+  // is actually being drawn on.
+  logo.src = getSidebarLogo();
+  logo.alt = getBrand().name;
   logo.className = 'hamburger-menu-logo-img';
   logo.draggable = false;
   attachLongPress(logoWrapper, () => {
@@ -111,8 +115,11 @@ function buildLockedSection(container, isPinned) {
   const logoWrapper = document.createElement('div');
   logoWrapper.className = 'hamburger-menu-logo';
   const logo = document.createElement('img');
-  logo.src = 'images/dashie-logo-orange.png';
-  logo.alt = 'Dashie';
+  // Per-render, not cached: the theme can flip under a live page (the Android 14+ toggle), and
+  // the popout is rebuilt on open — so reading it here is what keeps the mark on the surface it
+  // is actually being drawn on.
+  logo.src = getSidebarLogo();
+  logo.alt = getBrand().name;
   logo.className = 'hamburger-menu-logo-img';
   logo.draggable = false;
   attachLongPress(logoWrapper, () => {

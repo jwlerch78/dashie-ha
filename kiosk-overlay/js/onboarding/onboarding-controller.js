@@ -12,7 +12,8 @@
  * Registers global callbacks for async results (scan, HA login, permissions).
  */
 
-import { renderLoading, renderWelcome, renderHaConfig, renderDataCollection, renderDataCollectionInfo, renderPermissionPrompt } from './onboarding-renderer.js';
+import { renderLoading, renderWelcome, renderHaConfig, renderCustomUrlConfig, renderDataCollection, renderDataCollectionInfo, renderPermissionPrompt } from './onboarding-renderer.js';
+import { applyBrandAccent } from '../brand.js';
 
 const SCAN_TIMEOUT_MS = 5000;
 
@@ -49,7 +50,8 @@ export class OnboardingController {
 
     // D-pad navigation state
     this._focusIndex = 0;
-    this._currentScreen = null;  // 'welcome' | 'ha-config' | 'data-collection' | 'data-collection-info' | 'permissions'
+    this._currentScreen = null;  // 'welcome' | 'ha-config' | 'custom-url-config' | 'data-collection' | 'data-collection-info' | 'permissions'
+    this.customUrlData = null;   // set only on the custom-URL path; also the flag back-nav reads
   }
 
   /**
@@ -69,6 +71,9 @@ export class OnboardingController {
     // the diverging system dark mode). Fall back to localStorage 'dashie-theme'
     // if the root class isn't set yet.
     if (this._isLightTheme()) this.overlay.classList.add('light');
+    // Brand accent (spinner, primary button, d-pad focus ring, toggles). Must run BEFORE the
+    // first _setContent so nothing paints Dashie orange for a frame on a Chickadee device.
+    applyBrandAccent(this.overlay);
     document.body.appendChild(this.overlay);
 
     // Register global callbacks for Kotlin → JS
@@ -235,8 +240,13 @@ export class OnboardingController {
     this._setContent(renderWelcome({
       scanResults: this.scanResults,
       scanning: this.scanning,
+      // What this device is ALREADY pointed at. Read every render rather than
+      // cached: the welcome card is re-entered by back-navigation from the HA
+      // config screen, where the user may just have changed it.
+      configuredHa: this._loadConfiguredHaForWelcome(),
       onHaPath: (detectedUrl) => this._showHaConfig(detectedUrl),
       onStandalonePath: () => this._handleStandalonePath(),
+      onCustomUrlPath: () => this._showCustomUrlConfig(),
       onCreateAccount: () => this._handleDashieAccountPath('create'),
       onSignIn: () => this._handleDashieAccountPath('signin'),
       onClose: () => this._handleClose()
@@ -270,8 +280,73 @@ export class OnboardingController {
       prefilledUrl: prefilledUrl || '',
       savedConfig: savedConfig || null,
       onConnect: (config) => this._handleConnect(config),
-      onBack: () => this._showWelcome()
+      onBack: () => this._showWelcome(),
+      onCustomUrl: () => this._showCustomUrlConfig()
     }), 'ha-config');
+  }
+
+  /** Show the custom-URL config screen (the non-HA sibling of the HA config screen). */
+  _showCustomUrlConfig(savedConfig = null) {
+    this._setContent(renderCustomUrlConfig({
+      savedConfig: savedConfig || this.customUrlData || null,
+      onConnect: (config) => this._applyCustomUrlConfig(config),
+      // Back returns to the HA config screen, not the welcome chooser — since
+      // 08-17 this screen's only entry is the HA screen's alt-path link, and
+      // Back should undo the step the user actually took.
+      onBack: () => this._showHaConfig('', this.haConfigData)
+    }), 'custom-url-config');
+  }
+
+  /**
+   * Persist the custom-URL choice and continue onboarding WITHOUT an HA login.
+   *
+   * This is the whole point of the path, and the one place it must not copy the
+   * HA flow: `_handleConnect` ends in `N.openHaLogin(...)`, and there is no HA to
+   * log into here. Completion therefore has to be asserted directly.
+   *
+   * Why one `setHomeAssistantSettings` call rather than a new bridge method:
+   * every key below already exists on the SHIPPED 1.0.15 bridge, so this whole
+   * feature is JS-only and cherry-picks to dev without an APK/Kotlin release.
+   *   - useCustomUrl/customUrl → the pair MainUrlHandler already routes on
+   *   - haEnabled:false        → onOnboardingComplete() would force this TRUE and
+   *                              surface HA widgets/sections to someone with no HA
+   *   - isSetupComplete:true   → the kiosk gate (MainActivity → UiMode.KIOSK)
+   */
+  _applyCustomUrlConfig(config) {
+    this.customUrlData = config;
+    const N = typeof DashieNative !== 'undefined' ? DashieNative : null;
+    if (N) {
+      if (typeof N.setHomeAssistantSettings === 'function') {
+        // ⚠️ The payload is NESTED by section — {core|api|camera|videoFeed|power|alert}.
+        // A FLAT {useCustomUrl,...} object parses fine, matches no section, and is
+        // silently discarded: JsBridgeHaDelegate only try/catches JSON parse errors, so
+        // nothing logs and the caller sees success. Cost me a device run — the setup
+        // completed, api_enabled persisted, and not one of these four keys did.
+        N.setHomeAssistantSettings(JSON.stringify({
+          core: {
+            useCustomUrl: true,
+            customUrl: config.url,
+            haEnabled: false,
+            isSetupComplete: true
+          }
+        }));
+      } else {
+        // Older bridge than we support — say so loudly rather than silently
+        // landing the user on a half-configured device (standing rule 2).
+        console.warn(TAG, 'DROP: setHomeAssistantSettings missing — custom URL not persisted');
+      }
+      if (typeof N.setApiEnabled === 'function') {
+        N.setApiEnabled(config.apiEnabled);
+        if (config.apiEnabled) {
+          if (typeof N.setApiPort === 'function') N.setApiPort(config.apiPort);
+          if (config.apiPassword && typeof N.setApiPassword === 'function') {
+            N.setApiPassword(config.apiPassword);
+          }
+        }
+      }
+    }
+    // Same tail as the HA path — data collection, then permissions.
+    this._showDataCollection();
   }
 
   /**
@@ -280,6 +355,38 @@ export class OnboardingController {
    * HA config screen, so the form survives activity recreation regardless
    * of which init branch we re-entered through.
    */
+  /**
+   * The HA this device is genuinely configured against, or null — for the
+   * welcome card's "configured outranks discovered" line.
+   *
+   * 🔴 Reads `ha.url`, NOT `ha.base_url`, and the difference decides whether
+   * this is a fix or a regression. `getHaConnectionSettings()` returns
+   * `base_url` verbatim, INCLUDING the untouched `http://192.168.1.x:8123`
+   * placeholder that every unconfigured device carries — the delegate's own
+   * comment says it treats that string as "no URL configured" and blanks
+   * `url` for exactly this reason. Reading base_url here would have told every
+   * fresh device it was "configured at 192.168.1.x", suppressing both the real
+   * discovery banner and the no-HA account layout. Caught by reading the
+   * delegate rather than trusting the field name.
+   *
+   * Deliberately ignores `ha.enabled`, which also folds in the per-device
+   * "HA features on/off" toggle: a user who configured a box and toggled HA
+   * off has still told us which box is theirs, and that is the only question
+   * this answers.
+   */
+  _loadConfiguredHaForWelcome() {
+    const N = typeof DashieNative !== 'undefined' ? DashieNative : null;
+    if (!N || !N.getHaConnectionSettings) return null;
+    try {
+      const ha = JSON.parse(N.getHaConnectionSettings());
+      const url = (ha && ha.url) || '';
+      return url ? { url } : null;
+    } catch (e) {
+      console.warn(TAG, 'Failed to read configured HA for welcome card', e);
+      return null;
+    }
+  }
+
   _loadSavedConfigFromPrefs() {
     const N = typeof DashieNative !== 'undefined' ? DashieNative : null;
     if (!N || !N.getHaConnectionSettings) return null;
@@ -732,11 +839,15 @@ export class OnboardingController {
     console.log(TAG, 'Back from screen:', this._currentScreen);
     switch (this._currentScreen) {
       case 'ha-config':
+      case 'custom-url-config':
         this._showWelcome();
         break;
       case 'data-collection':
-        // Go back to HA config with saved values
-        this._showHaConfig('', this.haConfigData);
+        // Back to whichever config screen got us here — the custom-URL path has
+        // no HA config to return to, and sending it there would strand the user
+        // on a form for a product they did not choose.
+        if (this.customUrlData) this._showCustomUrlConfig(this.customUrlData);
+        else this._showHaConfig('', this.haConfigData);
         break;
       case 'data-collection-info':
         this._showDataCollection();

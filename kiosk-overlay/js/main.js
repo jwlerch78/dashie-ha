@@ -6,6 +6,7 @@
  */
 
 import { TimerService, BrowserStorage } from '@dashieapp/timer-service';
+import { getBrand } from './brand.js';
 import { renderTimerCard, updateTimerCardTime, setTimerCardState } from './timer-renderer.js';
 
 // Initialize timer service with browser storage
@@ -43,7 +44,13 @@ function init() {
   renderAllTimers();
   connectWebSocket();
 
-  console.log('Dashie Lite initialized');
+  // Header + document title come from the brand table, not the HTML — index.html is static and
+  // shared by both editions, so a literal there ships a Dashie string to every Chickadee device.
+  const brand = getBrand();
+  document.title = brand.name;
+  const titleEl = document.getElementById('app-title');
+  if (titleEl) titleEl.textContent = brand.name;
+  console.log(brand.name + ' overlay initialized');
   console.log('Timer service available at window.timerService');
 }
 

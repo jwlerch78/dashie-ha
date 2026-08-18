@@ -172,6 +172,16 @@ html.loading-light .onboarding-overlay {
   flex-shrink: 0;
 }
 
+/* The welcome card only (John, 2026-08-05): the "Welcome to <brand>!" heading is gone and the
+   mark carries the greeting, so it renders at 2x. Scoped to a modifier rather than widening
+   .onboarding-logo, because the loading card uses the same element and still wants 140px.
+   max-width keeps it honest on a narrow phone, where 280px could otherwise overflow the card. */
+.onboarding-logo--hero {
+  width: 280px;
+  max-width: 80%;
+  margin-bottom: 8px;
+}
+
 .onboarding-scan-status {
   display: flex;
   align-items: center;
@@ -192,6 +202,26 @@ html.loading-light .onboarding-overlay {
   background: rgba(66, 66, 66, 0.95);
   border: none;
   color: #fff;
+}
+
+/* The scan result shown BESIDE a configured box — deliberately quieter than
+   the configured line above it. It is information, not an instruction: the
+   whole defect this styling exists for was a guess rendered with the weight
+   of a setting (T cont.55). */
+.onboarding-scan-alt {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-tertiary, #999);
+}
+
+/* Same reasoning on the config screen: when the badge contradicts the URL
+   field, it must not read like a confirmation. */
+.onboarding-detected-badge--mismatch {
+  background: rgba(255, 149, 0, 0.18);
+  color: var(--accent-primary, #FF9500);
+  white-space: normal;
 }
 
 .onboarding-scan-found {
@@ -625,6 +655,30 @@ html.loading-light .onboarding-overlay {
 
 .onboarding-btn-secondary:hover {
   color: var(--text-primary);
+}
+
+/* Alt-path link below the HA config Back/Connect row — the custom-URL escape
+   hatch (moved off the welcome chooser 2026-08-17). Quiet by design: a text
+   link, not a third button competing with Back/Connect. */
+.onboarding-alt-path {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  color: var(--accent-primary, #FF9500);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.2s;
+}
+
+.onboarding-alt-path:hover {
+  opacity: 0.85;
+  text-decoration: underline;
 }
 
 /* ============================================
