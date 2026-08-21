@@ -157,8 +157,9 @@ const VoiceAiOptions = {
             return { note: `✓ Detected and ready${h.url ? ` at ${h.url}` : ''}.` };
         }
         // Not installed (add-on mode, detection ran) OR website console (no detection):
-        // HA users get the add-on deep-link, everyone else the upstream install docs.
-        if (DashieAuth?.isAddonMode || DashieAuth?.isHaUser) {
+        // HA contexts get the add-on deep-link, everyone else the upstream install docs.
+        // (isHaContext = the one holder; this site used to hand-write the same OR.)
+        if (DashieAuth?.isHaContext) {
             return { installGuide: { url: this._HERMES_ADDON_URL, label: 'Install add-on ↗' } };
         }
         return { installGuide: { url: this._HERMES_DOCS_URL } };
@@ -242,7 +243,7 @@ const VoiceAiOptions = {
     // Engine domain (matches Kotlin VoicePreferences + the runtime voice providers):
     // dashie_cloud = fixed cloud vendor; va_default = the device's Home Assistant
     // voice pipeline; android_voice = on-device. `haOnly` options are hidden for
-    // non-HA accounts (gated on DashieAuth.isHaUser by the page).
+    // non-HA contexts (gated on DashieAuth.isHaContext by the page).
     // Base STT rows that always exist regardless of detection. The detected
     // engine-direct row (ha_engine, labeled "Whisper (Home Assistant)") is
     // injected by sttOptions() when /api/voice/engines finds a Whisper engine.

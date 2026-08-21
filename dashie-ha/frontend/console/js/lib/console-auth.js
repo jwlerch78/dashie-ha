@@ -418,9 +418,18 @@ const DashieAuth = {
     get tier() { return this._userProfile?.tier || null; },
 
     /** Whether this account is flagged as a Home Assistant user (user_profiles.is_ha_user).
-     *  Set live, one-way, by send-welcome-email on login when a device has HA enabled.
-     *  Gates the HA-only voice pipeline options on the Voice & AI page. */
+     *  Set live, one-way, by send-welcome-email on login when a device has HA enabled —
+     *  and, since board #44, promoted server-side by jwt-auth when the add-on mints a
+     *  credential. ⚠️ Feature gates should read `isHaContext`, not this raw flag. */
     get isHaUser() { return this._userProfile?.is_ha_user === true; },
+
+    /** "Is Home Assistant present in this context?" — THE one holder of the HA
+     *  gating predicate (T s43 cont.15: this decision was hand-written four times
+     *  and diverged into three answers, so inside the add-on — where HA is
+     *  definitionally present — the console filtered out every HA option for any
+     *  account whose signup-era flag was false). Add-on mode is sufficient on its
+     *  own; the account flag covers HA users browsing the WEB console. */
+    get isHaContext() { return this.isAddonMode || this.isHaUser; },
 
     /**
      * Fetch tier + special_access from user_profiles. Cheap REST call (one

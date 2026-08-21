@@ -273,6 +273,31 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'the card resolves a selection with opts.find(…) || opts[0] — without the residual a tiny-storing device renders a DIFFERENT engine as selected while the device still runs tiny; leg 3\'s lying-card defect, reintroduced for the retired id');
 }
 
+// ── LEG 9 — "is this an HA context?" has ONE holder ─────────────────────────
+//
+// The same decision was hand-written four times and diverged into three
+// answers (T s43 cont.15): `_haFilter` and `showEntities` read `isHaUser`
+// only, voice-ai-options.js:161 read `isAddonMode || isHaUser` (the correct,
+// tolerant form), and the sharing nudge required both. Result: inside the
+// add-on — where Home Assistant is definitionally present — the console
+// filtered out every HA option for any account whose signup-era flag was
+// false. The predicate now lives in ONE place (DashieAuth.isHaContext,
+// console-auth.js); this leg keeps the copies from coming back.
+{
+    const codeShaped = /DashieAuth\??\.isHaUser/;
+    const pageSrc = readFileSync(FILES.page, 'utf8');
+    const optsSrc = readFileSync(FILES.options, 'utf8');
+    const authSrc = readFileSync(join(CONSOLE, 'js', 'lib', 'console-auth.js'), 'utf8');
+    check('leg 9a — no page/options site reads DashieAuth.isHaUser directly (isHaContext is the one holder)',
+        !codeShaped.test(pageSrc) && !codeShaped.test(optsSrc),
+        `voice-ai.js hits=${(pageSrc.match(new RegExp(codeShaped, 'g')) || []).length} voice-ai-options.js hits=${(optsSrc.match(new RegExp(codeShaped, 'g')) || []).length}`,
+        'a direct isHaUser read re-creates the diverged copy: it answers "was this account HA-flagged at signup" where the question is "is HA present here" — inside the add-on those answers differ, and every HA option disappears');
+    check('leg 9b — DashieAuth defines isHaContext as addon-mode OR the flag',
+        /isHaContext/.test(authSrc) && /isAddonMode\s*\|\|\s*this\.isHaUser/.test(authSrc),
+        'console-auth.js does not define isHaContext as isAddonMode || isHaUser',
+        'without the tolerant definition, leg 9a just forces every site through a helper that repeats the bug');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);

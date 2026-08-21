@@ -136,12 +136,14 @@ const VoiceAiPage = {
         ['Sulafat', 'Sulafat — Warm'],
     ],
 
-    /** Drop HA-only voice options (va_default / piper / voice_assistant) for
-     *  accounts without Home Assistant. Gated on the live user_profiles.is_ha_user
-     *  flag (DashieAuth.isHaUser). Accepts both descriptor objects ({haOnly}) and
-     *  the control-method [value, label, haOnly] tuples. */
+    /** Drop HA-only voice options (va_default / piper / voice_assistant / the
+     *  ha_assist preset) for contexts without Home Assistant. Gated on the ONE
+     *  holder, DashieAuth.isHaContext (add-on mode OR the account flag) — gating
+     *  on the raw signup-era flag alone is what hid every HA option inside the
+     *  add-on itself (T s43 cont.15). Accepts both descriptor objects ({haOnly})
+     *  and the control-method [value, label, haOnly] tuples. */
     _haFilter(options) {
-        if (DashieAuth.isHaUser) return options;
+        if (DashieAuth.isHaContext) return options;
         return options.filter(o => Array.isArray(o) ? !o[2] : !o.haOnly);
     },
 
@@ -1204,7 +1206,10 @@ const VoiceAiPage = {
     async _maybePromptHouseholdSharing() {
         try {
             if (typeof ConfirmModal === 'undefined') return;
-            if (!DashieAuth.isAddonMode || !DashieAuth.isHaUser) return;
+            // Was `isAddonMode && isHaUser` — under the one-holder predicate the
+            // conjunction collapses to add-on mode alone (add-on ⇒ HA context),
+            // and the nudge is about the add-on's own kiosks/satellites anyway.
+            if (!DashieAuth.isAddonMode) return;
             if (this._activeTab !== 'settings') return;
             if (!this._defaults) return;                                        // defaults not loaded yet
             if (this._defaults['voice.householdSharing'] === true) return;      // already on
@@ -1490,7 +1495,7 @@ const VoiceAiPage = {
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
-        const showEntities = showPipeline && !isHaAssist && DashieAuth.isHaUser;
+        const showEntities = showPipeline && !isHaAssist && DashieAuth.isHaContext;
         // Gemini cascade models search via native Google grounding (not Tavily) → the
         // Web-search-source card shows "Google" instead. Applies in dialog/single.
         const isGeminiAiModel = String(d['ai.model'] || '').startsWith('gemini-');
