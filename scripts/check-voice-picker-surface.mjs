@@ -179,6 +179,63 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'a <script> tag for a deleted file 404s silently in every browser, and a whitelist entry for a page that does not exist reads as "this is reachable" to the next person — which is precisely how this page survived unmounted for three days');
 }
 
+// ── LEG 7 — the own-AI (local) MODEL row survives models() ───────────────────
+//
+// `models()` builds the own-AI row first ("My Local LLM leads the list"), then
+// runs it through `withSavedEngines`, which REPLACES that inline row with the
+// saved engine rows. But withSavedEngines early-returns `options` UNCHANGED
+// when `!isAddonMode || !EnginesStore` — i.e. it returns the very array it was
+// handed. models() then does `out.length = 0; out.push(...withEngines)`, so on
+// that path it empties the array and pushes from the array it just emptied, and
+// the own-AI row disappears.
+//
+// 🔴 Consequence: on the WEBSITE console there is no local/self-hosted brain
+// option at all — the entire Local group is absent from the AI Model picker.
+// Silent: no error, no empty card, just cloud-only choices, which reads as
+// "Dashie doesn't do local" rather than as a bug.
+//
+// These legs run in their OWN vm contexts because they need the real model
+// catalog loaded; the shared sandbox above deliberately has neither it nor an
+// EnginesStore, which is exactly why every leg above stayed green while this
+// defect shipped.
+{
+    const catalog = join(CONSOLE, 'js', 'lib', 'ai-models-catalog.js');
+    const loadWith = (auth, enginesStore) => {
+        const sb = {
+            console: { log() {}, warn() {}, error() {} },
+            document: { title: '', querySelector: () => null },
+            DashieAuth: auth,
+        };
+        if (enginesStore) sb.EnginesStore = enginesStore;
+        sb.window = sb; sb.globalThis = sb;
+        const c = vm.createContext(sb);
+        vm.runInContext(readFileSync(FILES.brand, 'utf8'), c, { filename: FILES.brand });
+        if (existsSync(catalog)) vm.runInContext(readFileSync(catalog, 'utf8'), c, { filename: catalog });
+        vm.runInContext(readFileSync(FILES.options, 'utf8'), c, { filename: FILES.options });
+        return sb.window.VoiceAiOptions;
+    };
+    const ownAi = (rows) => rows.some(m => m.id === 'local' || m.group === 'Local');
+    const cloudCount = (rows) => rows.filter(m => m.locality === 'cloud').length;
+
+    const web = loadWith({ isAddonMode: false, isLocalMode: false }, null).models();
+    check('leg 7a — the WEB console offers an own-AI (local / self-hosted) model row',
+        ownAi(web),
+        `model ids = ${JSON.stringify(web.map(m => m.id))}`,
+        'withSavedEngines early-returns the SAME array models() then clears, so the own-AI row is pushed from an emptied array and vanishes. A website user cannot select a local or self-hosted brain at all, and nothing reports it');
+
+    const addonNoStore = loadWith({ isAddonMode: true, isLocalMode: false }, null).models();
+    check('leg 7b — so does the add-on console before EnginesStore has loaded',
+        ownAi(addonNoStore),
+        `model ids = ${JSON.stringify(addonNoStore.map(m => m.id))}`,
+        'same aliasing, reached by the other half of the early-return condition — a first-paint race would drop the row inside the add-on too');
+
+    const addonWithStore = loadWith({ isAddonMode: true, isLocalMode: false }, { cached: () => [] }).models();
+    check('leg 7c — POSITIVE CONTROL: with EnginesStore present the row is there, and cloud rows load in every shape',
+        ownAi(addonWithStore) && cloudCount(web) > 0 && cloudCount(addonWithStore) > 0,
+        `withStore ownAi=${ownAi(addonWithStore)} cloud(web)=${cloudCount(web)} cloud(withStore)=${cloudCount(addonWithStore)}`,
+        'without this, 7a/7b are satisfiable by a models() that returns nothing at all — "row missing" would be indistinguishable from "builder broken". It also pins the ONE shape that already worked, so the fix must not regress it');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);

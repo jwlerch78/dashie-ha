@@ -358,9 +358,19 @@ const VoiceAiOptions = {
     },
 
     /** Splice saved engines into a picker list, replacing the inline-URL row for that
-     *  kind. Off-add-on (or when EnginesStore is absent) the list is returned as-is. */
+     *  kind. Off-add-on (or when EnginesStore is absent) the list is returned as-is.
+     *
+     *  🔴 ALWAYS RETURNS A NEW ARRAY — never `options` itself. This used to return the
+     *  caller's own array on the pass-through path, and `models()` (which does
+     *  `out.length = 0; out.push(...withEngines)` because `out` is const) then emptied
+     *  the array it was about to read, silently dropping the own-AI row. Off-add-on that
+     *  is the WHOLE Local group: a website user had no local/self-hosted brain option at
+     *  all, with no error and no empty card — just a cloud-only picker that reads as
+     *  "Dashie doesn't do local". Fixed here rather than at the call site so the next
+     *  caller cannot re-inherit it; a function that sometimes returns its argument and
+     *  sometimes a copy is the trap. Pinned by check-voice-picker-surface leg 7. */
     withSavedEngines(kind, options, inlineRowId) {
-        if (!DashieAuth?.isAddonMode || !window.EnginesStore) return options;
+        if (!DashieAuth?.isAddonMode || !window.EnginesStore) return options.slice();
         const saved = this.savedEngineRows(kind);
         const rows = saved.length ? saved : [this._addEngineRow(kind, this._ADD_LABEL[kind])];
         const out = [];
