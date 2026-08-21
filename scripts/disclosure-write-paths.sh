@@ -37,6 +37,8 @@ WRITE_SITES=(
   "dashie-ha/server/settings-store.js|renameSync|1|/data|"
   "dashie-ha/server/account-config.js|writeFileSync|1|/data|"
   "dashie-ha/server/account-config.js|renameSync|1|/data|"
+  "dashie-ha/server/usage-store.js|writeFileSync|1|/data|"
+  "dashie-ha/server/usage-store.js|renameSync|1|/data|"
 
   # --- add-on server: OUTSIDE /data (must be disclosed) --------------------
   # bridge-auth writes the master secret to /data AND provisions fallback
@@ -46,7 +48,7 @@ WRITE_SITES=(
   "dashie-ha/server/bridge-auth.js|mkdirSync|1|addon_config mount + <config>/.dashie_voice|addon_config"
   # the integration installer stages and swaps <config>/custom_components/dashie_voice
   "dashie-ha/server/integration-installer.js|writeFileSync|1|<config>/custom_components/dashie_voice|custom_components/dashie_voice"
-  "dashie-ha/server/integration-installer.js|renameSync|1|<config>/custom_components/dashie_voice|custom_components/dashie_voice"
+  "dashie-ha/server/integration-installer.js|renameSync|2|<config>/custom_components/dashie_voice|custom_components/dashie_voice"
   "dashie-ha/server/integration-installer.js|mkdirSync|1|<config>/custom_components|custom_components/dashie_voice"
   # rmSync ×2 = wipe the staging dir, then DELETE the old install before the
   # swap. A delete of the user's custom_components/dashie_voice is the most
