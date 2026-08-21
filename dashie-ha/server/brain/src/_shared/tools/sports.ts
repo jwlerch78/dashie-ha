@@ -25,6 +25,9 @@ export interface SportsResult {
   games: Array<Record<string, any>>;
   result_count: number;
   latency: number;
+  /** Set by the gateway when EVERY provider errored — see SportsResponse.lookup_failed.
+   *  `games: []` alone cannot distinguish "no game was played" from "we never looked". */
+  lookup_failed?: boolean;
 }
 
 /** A loose view of the gateway's game object. */
@@ -414,6 +417,14 @@ function noGamesLine(query: Record<string, unknown>): string {
   return team ? `I couldn't find a game for ${team}.` : `I couldn't find that game.`;
 }
 
+/** Spoken when the sports LOOKUP failed, as distinct from finding no game. Deliberately
+ *  says the source is unavailable rather than that no game happened — the distinction is
+ *  the whole point of `lookup_failed`, and collapsing it back into "I couldn't find a
+ *  game" would re-create the confident-wrong-answer shape. */
+function sportsUnavailableLine(): string {
+  return `I couldn't reach the scores service just now — try again in a bit.`;
+}
+
 function noRecentResultLine(g: Game, query: Record<string, unknown>, tz?: string): string {
   const team = String(query?.team ?? '').trim() || g.home || 'that team';
   const opp = (g.home || '').toLowerCase().includes(team.toLowerCase()) ? g.away : g.home;
@@ -448,6 +459,12 @@ export function templateSports(
   // (2026-07-13). pickGame's when:'' branch smart-picks live → final → upcoming.
   if (!team && !when && games.length !== 1) {
     return { voice: '', text: null, structured_data: null, fallback: true };
+  }
+  // A FAILED lookup must never speak noGamesLine — that line asserts, as fact, that no
+  // game was played. Saying it on a 403 is how a data-source outage became a confident
+  // wrong answer. Decline instead: it is the one honest thing we can say.
+  if (result?.lookup_failed) {
+    return { voice: sportsUnavailableLine(), text: null, structured_data: null };
   }
   if (games.length === 0) {
     return { voice: noGamesLine(query), text: null, structured_data: null };

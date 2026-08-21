@@ -3,7 +3,7 @@
 // Run: deno test orchestrator.test.ts
 
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration } from './orchestrator.ts';
+import { amendUnkeptPicturePromise, looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration } from './orchestrator.ts';
 // Contract shapes come from published modules, not the Deno-coupled impls — so this
 // test ships runnable with the open brain source. See io-contracts.ts.
 import type { LogData } from './io-contracts.ts';
@@ -312,6 +312,39 @@ Deno.test('promisedPictureQuery: a normal answer makes NO promise → null (neve
   assertEquals(promisedPictureQuery('The capital of France is Paris.', "what's the capital of France"), null);
   // "picture this" is not a promise to SHOW a picture.
   assertEquals(promisedPictureQuery('Picture this: a calmer morning.', 'motivate me'), null);
+});
+
+// ── unkept picture promise (2026-08-21) ────────────────────────────────────
+Deno.test('amendUnkeptPicturePromise: walks back a promise the resolver did not keep', () => {
+  // The field case: SERPER_API_KEY unset on prod → resolved:false → no card, and the brain
+  // still said "Here's Saturn, sir" to a blank screen.
+  const out = amendUnkeptPicturePromise("Here's a picture of Saturn, sir.");
+  assertEquals(
+    out,
+    "Here's a picture of Saturn, sir. Actually, I wasn't able to pull up an image just now — sorry about that.",
+  );
+});
+
+Deno.test('amendUnkeptPicturePromise: appends cleanly when the line has no end punctuation', () => {
+  assertEquals(
+    amendUnkeptPicturePromise('Here he is'),
+    "Here he is. Actually, I wasn't able to pull up an image just now — sorry about that.",
+  );
+});
+
+Deno.test('amendUnkeptPicturePromise: a normal answer is NEVER amended', () => {
+  assertEquals(amendUnkeptPicturePromise('It is 72 degrees and sunny.'), null);
+  assertEquals(amendUnkeptPicturePromise('Picture this: a calmer morning.'), null);
+  assertEquals(amendUnkeptPicturePromise(''), null);
+  assertEquals(amendUnkeptPicturePromise(null), null);
+  assertEquals(amendUnkeptPicturePromise(undefined), null);
+});
+
+Deno.test('amendUnkeptPicturePromise: agrees with promisedPictureQuery on what counts as a promise', () => {
+  // Both guards must key on the SAME predicate, else one fires where the other does not.
+  for (const v of ["Here's a picture of a chickadee.", 'Here he is!', 'Take a look.', 'Here is one for you.']) {
+    assertEquals(amendUnkeptPicturePromise(v) !== null, promisedPictureQuery(v, 'show me a chickadee') !== null, v);
+  }
 });
 
 Deno.test('image salvage: a promise with NO image field still logs show_image (salvaged)', async () => {
@@ -1368,4 +1401,58 @@ Deno.test('unoffered-tool decline: unknown tool name in the blob keeps the clari
   const { io } = makeIO(['{"type":"info_request","tool":"flurbometer","query":{']);
   const turn = await runOrchestration(deps(), io);
   assert(turn.voice.startsWith('Sorry'), `expected clarify, got: ${turn.voice}`);
+});
+
+// ── the sports guard must not hand back the shortcut it just took away (2026-08-21) ──
+
+Deno.test('sports ask: grounding OFF *and* web_search NOT offered — the guard cannot defeat itself', async () => {
+  // 🔴 The defect this pins. `geminiGrounds` is false on a sports ask (that IS the guard), and
+  // `promptWebSearch` was its inverse — so removing the native-grounding shortcut silently
+  // OFFERED the model the web_search TOOL instead. Same shortcut, different door: the model
+  // answers from the web, no tool result, no structured_data, no score card — precisely the
+  // outcome the guard's own comment says it exists to prevent.
+  //
+  // Measured on staging before the fix, six identical "did the Yankees win last night" turns:
+  // route=sports 2 (card), route=web_search 3 (no card), route=error 1. The card showed up on
+  // one turn in three, which is what John reported as sports answers with no card on screen.
+  //
+  // Asserting BOTH halves is the point: either one alone leaves a door open, and the previous
+  // caps test asserted only that grounding was off.
+  const m = makeIO(['{"type":"info_request","tool":"sports","query":{"sport":"baseball","team":"Yankees","type":"score"}}'],
+    { sportsGames: [{ league: 'mlb', home: 'Yankees', away: 'Orioles', homeScore: 6, awayScore: 1,
+                      status: 'Final', state: 'post' }] });
+  const turn = await runOrchestration(deps({ text: 'did the Yankees win last night' }), m.io);
+
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean; tools: string[] } }).caps!;
+  assertEquals(caps.grounding, false, 'sports ask must not ground natively');
+  assert(!caps.tools.includes('web_search'),
+    `sports ask must not be OFFERED web_search either — got ${JSON.stringify(caps.tools)}`);
+  assert(caps.tools.includes('sports'), 'the sports tool must still be offered');
+
+  // The outcome, not just the capability: the turn routes to the tool and carries a card.
+  assertEquals(turn.route, 'sports');
+  assertEquals((turn.structured_data as { type?: string })?.type, 'sports');
+});
+
+Deno.test('a NON-sports ask keeps web_search offered when the provider does not ground', async () => {
+  // The scoping guard. Suppression is keyed to sports-shaped turns only — a normal ask must be
+  // unaffected, or this fix quietly removes the web from every non-Gemini turn.
+  const m = makeIO(['{"type":"response","voice":"ok"}'], { account: { model: 'claude-sonnet-5' } });
+  await runOrchestration(deps({ text: 'what is the capital of France' }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { tools: string[] } }).caps!;
+  assert(caps.tools.includes('web_search'),
+    `a non-grounding provider must keep web_search — got ${JSON.stringify(caps.tools)}`);
+});
+
+Deno.test('a NON-Gemini sports ask KEEPS web_search — its empty-result fallback is gated on grounding', async () => {
+  // ⚠️ Deliberate asymmetry, and the reason the fix is scoped to `groundingAvailable`. A
+  // non-Gemini provider has no native grounding, so web_search is its only web path AND the
+  // empty-sports-result fallback below is itself gated on `groundingAvailable` — suppressing the
+  // tool here would leave an empty result with no fallback at all, trading one silent gap for
+  // another.
+  const m = makeIO(['{"type":"response","voice":"ok"}'], { account: { model: 'claude-sonnet-5' } });
+  await runOrchestration(deps({ text: 'did the Yankees win last night' }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { tools: string[] } }).caps!;
+  assert(caps.tools.includes('web_search'),
+    `non-Gemini sports ask must keep its only web path — got ${JSON.stringify(caps.tools)}`);
 });

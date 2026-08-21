@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: cd66dfd905ec69d58ef053c8b9801d2fac1b9a2d
+   Source git SHA: c49a4c67298a3d48e13c1375647ede8b7a92dedb
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -29,12 +29,14 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // supabase/functions/voice-conversation/orchestrator.ts
 var orchestrator_exports = {};
 __export(orchestrator_exports, {
+  amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
   promisedPictureQuery: () => promisedPictureQuery,
   resolvePersonality: () => resolvePersonality,
   runOrchestration: () => runOrchestration,
   runSports: () => runSports,
   templateCanAnswer: () => templateCanAnswer,
+  voicePromisesPicture: () => voicePromisesPicture,
   wantsGameDetail: () => wantsGameDetail
 });
 module.exports = __toCommonJS(orchestrator_exports);
@@ -2915,6 +2917,9 @@ function noGamesLine(query) {
   const team = String(query?.team ?? "").trim();
   return team ? `I couldn't find a game for ${team}.` : `I couldn't find that game.`;
 }
+function sportsUnavailableLine() {
+  return `I couldn't reach the scores service just now \u2014 try again in a bit.`;
+}
 function noRecentResultLine(g, query, tz) {
   const team = String(query?.team ?? "").trim() || g.home || "that team";
   const opp = (g.home || "").toLowerCase().includes(team.toLowerCase()) ? g.away : g.home;
@@ -2928,6 +2933,9 @@ function templateSports(result, query, opts) {
   const when = resolveWhen(query);
   if (!team && !when && games.length !== 1) {
     return { voice: "", text: null, structured_data: null, fallback: true };
+  }
+  if (result?.lookup_failed) {
+    return { voice: sportsUnavailableLine(), text: null, structured_data: null };
   }
   if (games.length === 0) {
     return { voice: noGamesLine(query), text: null, structured_data: null };
@@ -4367,7 +4375,8 @@ async function orchestrate(deps, io, voiceCtx) {
   const deviceFulfilledRetain = () => retainFields(retain.serverPersist, retain.userText, "", null);
   const groundingAvailable = provider === "gemini" && webSearchAllowed;
   const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
-  const promptWebSearch = webSearchAllowed && !geminiGrounds;
+  const sportsToolOnlyTurn = groundingAvailable && looksLikeSportsAsk(req.text);
+  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn;
   const isAnnouncement = req.announcement === true;
   const clientTools = req.client_fulfilled_tools;
   const multiEnabled = Array.isArray(clientTools) && clientTools.includes("multi");
@@ -4487,6 +4496,15 @@ async function orchestrate(deps, io, voiceCtx) {
     const effImageHint = imageHint?.searchTerms ? imageHint : salvagedTerms ? { searchTerms: salvagedTerms } : void 0;
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field \u2192 searching "${salvagedTerms}"`);
     const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn) : void 0;
+    let imagePromiseAmended = false;
+    if (effImageHint?.searchTerms && !imageCard) {
+      const amended = amendUnkeptPicturePromise(p1Parsed?.voice);
+      if (amended) {
+        console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture \u2014 amending the spoken line`);
+        p1Parsed.voice = amended;
+        imagePromiseAmended = true;
+      }
+    }
     const card2 = sportsCard ?? imageCard;
     const calendarUsed = !!(providedCalendar && !sportsCard && !imageCard && p1Parsed?.type === "response");
     const logMeta = sportsCard ? {
@@ -4496,7 +4514,7 @@ async function orchestrate(deps, io, voiceCtx) {
     } : effImageHint?.searchTerms ? {
       tool_used: "show_image",
       response_type: p1Parsed?.type ?? null,
-      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: effImageHint.searchTerms, criteria: effImageHint.criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms }, caps }
+      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: effImageHint.searchTerms, criteria: effImageHint.criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended }, caps }
     } : calendarUsed ? {
       tool_used: "calendar_context",
       response_type: p1Parsed?.type ?? null,
@@ -4615,7 +4633,10 @@ async function orchestrate(deps, io, voiceCtx) {
       latency_ms: sports?.latency ?? fetchStage.latency_ms,
       success: true
     });
-    if ((sports?.games?.length || 0) === 0 && groundingAvailable) {
+    if (sports?.lookup_failed) {
+      console.warn("DROP: sports lookup failed upstream \u2014 declining, NOT web-grounding");
+    }
+    if ((sports?.games?.length || 0) === 0 && !sports?.lookup_failed && groundingAvailable) {
       return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
     const cardForGames = () => {
@@ -5043,6 +5064,16 @@ async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages,
     const clarifyVoice = "Sorry, I didn't quite catch that \u2014 could you say it again?";
     parsed = { type: "response", voice: clarifyVoice, text: null, action: null };
   }
+  const imageHint = parsed?.image;
+  const imageWanted = !!(inquiryType === "web-search" && context?.retrievePicturesEnabled !== false && parsed?.type === "response" && imageHint?.searchTerms);
+  const imageCard = imageWanted ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn) : void 0;
+  if (imageWanted && !imageCard) {
+    const amended = amendUnkeptPicturePromise(parsed?.voice);
+    if (amended) {
+      console.warn(`DROP: pass2 image-resolve returned no card for "${imageHint?.searchTerms}" while the voice promised a picture \u2014 amending the spoken line`);
+      parsed.voice = amended;
+    }
+  }
   await logPass(
     io,
     deps,
@@ -5056,17 +5087,24 @@ async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages,
   );
   const p2Stage = passStage("pass2", pass2, parsed?.type);
   const usage = sumUsage([pass1.raw?.usage, pass2.raw.usage]);
-  const imageHint = parsed?.image;
-  const imageCard = inquiryType === "web-search" && context?.retrievePicturesEnabled !== false && parsed?.type === "response" && imageHint?.searchTerms ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn) : void 0;
   return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: pass1.latency_ms + pass2.latency_ms, retain, sessionId, route, structured_data: card2 ?? imageCard ?? void 0 });
 }
-function promisedPictureQuery(voice, userText) {
+function voicePromisesPicture(voice) {
   const v = String(voice || "");
-  const promises = /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) || // "a picture of X"
+  return /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) || // "a picture of X"
   /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
   /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) || // "here he is"
   /\btake a look\b/i.test(v);
-  if (!promises) return null;
+}
+function amendUnkeptPicturePromise(voice) {
+  const v = String(voice || "").trim();
+  if (!v || !voicePromisesPicture(v)) return null;
+  const sep = /[.!?]$/.test(v) ? " " : ". ";
+  return `${v}${sep}Actually, I wasn't able to pull up an image just now \u2014 sorry about that.`;
+}
+function promisedPictureQuery(voice, userText) {
+  const v = String(voice || "");
+  if (!voicePromisesPicture(v)) return null;
   const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
   let subject = m?.[1]?.trim();
   if (!subject) {
@@ -5297,12 +5335,14 @@ function toolMeta(parsed, route, caps) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  amendUnkeptPicturePromise,
   looksLikeSportsAsk,
   promisedPictureQuery,
   resolvePersonality,
   runOrchestration,
   runSports,
   templateCanAnswer,
+  voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "cd66dfd905ec69d58ef053c8b9801d2fac1b9a2d";
+module.exports.BRAIN_SOURCE_SHA = "c49a4c67298a3d48e13c1375647ede8b7a92dedb";
