@@ -89,7 +89,7 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
 {
     setLocalMode(true);
     const tts = ids(O.ttsOptions(null, 'android_voice'));
-    const stt = ids(O.sttOptions(null, 'sherpa_moonshine_tiny'));
+    const stt = ids(O.sttOptions(null, 'sherpa_moonshine_base'));
     check('leg 2 — an account-less box is not offered a row it has no account to pay for',
         !tts.includes('dashie_cloud') && !stt.includes('dashie_cloud'),
         `tts=${JSON.stringify(tts)}\n     stt=${JSON.stringify(stt)}`,
@@ -234,6 +234,43 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         ownAi(addonWithStore) && cloudCount(web) > 0 && cloudCount(addonWithStore) > 0,
         `withStore ownAi=${ownAi(addonWithStore)} cloud(web)=${cloudCount(web)} cloud(withStore)=${cloudCount(addonWithStore)}`,
         'without this, 7a/7b are satisfiable by a models() that returns nothing at all — "row missing" would be indistinguishable from "builder broken". It also pins the ONE shape that already worked, so the fix must not regress it');
+}
+
+// ── LEG 8 — the retired STT model is not offered, and the On-Device labels
+//            carry the ruled vocabulary ─────────────────────────────────────
+//
+// 2026-08-20 ruling: `sherpa_moonshine_tiny` is retired from the offering, and
+// the On-Device family is named by PROVENANCE, not quality — "(Open Source)"
+// for the bundled sherpa model, "(System)" for the OS engine (Kotlin
+// VoiceAiOptions.kt is the naming source; "Fast"/"Accurate"/"Native" are the
+// retired vocabulary). John's reconfigure landed on the retired engine BECAUSE
+// the console still offered it under the old label and voice-ai.js actively
+// preferred it when reseeding hybrid.
+{
+    setLocalMode(false);
+    const stt = O.sttOptions(null, 'android_voice');
+    const tts = O.ttsOptions(null, 'android_voice');
+    const sttIds = ids(stt);
+    check('leg 8a — sherpa_moonshine_tiny is not OFFERED, and the surviving base row is (positive control)',
+        !sttIds.includes('sherpa_moonshine_tiny') && sttIds.includes('sherpa_moonshine_base'),
+        `stt=${JSON.stringify(sttIds)}`,
+        'the model is retired (2026-08-20) — offering it re-lands users on an engine the product has withdrawn, which is exactly how John\'s reconfigure picked it');
+    const label = (rows, id) => rows.find(o => o.id === id)?.label;
+    check('leg 8b — On-Device labels use the ruled provenance vocabulary (Open Source / System), both stages',
+        label(stt, 'sherpa_moonshine_base') === 'On-Device (Open Source)' &&
+        label(stt, 'android_voice') === 'On-Device (System)' &&
+        label(tts, 'android_voice') === 'On-Device (System)',
+        `stt base=${JSON.stringify(label(stt, 'sherpa_moonshine_base'))} stt android=${JSON.stringify(label(stt, 'android_voice'))} tts android=${JSON.stringify(label(tts, 'android_voice'))}`,
+        'one id must not read two ways across surfaces — Kotlin already says "(Open Source)"/"(System)"; a console still saying "(Fast)"/"(Accurate)"/"(Native)" is the JS↔Kotlin label drift the naming ruling closed');
+    check('leg 8c — voice-ai.js no longer references the retired id (the hybrid reseed preferred it)',
+        !/sherpa_moonshine_tiny/.test(readFileSync(FILES.page, 'utf8')),
+        'voice-ai.js still contains "sherpa_moonshine_tiny"',
+        'the reseed at the hybrid branch actively SELECTED tiny first — removing the row without fixing the preference would silently reseed to dashie_cloud instead of the surviving on-device engine');
+    const residual = O.sttOptions(null, 'sherpa_moonshine_tiny').find(o => o.id === 'sherpa_moonshine_tiny');
+    check('leg 8d — a device that already STORED tiny gets a residual (retired wording, no cost) — and only then',
+        !!residual && /retired/i.test(String(residual.label) + String(residual.description)) && residual.cost === '',
+        `residual=${JSON.stringify(residual)}`,
+        'the card resolves a selection with opts.find(…) || opts[0] — without the residual a tiny-storing device renders a DIFFERENT engine as selected while the device still runs tiny; leg 3\'s lying-card defect, reintroduced for the retired id');
 }
 
 console.log('');

@@ -808,7 +808,11 @@ const VoiceAiPage = {
             if (stageKey === 'tts') {
                 this._selectProvider('tts', has('android_voice') ? 'android_voice' : 'dashie_cloud');
             } else {
-                this._selectProvider('stt', has('sherpa_moonshine_tiny') ? 'sherpa_moonshine_tiny' : 'dashie_cloud');
+                // base, not tiny — tiny is retired from the offering (2026-08-20 ruling;
+                // Kotlin VoicePresetSeeder made the same move). A device that still
+                // STORES tiny keeps it via the currentIsLocal keep above only if the
+                // row were offered; with the row retired, a preset touch reseeds to base.
+                this._selectProvider('stt', has('sherpa_moonshine_base') ? 'sherpa_moonshine_base' : 'dashie_cloud');
             }
             return;
         }

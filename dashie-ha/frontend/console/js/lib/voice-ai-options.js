@@ -262,15 +262,18 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's speech-to-text." },
-        // "On-Device" family (grouped in the picker). Native = the OS SpeechRecognizer
-        // (Google-services devices only, plays a chime); Fast/Accurate = bundled sherpa-onnx,
-        // fully offline, no chime, works on Amazon Fire / Echo / de-Googled devices too.
-        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
-          description: 'Built-in device speech recognizer.' },
-        { id: 'sherpa_moonshine_tiny', label: 'On-Device (Fast)', locality: 'local', cost: 'Free',
-          description: 'Bundled offline STT — faster & lighter.' },
-        { id: 'sherpa_moonshine_base', label: 'On-Device (Accurate)', locality: 'local', cost: 'Free',
-          description: 'Bundled offline STT — higher accuracy.' },
+        // "On-Device" family (grouped in the picker). Provenance labels, not quality
+        // labels (naming ruling 2026-08-20, Kotlin VoiceAiOptions.kt is the source):
+        // (System) = the OS SpeechRecognizer (Google-services devices only, plays a
+        // chime); (Open Source) = bundled sherpa-onnx Moonshine, fully offline, no
+        // chime, works on Amazon Fire / Echo / de-Googled devices too.
+        // `sherpa_moonshine_tiny` is RETIRED from the offering (same ruling) — the id
+        // stays a valid persisted wire value on devices that stored it, but no picker
+        // offers it and no reseed selects it.
+        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+          description: "Your device's built-in speech recognizer (usually Google's)." },
+        { id: 'sherpa_moonshine_base', label: 'On-Device (Open Source)', locality: 'local', cost: 'Free',
+          description: 'Open-source Moonshine model, runs inside Dashie. Fully offline, works on any device.' },
     ],
 
     // Base TTS rows that always exist. The detected engine-direct row (ha_engine,
@@ -295,8 +298,10 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's text-to-speech." },
-        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
-          description: 'Built-in device text-to-speech.' },
+        // "(System)" tracks the STT row deliberately: same id, same device capability,
+        // same provenance question — one id must not read two ways one section apart.
+        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+          description: "Your device's built-in text-to-speech (usually Google's)." },
     ],
 
     // ── detection-gated option builders ──────────────────────
@@ -448,12 +453,23 @@ const VoiceAiOptions = {
      *  HA pipeline, Android. */
     sttOptions(detection, currentId) {
         const base = Object.fromEntries(this.STT.map(o => [o.id, o]));
-        // Order: cloud → On-Device family (Fast/Accurate/Native) → HA → +Add local (bottom).
+        // Order: cloud → On-Device family (Open Source/System) → HA → +Add local (bottom).
         // local_stt_url is the inline "+ Add local speech-to-text" row (withSavedEngines swaps
         // it in place), so putting it last lands the Add row at the bottom.
         const out = [this._managedCloudRow(base.dashie_cloud, currentId),
-                     base.sherpa_moonshine_tiny, base.sherpa_moonshine_base, base.android_voice,
+                     base.sherpa_moonshine_base, base.android_voice,
                      this._whisperOption(detection), base.va_default, base.local_stt_url];
+        // Residual for a device that already STORED the retired tiny model: the card
+        // resolves a selection with `opts.find(…) || opts[0]`, so without this row a
+        // tiny-storing device renders the FIRST option as selected while the device
+        // still runs tiny — the exact lying-card defect leg 3 of the picker gate
+        // documents for the managed cloud row. Same pattern: shown only when stored,
+        // no cost, and it says plainly that the model is retired.
+        if (String(currentId || '') === 'sherpa_moonshine_tiny') {
+            out.push({ id: 'sherpa_moonshine_tiny', label: 'On-Device (retired model)',
+                locality: 'local', cost: '',
+                description: 'This bundled model was retired — pick another option.' });
+        }
         return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
     },
 
