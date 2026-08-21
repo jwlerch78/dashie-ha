@@ -90,11 +90,21 @@ const VoiceAiApi = {
         // the Devices page. '' voice = the personality's own preferred voice.
         'ai.defaultPersonalityId': 'dashie',
         'ai.defaultVoiceKey': '',
+        // 🔴 THE ONE HOLDER of the household wake-word default. Every other site
+        // reads it from here (`VoiceAiApi.defaultWakeWord()`); nothing else may
+        // write the literal. It had FOUR copies — this one plus three
+        // `|| 'hey_dashie'` fallbacks — and that is why the brand table's
+        // per-edition rewrite of it had gone stale without anything noticing:
+        // one line to rewrite is checkable, four scattered literals are not.
+        //
         // Every APK bundles hey_dashie (WakeWordModel.HEY_DASHIE), so it is always a safe
         // household default — no device can report it unavailable via the model-gap rule.
-        // Unconditional since 2026-07-30: the published build used to default to
-        // 'chickadee', which is now nobody's brand. That model is still shipped and
-        // still selectable; it is just not a default.
+        //
+        // ⚠️ The value is PER EDITION and is rewritten by `scripts/brand-gen/`
+        // (John, 08-02: the picker offers both models; only the DEFAULT differs
+        // per brand). Do not "simplify" it to a shared constant, and do not
+        // brand-substitute the LABELS — a rebranded label would instruct the
+        // user to say a phrase the trained weights will never answer to.
         'ai.defaultWakeWord': 'hey_dashie',
         // '' = preset not chosen yet — the page derives one from the granular
         // keys (display-only) and persists on the user's first preset click.
@@ -199,36 +209,112 @@ const VoiceAiApi = {
     },
 
     // ── Personalities ────────────────────────────────────────
+    //
+    // 🔴 TWO BACKENDS, ONE SEAM. Every method below branches on
+    // `DashieAuth.isLocalMode` — an account-less box reads its built-ins from
+    // the ADD-ON (static, shipped) and keeps its custom ones in the ADD-ON's
+    // settings blob. Signed in, nothing changes: the account answers, as before.
+    //
+    // The branch is HERE, at the one place that already owns "where personality
+    // data comes from", rather than in the page. The page's list, editor,
+    // delete and family-notes flows are untouched and work identically on both
+    // — which is the whole reason the account-less box showed an empty list
+    // rather than a broken page: the UI was never the problem.
+    //
+    // ⚠️ Custom personalities in the SETTINGS BLOB is correct, and the reasoning
+    // that says otherwise is a real argument applied one step too far. That
+    // argument — `PATCH /api/settings/local` deep-merges an unwhitelisted
+    // partial and is unauthenticated beyond Ingress — disqualifies the blob for
+    // the USAGE RECORD, which is OBSERVATIONAL: a record its own subject can
+    // rewrite is not a record (see server/usage-store.js, which has its own
+    // file for exactly that reason). A personality is CONFIG. Panel-writable is
+    // the INTENT. Same store, opposite verdicts, and the call sites look
+    // identical — which is why this note is here and not only in a status file.
 
-    /** Built-in template catalog (read-only, admin-managed). Returns the
-     *  raw rows from list_personality_templates. */
+    /** The household wake-word default for THIS edition. The single reader of
+     *  `DEFAULTS['ai.defaultWakeWord']`, so a per-brand rewrite has exactly one
+     *  target and every fallback in the console agrees with the value the page
+     *  actually persists. */
+    defaultWakeWord() {
+        return this.DEFAULTS['ai.defaultWakeWord'];
+    },
+
+    /** Where custom personalities live in the account-less settings blob. */
+    LOCAL_CUSTOM_KEY: 'personalities.custom',
+    LOCAL_OVERRIDES_KEY: 'personalities.overrides',
+
+    /** Built-in template catalog. Account: admin-managed rows. Account-less: the
+     *  roster shipped in the add-on image (server/personality-templates.js). */
     async listTemplates() {
+        if (DashieAuth.isLocalMode) {
+            const resp = await fetch(DashieAuth._addonUrl('/api/voice/personality-templates'), { cache: 'no-store' });
+            if (!resp.ok) throw new Error(`personality templates: HTTP ${resp.status}`);
+            const data = await resp.json();
+            return data.templates || [];
+        }
         const res = await DashieAuth.dbRequest('list_personality_templates');
         return res.data || [];
     },
 
     /** Custom (user-owned) personalities. */
     async listCustom() {
+        if (DashieAuth.isLocalMode) return this._localList(this.LOCAL_CUSTOM_KEY);
         const res = await DashieAuth.dbRequest('list_personalities');
         return res.data || [];
     },
 
     async createPersonality(p) {
+        if (DashieAuth.isLocalMode) {
+            const list = await this._localList(this.LOCAL_CUSTOM_KEY);
+            // A box-local id. Not a uuid from a server, because there is no
+            // server — and it must be stable across restarts, so it goes into
+            // the record rather than being an array index (which a later delete
+            // would silently re-point at a different personality).
+            const row = { ...this._personalityPayload(p), id: this._localId(list) };
+            await this._localWrite(this.LOCAL_CUSTOM_KEY, [...list, row]);
+            return row;
+        }
         const res = await DashieAuth.dbRequest('create_personality', this._personalityPayload(p));
         return res.data;
     },
 
     async updatePersonality(id, p) {
+        if (DashieAuth.isLocalMode) {
+            const list = await this._localList(this.LOCAL_CUSTOM_KEY);
+            const row = { ...this._personalityPayload(p), id: String(id) };
+            const next = list.map(x => (String(x.id) === String(id) ? row : x));
+            if (next.length === list.length && !list.some(x => String(x.id) === String(id))) {
+                // Editing something that is not there is a bug upstream, not a
+                // reason to silently create a second one.
+                console.warn(`DROP: updatePersonality for unknown local id ${id}`);
+                throw new Error('that personality no longer exists');
+            }
+            await this._localWrite(this.LOCAL_CUSTOM_KEY, next);
+            return row;
+        }
         const res = await DashieAuth.dbRequest('update_personality', { id, ...this._personalityPayload(p) });
         return res.data;
     },
 
     async deletePersonality(id) {
+        if (DashieAuth.isLocalMode) {
+            const list = await this._localList(this.LOCAL_CUSTOM_KEY);
+            return this._localWrite(this.LOCAL_CUSTOM_KEY, list.filter(x => String(x.id) !== String(id)));
+        }
         return DashieAuth.dbRequest('delete_personality', { id });
     },
 
     /** Family-notes override on a built-in template. */
     async saveOverride(templateKey, familyNotes) {
+        if (DashieAuth.isLocalMode) {
+            const list = await this._localList(this.LOCAL_OVERRIDES_KEY);
+            const row = { template_key: String(templateKey), family_notes: familyNotes || null };
+            const next = list.some(o => o.template_key === row.template_key)
+                ? list.map(o => (o.template_key === row.template_key ? row : o))
+                : [...list, row];
+            await this._localWrite(this.LOCAL_OVERRIDES_KEY, next);
+            return row;
+        }
         const res = await DashieAuth.dbRequest('save_personality_override', {
             template_key: templateKey,
             family_notes: familyNotes,
@@ -237,8 +323,34 @@ const VoiceAiApi = {
     },
 
     async listOverrides() {
+        if (DashieAuth.isLocalMode) return this._localList(this.LOCAL_OVERRIDES_KEY);
         const res = await DashieAuth.dbRequest('list_personality_overrides');
         return res.data || [];
+    },
+
+    /** Read one dotted list key out of the (local or account) settings blob. */
+    async _localList(dottedKey) {
+        const settings = await DashieAuth.loadUserSettings();
+        const value = dottedKey.split('.').reduce((o, k) => (o == null ? undefined : o[k]), settings);
+        return Array.isArray(value) ? value : [];
+    },
+
+    /** Write a list key back. `patchUserSetting` sends only this leaf, and the
+     *  store's deep-merge REPLACES arrays wholesale — which is what makes a
+     *  delete work at all, and is why the whole list is written rather than a
+     *  diff. */
+    async _localWrite(dottedKey, list) {
+        return DashieAuth.patchUserSetting(dottedKey, list);
+    },
+
+    /** A stable, collision-free local id. Monotonic over what already exists, so
+     *  deleting row 2 of 3 can never make the next create reuse an id a device
+     *  has already been told about. */
+    _localId(list) {
+        const used = new Set(list.map(x => String(x.id || '')));
+        let n = list.length + 1;
+        while (used.has(`local-${n}`)) n++;
+        return `local-${n}`;
     },
 
     /** TTS voice catalog (key, name, gender, description). */
@@ -260,6 +372,14 @@ const VoiceAiApi = {
             family_notes: p.family_notes || null,
             voice_mode: p.voice_mode || 'preferred',
             voice: p.voice || null,
+            // 🔴 PREFERENCE-ORDERED, OPAQUE. Resolution walks this list against
+            // the providers actually available and takes the first that
+            // resolves; if none do, only the VOICE degrades — the personality
+            // stays selected and functional. No enum and no gate on these refs
+            // until John's voice matrix settles; pinning a vocabulary now would
+            // pin the wrong one AND would look finished, which is worse than
+            // looking unfinished. See ProviderAvailability.resolveVoice.
+            voices: Array.isArray(p.voices) ? p.voices.filter(v => typeof v === 'string' && v) : [],
         };
     },
 };

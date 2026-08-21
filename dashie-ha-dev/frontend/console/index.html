@@ -37,10 +37,12 @@
     <script src="js/lib/console-auth.js?v=20260730b"></script>
     <script src="js/lib/feature-gate.js?v=20260801a"></script>
     <script src="js/lib/option-catalog.js?v=20260712a"></script>
-    <!-- Provider manifest BEFORE any page that reads it: api-keys and
-         onboarding both render from this one list. -->
+    <!-- Provider manifest BEFORE any page that reads it: the API Keys page
+         renders from this one list, and provider-availability joins it to the
+         key store to answer "can this box actually do X". -->
     <script src="js/lib/provider-manifest.js?v=20260801a"></script>
     <script src="js/lib/provider-auth-renderers.js?v=20260801a"></script>
+    <script src="js/lib/provider-availability.js?v=20260804a"></script>
     <script src="js/lib/console-state.js?v=20260712a"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
@@ -50,7 +52,7 @@
     <script src="js/lib/console-ai-client.js?v=20260725b"></script>
     <script src="js/lib/settings-sync.js?v=20260712a"></script>
     <script src="js/lib/feeds-api.js?v=20260712a"></script>
-    <script src="js/lib/voice-ai-api.js?v=20260727c"></script>
+    <script src="js/lib/voice-ai-api.js?v=20260804b"></script>
     <script src="js/lib/photo-file-processor.js?v=20260712a"></script>
     <script src="js/lib/credits-service.js?v=20260712a"></script>
     <script src="js/lib/history-chart.js?v=20260712a"></script>
@@ -83,26 +85,26 @@
     <script src="js/lib/voice-ai-options.js?v=20260728d"></script>
     <script src="js/components/voice-ai-cards.js?v=20260712a"></script>
     <script src="js/components/voice-ai-preset-picker.js?v=20260730b"></script>
-    <script src="js/components/voice-ai-defaults-cards.js?v=20260712a"></script>
-    <script src="js/pages/voice-ai.js?v=20260731a"></script>
+    <script src="js/components/voice-ai-defaults-cards.js?v=20260804b"></script>
+    <script src="js/pages/voice-ai.js?v=20260804b"></script>
     <script src="js/pages/scheduled-actions.js?v=20260725b"></script>
     <!-- Devices. Published core since 2026-07-30 (was the closed family delta):
          the HA edition manages Dashie devices too. Load order matters —
          devices.js first, its collaborators after. -->
     <script src="js/pages/devices.js?v=20260731a"></script>
     <script src="js/pages/devices-rename.js?v=20260730d"></script>
+    <script src="js/pages/devices-source.js?v=20260802a"></script>
     <script src="js/pages/devices-camera.js?v=20260730d"></script>
     <script src="js/pages/devices-events.js?v=20260730d"></script>
     <script src="js/pages/devices-card.js?v=20260730d"></script>
     <script src="js/pages/devices-detail.js?v=20260730d"></script>
-    <script src="js/pages/devices-detail-modals.js?v=20260730d"></script>
+    <script src="js/pages/devices-detail-modals.js?v=20260804b"></script>
     <script src="js/pages/devices-claim.js?v=20260730d"></script>
     <script src="js/components/usage-chart.js?v=20260712a"></script>
     <script src="js/pages/account-usage.js?v=20260727a"></script>
     <script src="js/pages/account.js?v=20260801a"></script>
     <script src="js/pages/credits.js?v=20260712a"></script>
-    <script src="js/pages/api-keys.js?v=20260725b"></script>
-    <script src="js/pages/onboarding.js?v=20260801a"></script>
+    <script src="js/pages/api-keys.js?v=20260804a"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
     <!-- Video feeds. Published core since 2026-07-31 (was the closed family
          delta): HA camera feeds are a core HA capability, and every operation

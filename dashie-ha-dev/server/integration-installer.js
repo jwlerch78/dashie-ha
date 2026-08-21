@@ -116,9 +116,48 @@ function hashDir(dir) {
 }
 
 /** The content-hash line we stamp into the marker at install time, or null. */
+/**
+ * Any marker this add-on family has EVER written into its own integration dir.
+ *
+ * 🔴 Why a PATTERN and not a `LEGACY_MARKERS = [...]` list of old names, which is
+ * the obvious fix and is broken here:
+ *
+ * This file is brand-generated, and the marker name contains the brand token. So
+ * a previous name written as a literal in canon is SUBSTITUTED on the way into
+ * the other brand's tree and arrives as TODAY'S name — the legacy entry matches
+ * only what MARKER already matches, i.e. it is empty of meaning in the one tree
+ * that needs it. **The old name cannot be spelled here, because spelling it is
+ * what rebrands it.**
+ *
+ * ⚠️ That is not theoretical: the first version of this comment demonstrated the
+ * problem with the two literals side by side, and generation rewrote both into
+ * the same string — leaving "X becomes X" in the Chickadee tree. The explanation
+ * destroyed itself in exactly the way it was describing. Hence no literals here
+ * either: this comment has to survive the transform it is warning about.
+ *
+ * A pattern has no brand token to substitute, so it survives generation, and it
+ * also survives the NEXT rename without anyone remembering to add a row.
+ *
+ * Scoped to our own integration's directory (TARGET_DIR is the vendored domain),
+ * so a marker matching this convention inside it is ours by construction.
+ */
+const MARKER_RE = /^\.installed_by_[a-z0-9_]+_addon$/;
+
+/** The marker file actually present, current name preferred. null ⇒ unmanaged. */
+function findMarker(dir) {
+    try {
+        if (fs.existsSync(path.join(dir, MARKER))) return MARKER;
+        return fs.readdirSync(dir).find((f) => MARKER_RE.test(f)) || null;
+    } catch (e) {
+        return null;
+    }
+}
+
 function readInstalledHash(dir) {
     try {
-        const txt = fs.readFileSync(path.join(dir, MARKER), 'utf8');
+        const marker = findMarker(dir);
+        if (!marker) return null;
+        const txt = fs.readFileSync(path.join(dir, marker), 'utf8');
         const m = txt.match(/content-hash:\s*([0-9a-f]{64})/i);
         return m ? m[1] : null;
     } catch (e) {
@@ -201,10 +240,30 @@ async function ensureIntegration() {
             return 'installed';
         }
 
-        const managed = fs.existsSync(path.join(TARGET_DIR, MARKER));
-        if (!managed) {
+        // 🔴 Ownership is decided by "is there a marker of ours", NOT by "is there
+        // a file with today's marker NAME". Those read identically until the name
+        // changes, and then they differ on every box that was installed before it.
+        //
+        // That is what happened: renaming this marker for brand correctness
+        // (2026-08-02) made every already-installed Chickadee box read as
+        // HACS/manual, so the installer politely left it alone FOREVER — the
+        // integration silently stopped updating on exactly the boxes being used
+        // to test it. The marker's CONTENT was brand-correct and carried a valid
+        // content-hash the whole time; only its filename was consulted.
+        //
+        // A re-copy self-migrates it: installCopy replaces TARGET_DIR wholesale,
+        // so the stale-named marker is gone after one run with no migration code.
+        const marker = findMarker(TARGET_DIR);
+        if (!marker) {
             console.log(`[installer] integration v${installed} present but not add-on-managed (HACS/manual) — leaving it alone (bundled: v${bundled})`);
             return 'unmanaged';
+        }
+        // Standing rule 2: this drop was LOUD AND WRONG — it announced a
+        // deliberate hands-off decision while describing a tree the add-on wrote
+        // itself. A log line that reads correct is worse than a silent one,
+        // because it ends the investigation. So the two cases now SAY they differ.
+        if (marker !== MARKER) {
+            console.warn(`[installer] DROP-AVERTED: found legacy marker "${marker}" (expected "${MARKER}") — this tree IS add-on-managed; migrating the marker name on this pass`);
         }
         // Content-hash gate (NOT version): re-copy whenever the bundled files
         // differ from what we last installed, so code-only changes ship without
@@ -219,6 +278,20 @@ async function ensureIntegration() {
                 `The Dashie Voice integration was updated (bundled v${bundled}). ` +
                 '**Restart Home Assistant** to apply.');
             return 'updated';
+        }
+        // Up to date, so no re-copy will run — which means a legacy-named marker
+        // would never be migrated by the copy path and the warning above would
+        // fire on EVERY start, forever. A permanent warning is one people learn
+        // to scroll past, so finish the migration here instead of announcing it
+        // repeatedly. Rename only; the content (including the valid hash) is
+        // already correct, which is the whole reason this tree was recoverable.
+        if (marker !== MARKER) {
+            try {
+                fs.renameSync(path.join(TARGET_DIR, marker), path.join(TARGET_DIR, MARKER));
+                console.log(`[installer] migrated marker "${marker}" → "${MARKER}" (content already current)`);
+            } catch (e) {
+                console.warn(`[installer] could not migrate marker name: ${e.message}`);
+            }
         }
         console.log(`[installer] integration v${installed} matches bundled content — current`);
         return 'current';

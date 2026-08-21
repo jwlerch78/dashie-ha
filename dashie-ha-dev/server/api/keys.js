@@ -6,6 +6,10 @@
 //
 //   GET /api/keys         → masked per-provider view (for the console UI)
 //   PUT /api/keys         → { provider, value } — set or clear (value: null)
+//                           `value` must carry at least one KNOWN field for the provider and
+//                           no unknown ones; anything else is a 400 naming the field. Only
+//                           `value: null` clears — see the guard in the handler for why those
+//                           two had to stop sharing a code path.
 //   GET /api/keys/status  → booleans only (which providers are configured);
 //                           the device reads this to route the brain (Phase 2)
 //
@@ -75,6 +79,39 @@ router.put('/', express.json(), (req, res) => {
     }
     if (value !== null && (typeof value !== 'object' || Array.isArray(value))) {
         return res.status(400).json({ error: 'bad_value' });
+    }
+    // 🔴 A WELL-FORMED PUT WITH THE WRONG FIELD NAME USED TO DELETE THE KEY AND RETURN 200.
+    //
+    // `writeProvider` copies only the fields it knows (`PROVIDERS[provider]`), so a payload like
+    // `{ provider: 'gemini', value: { value: 'sk-…' } }` — right shape, wrong inner field —
+    // produced an empty `clean`, which falls into its `delete store[provider]` branch. The
+    // response was 200 with a normal body and nothing was logged.
+    //
+    // ⚠️ That is worse than the "stores nothing" T reported: `null` already means CLEAR, so an
+    // object that yields no usable field took the SAME destructive path as an explicit clear. A
+    // typo in a field name silently removed a working key. The two intents have to be
+    // distinguishable — `null` is a decision, an unrecognised field is a mistake.
+    //
+    // Rejected rather than DROP-logged-and-continued: there is no partial success to preserve
+    // here, and a 4xx naming the field is the thing that makes the caller's bug visible at the
+    // moment it happens. Standing rule 2 wants the drop to be loud; a silent 200 was the drop.
+    if (value !== null) {
+        const known = keyStore.PROVIDERS[provider];
+        const given = Object.keys(value);
+        const unknown = given.filter(f => !known.includes(f));
+        const usable = given.filter(f => known.includes(f) && typeof value[f] === 'string' && value[f].trim());
+        if (unknown.length || usable.length === 0) {
+            console.warn(
+                `DROP: [keys] ${provider} PUT rejected — unknown field(s) [${unknown.join(', ') || 'none'}], ` +
+                `usable [${usable.join(', ') || 'none'}], expected [${known.join(', ')}]. ` +
+                'Nothing was written; send { value: null } to clear.',
+            );
+            return res.status(400).json({
+                error: unknown.length ? 'unknown_fields' : 'no_usable_fields',
+                unknown,
+                expected: known,
+            });
+        }
     }
     try {
         keyStore.writeProvider(provider, value);

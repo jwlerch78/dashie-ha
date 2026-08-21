@@ -43,7 +43,7 @@ let stateChangedSubId = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 let registryCache = null;           // { byDashieId: Map, byHaId: Map, fetchedAt }
-let entityRegistryCache = null;     // { byHaDeviceId: Map<haDeviceId, entity[]>, fetchedAt }
+let entityRegistryCache = null;     // { byHaDeviceId: Map<haDeviceId, entity[]>, all: entity[], fetchedAt }
 let stopped = false;
 
 function getWsConfig() {
@@ -433,19 +433,43 @@ function refresh() {
     entityRegistryCache = null;
 }
 
-/** Fetch + cache HA's entity_registry. Used to find image/camera entities
- *  for a device whose entity_ids don't follow the slug_<role> convention
- *  (Fire Tablet, Mio, etc. have legacy entity names). */
-async function _refreshEntityRegistryCache() {
-    const list = await _send({ type: 'config/entity_registry/list' });
+/** The indexing half of the entity-registry refresh, split out from the fetch so
+ *  it can be DRIVEN without a WebSocket (check-service-targets leg 17). The
+ *  device-less omission below survived because nothing could test the cache
+ *  without a live HA; a defect whose only witness is production is a defect that
+ *  gets re-introduced. Pure — takes a list, returns the cache shape. */
+function _indexEntityRegistry(list) {
     const byHaDeviceId = new Map();
-    for (const e of list) {
-        if (!e.device_id) continue;
+    for (const e of list || []) {
+        if (!e || !e.device_id) continue;
         const arr = byHaDeviceId.get(e.device_id) || [];
         arr.push(e);
         byHaDeviceId.set(e.device_id, arr);
     }
-    entityRegistryCache = { byHaDeviceId, fetchedAt: Date.now() };
+    // 🔴 `all` is the COMPLETE list; `byHaDeviceId` deliberately is not.
+    //
+    // Until 2026-08-04 this cache kept only the by-device index, and
+    // getAllEntities() rebuilt its answer by walking it — so every entity with no
+    // device silently never existed: input_boolean, script, scene, automation,
+    // group, template sensors. Those are helpers, which is to say exactly the
+    // entities a household creates by hand and then names in a voice command.
+    //
+    // It was invisible because all three callers immediately filter on
+    // `device_id` (and `_buildViaRegistry` re-applies the same filter itself), so
+    // the omission changed no answer any of them produced. It stops being
+    // invisible the moment something resolves an AREA or a LABEL to its entities
+    // — a subset there does not read as an error, it reads as a smaller target
+    // set, and every member of it passes whatever check comes next.
+    return { byHaDeviceId, all: [...(list || [])] };
+}
+
+/** Fetch + cache HA's entity_registry. Used to find image/camera entities
+ *  for a device whose entity_ids don't follow the slug_<role> convention
+ *  (Fire Tablet, Mio, etc. have legacy entity names), and by the /service
+ *  target resolver. */
+async function _refreshEntityRegistryCache() {
+    const list = await _send({ type: 'config/entity_registry/list' });
+    entityRegistryCache = { ..._indexEntityRegistry(list), fetchedAt: Date.now() };
     return entityRegistryCache;
 }
 
@@ -461,13 +485,21 @@ async function getEntitiesForHaDevice(haDeviceId, { force = false } = {}) {
     return entities;
 }
 
-/** Returns the full HA entity_registry as a flat array (cached). Used by the
- *  worker to build a per-device metrics view without slug-based heuristics. */
+/** Returns the full HA entity_registry as a flat array (cached) — INCLUDING
+ *  entities with no device. Used by the worker for per-device metrics (which
+ *  filters on device_id itself) and by the /service target resolver, which must
+ *  not silently miss the device-less half. See the note in the refresh above. */
 async function getAllEntities({ force = false } = {}) {
     if (force || !entityRegistryCache) await _refreshEntityRegistryCache();
-    const all = [];
-    for (const arr of entityRegistryCache.byHaDeviceId.values()) all.push(...arr);
-    return all;
+    return entityRegistryCache.all || [];
+}
+
+/** The HA device_registry as a flat array (cached). The target resolver needs it
+ *  for `area_id`: an entity inherits its device's area when it has none of its
+ *  own, so resolving an area from the entity registry alone under-counts. */
+async function getAllDevices({ force = false } = {}) {
+    if (force || !registryCache) await _refreshRegistryCache();
+    return [...registryCache.byHaId.values()];
 }
 
 function start() {
@@ -494,6 +526,8 @@ module.exports = {
     getDeviceByDashieId,
     getEntitiesForHaDevice,
     getAllEntities,
+    getAllDevices,
+    _indexEntityRegistry,   // exported for check-service-targets leg 17 only
     getCameraStreamUrl,
     getDefaultDashboardPath,
     subscribeStateChanged,

@@ -2084,3 +2084,54 @@
 .info-tip:focus::after {
     opacity: 1;
 }
+
+/* ============================================================
+   Provider state chips (provider-auth-renderers.js statusLine)
+   ------------------------------------------------------------
+   🔴 THREE states, not two, and the third is the whole point:
+   "Key stored — not in use yet" is what a stored credential with
+   no on-box adapter must say. Reporting it as Configured would be
+   the console asserting a capability nobody observed — the bug a
+   tester hits by pasting a key, seeing green, and getting nothing.
+
+   These classes existed in the renderer with NO stylesheet at all,
+   because their only consumer was a page that was never mounted.
+   The API Keys page is now that consumer, so the styling lands
+   with it. Anything that renders an inert key must come through
+   here rather than growing a fourth phrasing next to the page's
+   own `orphaned` / "Not used" (which is a DIFFERENT state with a
+   different remedy: that key is stored and unroutable, this one is
+   stored and unspent).
+   ============================================================ */
+
+.pm-state {
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+
+.pm-state--ok {
+    color: var(--status-success, #16a34a);
+    background: rgba(22, 163, 74, 0.10);
+}
+
+.pm-state--unset {
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg-muted, #f4f4f5);
+}
+
+/* Deliberately NOT red and NOT green. Nothing is broken and nothing
+   is working — the user has done their part and the add-on has not
+   shipped its half yet. */
+.pm-state--stored {
+    color: var(--status-warn, #b45309);
+    background: rgba(180, 83, 9, 0.10);
+}
+
+.pm-state--expired {
+    color: var(--status-error, #c00);
+    background: rgba(204, 0, 0, 0.10);
+}

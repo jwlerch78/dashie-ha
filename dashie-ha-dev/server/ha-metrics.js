@@ -229,9 +229,33 @@ function _buildViaRegistry(states, entityRegistry) {
         if (!anchorEntry?.device_id) continue;
         const haDeviceId = anchorEntry.device_id;
 
-        const dashieDeviceId = (anchor.state === 'unavailable' || anchor.state === 'unknown' || !anchor.state)
+        // 🔴 An OFFLINE device must keep its IDENTITY, or it cannot be rendered.
+        //
+        // The anchor is a sensor whose STATE is the device id, so a powered-off
+        // device reports `unavailable` and this used to resolve to null. The
+        // device was still pushed into the results — it did not drop out — it
+        // just went ANONYMOUS, and every offline device came back keyed `null`:
+        // indistinguishable from each other and unusable to any UI that keys by
+        // device_id. That is worse than dropping out, because it looks like data.
+        //
+        // The id is recoverable one field away, and from a source that does not
+        // depend on the device being awake: the entity REGISTRY is persistent,
+        // and the integration stamps `unique_id = f"{device_id}_device_id"` on
+        // this very anchor (the device integration's sensor.py — brand-neutral
+        // here on purpose; the package name differs per edition). So state
+        // answers "is it alive",
+        // registry answers "who is it" — and only the first should go away when
+        // the device sleeps.
+        const liveId = (anchor.state === 'unavailable' || anchor.state === 'unknown' || !anchor.state)
             ? null
             : anchor.state;
+        const registryId = typeof anchorEntry.unique_id === 'string' && anchorEntry.unique_id.endsWith('_device_id')
+            ? anchorEntry.unique_id.slice(0, -'_device_id'.length)
+            : null;
+        // Live state wins when present: it is the value this code has always
+        // used, so nothing changes for an online device. The registry is a
+        // FALLBACK for exactly the offline case, not a new source of truth.
+        const dashieDeviceId = liveId || registryId;
 
         // Slug from anchor entity_id — still useful for the api/ha/control flow
         // (which constructs entity_ids like switch.<slug>_lock).

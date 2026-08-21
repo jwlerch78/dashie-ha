@@ -191,8 +191,14 @@ export const imageSearchTool: ToolDef = {
         sessionId: ctx.sessionId ?? null,
       });
       return { result: synth.result, card: synth.card as ToolCard | null };
-    } catch (_e) {
-      return { result: { found: false }, card: null };
+    } catch (e) {
+      // Same laundering shape the sports gateway had (T s41 cont.8, 2026-08-20): an
+      // upstream ERROR became `found:false`, which reads downstream as "no image exists".
+      // The sports version of this hid a three-week outage because the only symptom was a
+      // wrong answer. Behaviour is unchanged (still found:false, so no consumer breaks),
+      // but the drop is now LOUD and the distinction is on the wire for anyone who wants it.
+      console.warn(`DROP: image_search lookup FAILED — ${(e as Error).message}`);
+      return { result: { found: false, lookup_failed: true }, card: null };
     }
   },
 };

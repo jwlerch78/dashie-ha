@@ -63,10 +63,26 @@ const VoiceAiDefaultsCards = {
      */
     renderPersonalityCard(o) {
         const groups = [];
+        // 🔴 The degraded state is shown ON THE OPTION, and every personality
+        // stays SELECTABLE. A personality whose preferred voices cannot be
+        // spoken here is still a working personality — persona and prompt
+        // intact, speech falling back to the standard voice. Disabling or
+        // hiding it would degrade the whole feature over a missing key, when
+        // only the voice actually failed.
+        //
+        // ⚠️ Computed at render from live key status and stored NOWHERE. The
+        // suffix is a UI state; persisting it would freeze a fact that stops
+        // being true the moment a key is added.
+        const A = window.ProviderAvailability;
+        const suffix = (p) => {
+            const list = Array.isArray(p?.voices) ? p.voices : [];
+            if (!list.length || !A) return '';
+            return A.resolveVoice(list) ? '' : ' — (voice not available)';
+        };
         const opt = (v, l) => `<option value="${this._esc(v)}" ${String(v) === String(o.currentId) ? 'selected' : ''}>${this._esc(l)}</option>`;
-        const customOpts = (o.custom || []).map(c => opt(c.id, c.name || 'Custom personality')).join('');
+        const customOpts = (o.custom || []).map(c => opt(c.id, (c.name || 'Custom personality') + suffix(c))).join('');
         if (customOpts) groups.push(`<optgroup label="Custom">${customOpts}</optgroup>`);
-        const templateOpts = (o.templates || []).map(t => opt(t.key || t.id, t.name || t.key)).join('');
+        const templateOpts = (o.templates || []).map(t => opt(t.key || t.id, (t.name || t.key) + suffix(t))).join('');
         groups.push(`<optgroup label="Built-in">${templateOpts}</optgroup>`);
         return this.renderControlRow({
             label: 'Default personality',
@@ -92,7 +108,7 @@ const VoiceAiDefaultsCards = {
      */
     renderWakeWordCard(o) {
         const words = window.VoiceAiOptions?.WAKE_WORDS || [];
-        const current = String(o.currentId || 'hey_dashie');
+        const current = String(o.currentId || VoiceAiApi.defaultWakeWord());
         const opts = words
             .map(w => `<option value="${this._esc(w.id)}" ${w.id === current ? 'selected' : ''}>${this._esc(w.label)}</option>`)
             .join('');

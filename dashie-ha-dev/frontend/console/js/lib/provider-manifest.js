@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // js/lib/provider-manifest.js
 //
-// THE list of configurable providers. One copy, two consumers: the first-run
-// onboarding flow and the API-keys settings page. Neither keeps its own array —
-// a second copy is the hand-mirror that goes stale the first time a provider is
-// added to one and not the other.
+// THE list of configurable providers. One copy. Its consumer is the API-keys
+// settings page, which keeps no array of its own — a second copy is the
+// hand-mirror that goes stale the first time a provider is added to one and not
+// the other. (It had a second consumer, the first-run onboarding flow, which was
+// deleted on 2026-08-04 having never been mounted. The sharing was still worth
+// it: the page it left behind reads this list rather than a copy.)
 //
 // ── The descriptor ────────────────────────────────────────────────────────────
 //
@@ -30,6 +32,13 @@
 //               page would give one credential two controls. Being explicit here
 //               is what lets both screens read ONE list without either of them
 //               growing a special case.
+//               ⚠️ 'onboarding' currently names NO PAGE (deleted 2026-08-04 —
+//               the first-run flow was never mounted). The value is kept rather
+//               than stripped from twelve entries because it records which
+//               providers a rebuilt first-run flow should ask for, which is a
+//               design decision that took work and would otherwise have to be
+//               re-derived. Read it as intent, not as a live surface:
+//               `bySurface('onboarding', …)` has no caller today.
 //   adapter     🔴 'shipped' | 'pending'. Whether the on-box code that USES this
 //               key exists yet. Storing and validating a key is one piece of
 //               work; the adapter that spends it is another. A
@@ -216,10 +225,14 @@
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
         {
+            // 🔴 The ONLY speech provider with adapter:'shipped'. `server/byok-tts.js`
+            // spends this key on the box (2026-08-04). Deepgram and Inworld are
+            // still storable-and-unspent, which is what their 'pending' says —
+            // do not flip either without an adapter row in ADAPTERS beside it.
             id: 'elevenlabs', name: 'ElevenLabs', kind: 'tool', group: 'speech',
             surfaces: ['api-keys', 'onboarding'],
             capabilities: [CAP.TTS], credential: CRED_STATIC,
-            auth: AUTH.API_KEY, required: false, adapter: ADAPTER.PENDING,
+            auth: AUTH.API_KEY, required: false, adapter: ADAPTER.SHIPPED,
             unlocks: 'More natural text-to-speech',
             keySource: { url: 'https://elevenlabs.io/app/settings/api-keys', free: 'Free tier is non-commercial, with attribution' },
             note: 'An upgrade over Home Assistant’s built-in Piper, which works without any key.',

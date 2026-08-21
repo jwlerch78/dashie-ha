@@ -13,6 +13,10 @@
 const DevicesPage = {
     _detailDeviceId: null,
     _devices: null,
+    /** True when the roster came from the box rather than from an account
+     *  (DevicesSource decides). Declared here so it is never undefined: the
+     *  fallback is the account path, which is the behaviour that shipped. */
+    _localMode: false,
     _loading: false,
     _error: null,
     _saving: {},  // { [deviceId_field]: bool }
@@ -28,6 +32,25 @@ const DevicesPage = {
 
     ARCHIVE_THRESHOLD_DAYS: 30,
     LIVE_THRESHOLD_SECONDS: 90,   // metrics_updated_at newer than this → "live" chip
+    /**
+     * Non-HA fallback for the same question — `user_devices.last_seen_at` newer
+     * than this → "live". See _isLive() for why a second constant exists at all.
+     *
+     * ⚠️ CROSS-REPO CONTRACT, and it is the whole reason this is not just
+     * LIVE_THRESHOLD_SECONDS: this window is derived from the DASHBOARD's
+     * heartbeat cadence, which lives in another repo —
+     * `dashieapp_staging/js/core/initialization/device-registration.js`,
+     * `startDeviceHeartbeat(deviceId, intervalMs = 30 * 60 * 1000)`. A 30-minute
+     * beat cannot satisfy a 90-second window under any circumstances, so reusing
+     * LIVE_THRESHOLD_SECONDS here would have been a fix that measured green and
+     * changed nothing. 35 min = the cadence + one missed beat's worth of slack.
+     *
+     * 🔴 If that interval changes, THIS MUST CHANGE WITH IT. Too small and the
+     * Online section silently empties again (the exact defect this repairs);
+     * too large and a dead dashboard reads "online" for the difference.
+     * Registered in `.reference/JS_KOTLIN_CONTRACTS.md`.
+     */
+    HEARTBEAT_LIVE_SECONDS: 35 * 60,
     HA_STATUS_MAX_AGE_MS: 15 * 1000, // refetch /api/ha/status if older than this on render
     // SSE pushes per-state changes in real time, so this poll just acts as a
     // backstop. 30s is plenty — at 5s we were re-rendering the entire page
@@ -210,8 +233,9 @@ const DevicesPage = {
                 return;
             }
             try {
-                const result = await DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true });
-                const newList = result.devices || result.data || [];
+                const result = await DevicesSource.fetch();
+                const newList = result.devices;
+                this._localMode = result.local;
                 const changed = JSON.stringify(newList) !== JSON.stringify(this._devices);
                 this._devices = newList;
                 this._lastListDevicesAt = Date.now();
@@ -234,6 +258,83 @@ const DevicesPage = {
         console.log('[DevicesPage] Registered device_settings SettingsSync consumer');
     },
 
+    /**
+     * CONTRACTS #72's per-device half: WHICH devices are currently leasing, and
+     * WITH WHAT. Two sources because they answer two different questions —
+     *
+     *   `/api/voice/lease-observations`  is this device leasing?  (observational)
+     *   `/api/voice/sharing-state`       with what?               (live predicate)
+     *
+     * The map carries granted capability NAMES, not metered-ness, and
+     * metered-ness is household-scoped — so "keys" vs "built-in voice" is the
+     * same answer for every device and cannot come from the per-device record.
+     *
+     * 🔴 Best-effort, and null is meaningful: absence renders NOTHING. The
+     * observational map is empty after every add-on restart and records only
+     * SUCCESSFUL grants, so "no record" means *nothing observed*, never *nothing
+     * shared*. A failed read must not become a confident denial.
+     */
+    async _fetchLeaseSharing() {
+        this._leases = null;
+        this._sharingState = null;
+        if (!DashieAuth.isAddonMode) return;
+        try {
+            const [obsRes, shareRes] = await Promise.all([
+                fetch(DashieAuth._addonUrl('/api/voice/lease-observations'), { cache: 'no-store' }),
+                fetch(DashieAuth._addonUrl('/api/voice/sharing-state'), { cache: 'no-store' }),
+            ]);
+            if (obsRes.ok) {
+                const body = await obsRes.json();
+                this._leases = Array.isArray(body?.leases) ? body.leases : null;
+            }
+            if (shareRes.ok) this._sharingState = (await shareRes.json()) || null;
+        } catch (e) {
+            console.warn('[DevicesPage] lease/sharing state unavailable:', e?.message || e);
+            this._leases = null;
+            this._sharingState = null;
+        }
+    },
+
+    /**
+     * The sentence for ONE device, or null to render nothing.
+     *
+     * 🔴 THE TTL GATE IS THE WHOLE CORRECTNESS ARGUMENT (#72, resolved
+     * 2026-08-03). John's five sentences are all PRESENT tense; this source is
+     * observational, i.e. past. Rendering "Using your Home Assistant's AI keys"
+     * for a device that stopped leasing an hour ago is a confident falsehood —
+     * and after an add-on restart the map is empty, so it would be false for
+     * EVERY device.
+     *
+     * So: a sentence shows only while the observed lease is still inside
+     * `expires_at`. Inside the TTL the device IS holding it and the present
+     * tense is fact, so the approved sentence is reused VERBATIM — no new prose,
+     * no third rendering. Expired or absent renders nothing, which is the rule
+     * #72 already pinned for an absent device. The two are the same rule.
+     *
+     * ⚠️ Joins on roster `device_id` == lease `endpoint_id`. T verified those
+     * byte-identical on a real box; do not "normalise" either side.
+     */
+    _leaseSentenceFor(deviceId) {
+        if (!Array.isArray(this._leases) || !deviceId) return null;
+        const rec = this._leases.find(l => l?.endpoint_id === deviceId);
+        if (!rec?.expires_at) return null;
+
+        const expiresAt = Date.parse(rec.expires_at);
+        // An unparseable timestamp is UNKNOWN, not "live" — fail to silence.
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+
+        // WITH WHAT: household-scoped, so it comes from the live predicate. If
+        // that read failed we know the device is leasing but not what with, and
+        // there is no approved sentence for "leasing, something" — so nothing.
+        const s = this._sharingState;
+        if (!s || !s.ok) return null;
+        if (s.state === 'using_keys') return "Using your Home Assistant's AI keys";
+        if (s.state === 'using_free') return "Using your Home Assistant's built-in voice";
+        // sharing_off / unknown: the device holds a lease while the household
+        // reports sharing off — a contradiction we should not narrate. Silence.
+        return null;
+    },
+
     async _fetchDevices() {
         this._loading = true;
         this._error = null;
@@ -241,11 +342,16 @@ const DevicesPage = {
         this._registerSyncOnce();
         try {
             const [devicesResult] = await Promise.all([
-                DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true }),
+                DevicesSource.fetch(),     // account → list_devices; local → the add-on's own poll
                 this._fetchAddonStatus(),  // fire-and-forget inside
                 DevicesClaim.fetch(),      // claimable installs — non-critical, swallows errors
+                this._fetchLeaseSharing(), // #72 per-device row — best-effort, absence renders nothing
             ]);
-            this._devices = devicesResult.devices || devicesResult.data || [];
+            this._devices = devicesResult.devices;
+            // Local mode has no account, so the account-only affordances have
+            // nothing to act on. Recorded once here rather than re-derived at
+            // each render site.
+            this._localMode = devicesResult.local;
             this._loading = false;
             this._startAutoRefresh();
             this._startScreenshotRefresh();
@@ -340,8 +446,9 @@ const DevicesPage = {
             let listChanged = false;
             if (Date.now() - this._lastListDevicesAt >= this.LIST_DEVICES_REFRESH_MS) {
                 this._lastListDevicesAt = Date.now();
-                const result = await DashieAuth.dbRequest('list_devices', { tv_only: false, include_inactive: true });
-                const newList = result.devices || result.data || [];
+                const result = await DevicesSource.fetch();
+                const newList = result.devices;
+                this._localMode = result.local;
                 if (JSON.stringify(newList) !== JSON.stringify(this._devices)) listChanged = true;
                 this._devices = newList;
             }
@@ -501,24 +608,29 @@ const DevicesPage = {
         App.renderPage();
     },
 
-    /** Delete a dismissed user_devices row entirely (soft-delete via
-     *  delete_device — sets is_active=false). Also drops the dismissal
-     *  entry so the row doesn't linger in ConsoleState after the row
-     *  is gone. If the device reconnects later, it'll surface fresh
-     *  via discovered / install paths. */
+    /**
+     * Delete a dismissed device — delegates to `DevicesDetail._remove`, the one
+     * holder (backlog #14 §5a).
+     *
+     * 🔴 This called the SOFT `delete_device` until 2026-08-04, and its confirm
+     * said *"The row will be removed. If the device reconnects later, it'll
+     * reappear as a fresh discovered/install entry."* Both halves were false: the
+     * soft path leaves the row (`is_active=false`) with the credential renewing
+     * forever, and a stable-id device cannot reappear — that is precisely what
+     * `device_revocation_enforce` exists to prevent. It is the same sentence the
+     * Danger-Zone `_softDelete` was retired for, on a button the spec's table did
+     * not list.
+     *
+     * The dismissal entry is dropped in `onRemoved`, so it survives a REFUSED
+     * removal — un-dismissing a device that is still there would hide the failure
+     * by making the row look handled.
+     */
     async deleteDismissedDevice(deviceId, deviceName) {
-        const label = deviceName || 'this device';
-        if (!confirm(`Delete "${label}" from your account?\n\nThe row will be removed. If the device reconnects later, it'll reappear as a fresh discovered/install entry.`)) return;
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
-            this._devices = (this._devices || []).filter(d => d.device_id !== deviceId);
-            if (typeof ConsoleState !== 'undefined') ConsoleState.restore('devices', deviceId);
-            if (typeof Toast !== 'undefined') Toast.success(`Deleted "${label}"`);
-        } catch (e) {
-            console.error('[DevicesPage] delete_device failed:', e);
-            if (typeof Toast !== 'undefined') Toast.error(Toast.friendly(e, 'delete this device'));
-        }
-        App.renderPage();
+        await DevicesDetail._remove(deviceId, deviceName || 'this device', {
+            onRemoved: () => {
+                if (typeof ConsoleState !== 'undefined') ConsoleState.restore('devices', deviceId);
+            },
+        });
     },
 
     /** Toggle for the unified Dismissed section at the bottom of the page. */
@@ -529,14 +641,47 @@ const DevicesPage = {
     },
 
     _isLive(device) {
+        // Local mode has no Supabase fallback below, so liveness rests entirely
+        // on the worker's poll — which means it also has to ask whether that POLL
+        // is still current. Without that, a stopped worker leaves every device
+        // reading "online" forever off a frozen snapshot, and the page would look
+        // healthy precisely when the thing feeding it had died. DevicesSource
+        // owns the threshold; this must not restate it.
+        if (this._localMode) return device._local_online === true;
         // If the worker has a fresh poll for this device with live data, it's live —
         // independent of the Supabase metrics_updated_at timestamp (which only
         // updates on upsert, every 30s).
         const fresh = this._freshDeviceFor(device.device_id);
         if (fresh?.has_live_data) return true;
-        if (!device.metrics_updated_at) return false;
-        const age = (Date.now() - new Date(device.metrics_updated_at).getTime()) / 1000;
-        return age < this.LIVE_THRESHOLD_SECONDS;
+
+        // 🔴 THE NON-HA LANE HAS NO METRICS AT ALL, so without the fallback below
+        // this function could only ever return false for a family user. Both
+        // branches above are fed exclusively by the add-on: `has_live_data` comes
+        // from the worker's poll (add-on mode only), and `metrics_updated_at` is
+        // written by exactly ONE op in the estate — update_device_metrics, whose
+        // only caller is dashie-ha/server/ha-worker.js. Measured in prod on
+        // 2026-08-17: 1 of 207 user_devices rows had a non-null
+        // metrics_updated_at. So every account without Home Assistant rendered
+        // "ONLINE (0) — No online devices right now" permanently, with its live
+        // tablet sitting in the Offline list underneath. The Online section was
+        // not empty; it was unreachable.
+        //
+        // The fallback is the dashboard's own heartbeat (user_devices.last_seen_at).
+        // It is deliberately gated on metrics being ABSENT rather than stale:
+        //   • metrics present + fresh  → live      (HA lane, 90s precision, unchanged)
+        //   • metrics present + stale  → NOT live  (HA lane; the add-on is watching
+        //                                          and says it's gone — do not let a
+        //                                          35-minute window override a
+        //                                          90-second one and resurrect a
+        //                                          device that genuinely died)
+        //   • metrics absent           → heartbeat (non-HA lane, the case above)
+        if (device.metrics_updated_at) {
+            const age = (Date.now() - new Date(device.metrics_updated_at).getTime()) / 1000;
+            return age < this.LIVE_THRESHOLD_SECONDS;
+        }
+        if (!device.last_seen_at) return false;
+        const beatAge = (Date.now() - new Date(device.last_seen_at).getTime()) / 1000;
+        return beatAge < this.HEARTBEAT_LIVE_SECONDS;
     },
 
     _discoveredDevices() {
@@ -674,10 +819,36 @@ const DevicesPage = {
                 ${DevicesClaim.renderBanner()}
                 <div class="empty-state">
                     <div class="empty-state-icon">📱</div>
-                    <div class="empty-state-text">No devices registered yet.</div>
+                    <div class="empty-state-text">No devices yet.</div>
                     <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 8px;">
-                        Sign in to ${BRAND.productName} on a tablet or Fire TV to register it — or, if HA
-                        sees one of your devices, add it from the banner above.
+                        ${this._localMode
+                            // 🔴 The account-mode copy is WRONG TWICE on an account-less box: it
+                            // tells the user to "sign in" to an edition that has no accounts, and
+                            // points at the "banner above", which is the claim banner — also
+                            // account-only. Instructing someone to do a thing their build does not
+                            // offer is worse than saying nothing, because they go looking for it.
+                            //
+                            // ⚠️ Written to be true in EVERY branch of the open question about how
+                            // the device integration reaches a box: it names the CONDITION (Home
+                            // Assistant reports the device) and the likeliest cause of absence,
+                            // without promising a path that may not exist yet.
+                            // 🔴 This string is the ONLY place a user learns that the device
+                            // integration is a separate install (ruled 2026-08-03: keep HACS
+                            // distribution, fix the copy). So it names the requirement, the
+                            // integration, and where to get it — an empty page with an honest
+                            // shrug was the previous version and it left them nowhere to go.
+                            //
+                            // ⚠️ `BRAND.productName` is correct here and is not a guess: the
+                            // integration's HACS entry is named with the product name in BOTH
+                            // editions (`hacs.json` → "Dashie" / "Chickadee"), so this resolves
+                            // per brand with no second holder to keep in step. If the HACS entry
+                            // is ever renamed away from the product name, THIS is the string that
+                            // starts lying — cheap to fix, worth knowing where it lives.
+                            ? `Devices appear here once Home Assistant has the ${BRAND.productName}
+                               integration — install it from HACS, then add each tablet to it.
+                               There is no account to sign in to.`
+                            : `Sign in to ${BRAND.productName} on a tablet or Fire TV to register it — or, if HA
+                               sees one of your devices, add it from the banner above.`}
                     </div>
                 </div>
                 ${this._renderDismissedSection([])}
@@ -743,6 +914,13 @@ const DevicesPage = {
             const idAttr = this._escape(d.device_id);
             const nameAttr = this._escape(d.device_name || 'this device');
             const icon = this._deviceIcon(d.device_type);
+            // Delete is delete_device — an account write. Local mode keeps
+            // Restore (a ConsoleState visibility flip) but must not offer a
+            // row deletion no backend here can perform.
+            const deleteBtn = this._localMode ? '' : `
+                            <button class="btn btn-secondary btn-sm"
+                                title="Delete this device from your account. If it reconnects later, it'll reappear as a fresh discovered/install."
+                                onclick="DevicesPage.deleteDismissedDevice('${idAttr}', '${nameAttr}')">Delete</button>`;
             return `
                 <div class="card" style="margin-bottom: 8px;">
                     <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
@@ -756,10 +934,7 @@ const DevicesPage = {
                             </div>
                         </div>
                         <div style="flex-shrink: 0; display: flex; gap: 6px;">
-                            <button class="btn btn-secondary btn-sm" onclick="DevicesPage.restoreDevice('${idAttr}')">Restore</button>
-                            <button class="btn btn-secondary btn-sm"
-                                title="Delete this device from your account. If it reconnects later, it'll reappear as a fresh discovered/install."
-                                onclick="DevicesPage.deleteDismissedDevice('${idAttr}', '${nameAttr}')">Delete</button>
+                            <button class="btn btn-secondary btn-sm" onclick="DevicesPage.restoreDevice('${idAttr}')">Restore</button>${deleteBtn}
                         </div>
                     </div>
                 </div>
@@ -826,6 +1001,9 @@ const DevicesPage = {
             `;
         }
 
+        // Delete is delete_device — an account write, gated off in local mode.
+        // (A local roster never carries last_seen_at, so this section should
+        // be unreachable there — the gate is the guarantee, not the shape.)
         const rows = devices.map(d => `
             <div class="card" style="margin-bottom: 8px;">
                 <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
@@ -839,10 +1017,10 @@ const DevicesPage = {
                         </div>
                     </div>
                     <div style="flex-shrink: 0;">
-                        <button class="btn btn-secondary btn-sm" ${this._deletingId === d.device_id ? 'disabled' : ''}
+                        ${this._localMode ? '' : `<button class="btn btn-secondary btn-sm" ${this._deletingId === d.device_id ? 'disabled' : ''}
                             onclick="DevicesPage._deleteArchived('${this._escape(d.device_id)}', '${this._escape(d.device_name || 'this device')}')">
                             ${this._deletingId === d.device_id ? 'Deleting…' : 'Delete'}
-                        </button>
+                        </button>`}
                     </div>
                 </div>
             </div>
@@ -861,22 +1039,20 @@ const DevicesPage = {
         App.renderPage();
     },
 
+    /**
+     * Delete an archived device — same one holder as the dismissed button above.
+     *
+     * 🔴 Its confirm said *"This cannot be undone"*, which was false in the
+     * opposite direction to the dismissed one: the soft path left the row and the
+     * credential renewing, so there was nothing to undo because nothing had been
+     * done. Two buttons, two confidently wrong sentences, one missing call-site
+     * re-point.
+     */
     async _deleteArchived(deviceId, deviceName) {
-        if (!confirm(`Delete "${deviceName}" from your devices? This cannot be undone.`)) return;
-        this._deletingId = deviceId;
-        App.renderPage();
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
-            // Drop it from the local cache
-            this._devices = this._devices.filter(d => d.device_id !== deviceId);
-            Toast.success(`Deleted "${deviceName}"`);
-        } catch (e) {
-            console.error('[DevicesPage] Delete failed:', e);
-            Toast.error(Toast.friendly(e, 'delete this device'));
-        } finally {
-            this._deletingId = null;
-            App.renderPage();
-        }
+        await DevicesDetail._remove(deviceId, deviceName, {
+            onStart: () => { this._deletingId = deviceId; App.renderPage(); },
+            onSettled: () => { this._deletingId = null; App.renderPage(); },
+        });
     },
 
     _renderDeviceCard(device) { return DevicesCard.render(device); },

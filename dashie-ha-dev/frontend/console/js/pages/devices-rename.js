@@ -210,7 +210,20 @@ const DevicesRename = {
         const trimmed = (newName || '').trim();
         if (!trimmed) throw new Error('Name cannot be empty');
         // 1. Supabase (source of truth for Console-driven changes)
-        await DashieAuth.dbRequest('update_device', { device_id: deviceId, device_name: trimmed });
+        //
+        // 🔴 …except where there is no account, and then it is not a source of
+        // truth at all — it is an unreachable service this call AWAITS and throws
+        // on, so step 2 never runs. Gating /api/ha/rename on ingress made the
+        // server half reachable on an account-less box; this is the client half
+        // of the same fix, and without it that gate is unreachable through the UI.
+        //
+        // With no account, Home Assistant's device registry IS the source of
+        // truth — there is no second copy to reconcile, which is why skipping is
+        // correct here rather than merely convenient.
+        const localOnly = typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true;
+        if (!localOnly) {
+            await DashieAuth.dbRequest('update_device', { device_id: deviceId, device_name: trimmed });
+        }
         const device = DevicesPage._findDevice(deviceId);
         if (device) device.device_name = trimmed;
         // 2. HA via add-on (best-effort, addon-mode only)

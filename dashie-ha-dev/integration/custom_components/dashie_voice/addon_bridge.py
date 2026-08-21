@@ -8,6 +8,7 @@ routing and key custody; this module is the only place the integration reaches i
 from __future__ import annotations
 
 import glob
+import json
 import logging
 import os
 import time
@@ -269,7 +270,23 @@ async def call_addon_json(
             headers={BRIDGE_HEADER: secret},
             timeout=ClientTimeout(total=timeout_s),
         ) as resp:
-            body = await resp.json(content_type=None)
+            raw = await resp.text()
+            try:
+                body = json.loads(raw) if raw and raw.strip() else None
+            except ValueError:
+                body = None
+            # 🔴 The `{}` fallback stays (this is the shared transport — every caller
+            # already reads a dict and several treat empty as "use defaults"), but it is
+            # no longer SILENT. A body we could not read used to vanish here with nothing
+            # logged anywhere: the converse-local stream bug then surfaced as a perfectly
+            # ordinary HTTP 200 empty turn, and the only evidence in the whole system was
+            # the device's own blank-turn DROP. One log line is the difference between
+            # that and a live debugging session.
+            if not isinstance(body, dict):
+                _LOGGER.warning(
+                    "DROP: %s returned a body we cannot use — status=%s bytes=%d preview=%r",
+                    path, resp.status, len(raw or ""), (raw or "")[:300].replace("\n", "\\n"),
+                )
             return resp.status, (body if isinstance(body, dict) else {})
     except AddonUnavailable:
         raise

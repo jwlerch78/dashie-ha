@@ -566,7 +566,28 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   const groundingAvailable = provider === 'gemini' && webSearchAllowed;
   const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
   // false → prompt omits web_search from the tools list (T3 opt-out, or Gemini-grounds-natively)
-  const promptWebSearch = webSearchAllowed && !geminiGrounds;
+  //
+  // 🔴 …AND on a sports-shaped Gemini turn, where the guard above would otherwise DEFEAT ITSELF.
+  // `geminiGrounds` is false for a sports ask (that is the guard), and `promptWebSearch` is its
+  // inverse — so taking the native-grounding shortcut away silently handed the model the
+  // `web_search` TOOL instead. Same shortcut, different door: no tool result, therefore no
+  // `structured_data`, therefore no score card, which is exactly the symptom the guard's own
+  // comment says it exists to prevent.
+  // MEASURED 2026-08-21, six identical "did the Yankees win last night" turns on staging:
+  //   route=sports 2 (card ✅) · route=web_search 3 (no card) · route=error 1
+  // — i.e. the card appeared on 1 turn in 3, which is what John saw as "these responses aren't
+  // showing sports score/schedule cards" (T s43 cont.1).
+  //
+  // ⚠️ Scoped to `groundingAvailable` (i.e. Gemini) ON PURPOSE. A non-Gemini provider runs the
+  // Tavily two-pass and has no native grounding, so web_search is its ONLY web path — and the
+  // empty-result fallback below is itself gated on `groundingAvailable`, so suppressing the tool
+  // there would leave an empty sports result with no fallback at all. This only closes the door
+  // the guard already meant to close.
+  // 📌 The Gemini fallback is NOT lost: an empty sports result re-enables grounding for the
+  // synthesis pass (see the TOOL FIRST, WEB SECOND block below). Pass-1 loses the shortcut;
+  // pass-2 keeps the safety net.
+  const sportsToolOnlyTurn = groundingAvailable && looksLikeSportsAsk(req.text);
+  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn;
   // Capability snapshot: what THIS turn was allowed to do, logged into
   // tool_trace.caps on every terminal row — so an image request with retrieve_pictures
   // OFF reads as "disabled" in the fleet metadata, not a routing defect. `tools` comes
@@ -765,6 +786,17 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const effImageHint = imageHint?.searchTerms ? imageHint : (salvagedTerms ? { searchTerms: salvagedTerms } : undefined);
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field → searching "${salvagedTerms}"`);
     const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn) : undefined;
+    // The resolver returned nothing but the spoken line already promised a picture → walk the
+    // promise back BEFORE logPass, so the persisted transcript matches what the user hears.
+    let imagePromiseAmended = false;
+    if (effImageHint?.searchTerms && !imageCard) {
+      const amended = amendUnkeptPicturePromise(p1Parsed?.voice as string | null | undefined);
+      if (amended) {
+        console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture — amending the spoken line`);
+        (p1Parsed as { voice?: string }).voice = amended;
+        imagePromiseAmended = true;
+      }
+    }
     const card = sportsCard ?? imageCard;
     // A "direct" answer that ATTACHES a card is a tool use — log it as one (not "direct") so
     // "show me a picture" and a prefetched score are attributable. Image logs its search terms +
@@ -779,7 +811,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           tool_trace: { route: 'sports', tool: 'get_sports_scores', args: providedSports?.query ?? null, caps } }
       : effImageHint?.searchTerms
         ? { tool_used: 'show_image', response_type: p1Parsed?.type ?? null,
-            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: effImageHint.searchTerms, criteria: (effImageHint as { criteria?: string }).criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms }, caps } }
+            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: effImageHint.searchTerms, criteria: (effImageHint as { criteria?: string }).criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended }, caps } }
         : calendarUsed
           ? { tool_used: 'calendar_context', response_type: p1Parsed?.type ?? null,
               tool_trace: { route: 'calendar', tool: 'calendar_context', args: { time_range: providedCalendar.time_range ?? null }, caps } }
@@ -932,7 +964,15 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // Thursday"). Re-enable grounding for the synthesis pass so the model can search and
     // answer with the REAL date/time, instead of a dead-end "I couldn't find a game" or a
     // guess from memory. Non-Gemini/opted-out accounts keep the template's miss line.
-    if ((sports?.games?.length || 0) === 0 && groundingAvailable) {
+    // ⚠️ …but ONLY on a real empty slate. When the gateway reports `lookup_failed` (every
+    // provider errored), web-second is not a helpful fallback — it is the improvisation
+    // step: with no tool data to anchor it the model drifts (an invented "Cowboys 34-17"
+    // on a day they did not play), takes 13–22s, or 500s. A failed lookup falls through to
+    // the template's decline line instead. See sports-gateway SportsResponse.lookup_failed.
+    if (sports?.lookup_failed) {
+      console.warn('DROP: sports lookup failed upstream — declining, NOT web-grounding');
+    }
+    if ((sports?.games?.length || 0) === 0 && !sports?.lookup_failed && groundingAvailable) {
       return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
     // The card the templates would emit for this result — attached to the SYNTHESIS passes
@@ -1384,12 +1424,6 @@ async function secondPass(
     const clarifyVoice = "Sorry, I didn't quite catch that — could you say it again?";
     parsed = { type: 'response', voice: clarifyVoice, text: null, action: null } as ReturnType<typeof parseContent>;
   }
-  // Tool decision comes from pass-1 (the info_request that triggered this synthesis) + the route.
-  await logPass(io, deps, REQUEST_TYPE, deps.req.endpoint_id, sessionId, prompt, pass2,
-    retainFields(retain.serverPersist, retain.userText, responseTextOf(parsed, pass2.raw), parsed?.text ?? null),
-    toolMeta(parseContent(pass1.raw?.content ?? ''), route, (context as { caps?: CapsSnapshot } | null)?.caps));
-  const p2Stage = passStage('pass2', pass2, parsed?.type);
-  const usage = sumUsage([pass1.raw?.usage, pass2.raw.usage]);
   // Image enrichment on the SYNTHESIS pass. Pass-1 has resolved hints since forever (~:619),
   // but secondPass never did — so any answer that needed a tool was structurally unable to
   // show a picture no matter what the model emitted ("what's the #1 song?" → web search →
@@ -1398,14 +1432,70 @@ async function secondPass(
   // Scoped to web-search deliberately: home-assistant emits an action (not prose) and sports
   // owns the card slot via its own finalize calls (~:823/:841). buildPrompt suppresses the
   // `image` field on the other pass-2 types so the model can't claim a picture we'd drop.
+  // ⚠️ This block sits ABOVE logPass deliberately (moved 2026-08-21): the unkept-promise guard
+  // below rewrites the spoken line, and the persisted transcript must match what the user hears.
   const imageHint = (parsed as { image?: { searchTerms?: string } } | null)?.image;
-  const imageCard = (inquiryType === 'web-search'
+  const imageWanted = !!(inquiryType === 'web-search'
       && (context as { retrievePicturesEnabled?: boolean } | null)?.retrievePicturesEnabled !== false
       && parsed?.type === 'response'
-      && imageHint?.searchTerms)
+      && imageHint?.searchTerms);
+  const imageCard = imageWanted
     ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn)
     : undefined;
+  // Same unkept-promise guard as the pass-1 site: a promise the resolver did not keep is a
+  // spoken falsehood, so walk it back rather than leaving the user staring at a blank screen.
+  if (imageWanted && !imageCard) {
+    const amended = amendUnkeptPicturePromise((parsed as { voice?: string } | null)?.voice);
+    if (amended) {
+      console.warn(`DROP: pass2 image-resolve returned no card for "${imageHint?.searchTerms}" while the voice promised a picture — amending the spoken line`);
+      (parsed as { voice?: string }).voice = amended;
+    }
+  }
+  // Tool decision comes from pass-1 (the info_request that triggered this synthesis) + the route.
+  await logPass(io, deps, REQUEST_TYPE, deps.req.endpoint_id, sessionId, prompt, pass2,
+    retainFields(retain.serverPersist, retain.userText, responseTextOf(parsed, pass2.raw), parsed?.text ?? null),
+    toolMeta(parseContent(pass1.raw?.content ?? ''), route, (context as { caps?: CapsSnapshot } | null)?.caps));
+  const p2Stage = passStage('pass2', pass2, parsed?.type);
+  const usage = sumUsage([pass1.raw?.usage, pass2.raw.usage]);
   return finalize({ t0, parsed, raw: pass2.raw, stages: [...priorStages, p2Stage], usage, latency: (pass1.latency_ms + pass2.latency_ms), retain, sessionId, route, structured_data: card ?? imageCard ?? undefined });
+}
+
+/**
+ * Does this spoken line PROMISE the user a picture? Shared by the two guards that care:
+ * `promisedPictureQuery` (promise with no image field → salvage a query) and
+ * `amendUnkeptPicturePromise` (promise whose resolution came back empty → walk it back).
+ *
+ * Exported for unit tests.
+ */
+export function voicePromisesPicture(voice: string | null | undefined): boolean {
+  const v = String(voice || '');
+  return (
+    /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) ||           // "a picture of X"
+    /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
+    /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) ||           // "here he is"
+    /\btake a look\b/i.test(v)
+  );
+}
+
+/**
+ * UNKEPT PICTURE PROMISE (2026-08-21): the inverse of the FB38 guard. FB38 (2026-07-16) stopped
+ * the brain DENYING a picture while one rendered; nothing stopped it PROMISING one that never
+ * resolved. Field case: `SERPER_API_KEY` unset on prod → every image search returned
+ * `resolved:false` → no card — and the brain still said *"Here's Saturn, sir"* to a blank screen.
+ * The failure was silent AND self-flattering, which is why a missing prod secret hid for so long.
+ *
+ * `promisedPictureQuery` covers *promise with no image field*; this covers *image field present,
+ * resolution failed*. Appends a walk-back rather than rewriting the model's prose: appending
+ * cannot corrupt the sentence or discard substantive content the line also carried.
+ *
+ * Returns null when the line made no visual promise — a normal answer is never amended.
+ * Exported for unit tests.
+ */
+export function amendUnkeptPicturePromise(voice: string | null | undefined): string | null {
+  const v = String(voice || '').trim();
+  if (!v || !voicePromisesPicture(v)) return null;
+  const sep = /[.!?]$/.test(v) ? ' ' : '. ';
+  return `${v}${sep}Actually, I wasn't able to pull up an image just now — sorry about that.`;
 }
 
 /**
@@ -1422,12 +1512,7 @@ async function secondPass(
  */
 export function promisedPictureQuery(voice: string | null | undefined, userText: string | null | undefined): string | null {
   const v = String(voice || '');
-  const promises =
-    /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) ||           // "a picture of X"
-    /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
-    /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) ||           // "here he is"
-    /\btake a look\b/i.test(v);
-  if (!promises) return null;
+  if (!voicePromisesPicture(v)) return null;
   // Prefer the subject the model NAMED in its voice ("…picture of a chickadee, …" → "chickadee").
   const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
   let subject = m?.[1]?.trim();

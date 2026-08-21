@@ -76,6 +76,14 @@ const DevicesDetail = {
                 <a href="#" onclick="event.preventDefault(); DevicesRename.openModal()">Resolve</a>
             </div>
         ` : '';
+        // Account-only sections, gated off in local mode: Display and Voice & AI
+        // persist via DevicesPage._onSettingChange → update_device_settings, and
+        // the Danger Zone is unclaim_devices / delete_device — routes with no
+        // account to act on here. The control sections (Quick Controls, Device
+        // Behavior, Admin Actions) stay: they ride /api/ha/control, the box's
+        // own transport. Same seam as audit #3 — recorded once on the page
+        // (DevicesPage._localMode) rather than re-derived per render site.
+        const localMode = DevicesPage._localMode === true;
         return `
             <div class="back-link" onclick="DevicesPage.backToList()">← Back to Devices</div>
             <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;">
@@ -100,17 +108,17 @@ const DevicesDetail = {
                 </div>
             </div>
             ${this._renderQuickControls(device, m, live)}
-            ${this._renderDisplaySection(device, display, sleep)}
-            ${this._renderVoiceSection(device, aiVoice, voice)}
+            ${localMode ? '' : this._renderDisplaySection(device, display, sleep)}
+            ${localMode ? '' : this._renderVoiceSection(device, aiVoice, voice)}
             ${this._renderHomeAssistantSection(device)}
             ${this._renderPhotosSection(device, photos)}
             ${this._renderBehaviorSection(device, m)}
             ${this._renderAdminSection(device, m)}
-            ${this._renderDangerZone(device)}
-            <p class="page-summary">
+            ${localMode ? '' : this._renderDangerZone(device)}
+            ${localMode ? '' : `<p class="page-summary">
                 Changes apply to the device immediately via Supabase real-time broadcast.
                 Last check-in: ${DevicesPage._formatTime(device.last_seen_at)}
-            </p>
+            </p>`}
             ${DevicesRename.conflictModal ? DevicesRename.renderModal(DevicesPage._conflictDevices(), d => DevicesPage._conflictHaName(d)) : ''}
             ${DevicesCard.renderSliderModal()}
             ${DevicesCard.renderScreenshotModal()}
@@ -229,16 +237,20 @@ const DevicesDetail = {
             screensaverOn ? 'Screensaver on — tap to disable' : 'Screensaver off — tap to enable'));
 
         // Change PIN / Set PIN — green when a PIN is set on the device,
-        // gray "Set PIN" when not. Click opens the PIN modal.
-        const pinSet = !!(controls.pin_set || settings.security?.pinSet);
-        buttons.push(`
-            <button title="${pinSet ? 'PIN is set — tap to change' : 'No PIN set — tap to create one'}"
-                onclick="DevicesDetailModals.openPinModal('${idAttr}', ${pinSet})"
-                style="${this._controlBtnStyle(false, pinSet)}">
-                <img src="assets/icons/icon-lock.svg" alt="" style="width: 14px; height: 14px; ${pinSet ? 'filter: brightness(0) invert(1);' : ''}">
-                <span>${pinSet ? 'Change PIN' : 'Set PIN'}</span>
-            </button>
-        `);
+        // gray "Set PIN" when not. Click opens the PIN modal — which persists
+        // via DevicesPage._onSettingChange → update_device_settings, so it is
+        // an account affordance: local mode must not render it.
+        if (DevicesPage._localMode !== true) {
+            const pinSet = !!(controls.pin_set || settings.security?.pinSet);
+            buttons.push(`
+                <button title="${pinSet ? 'PIN is set — tap to change' : 'No PIN set — tap to create one'}"
+                    onclick="DevicesDetailModals.openPinModal('${idAttr}', ${pinSet})"
+                    style="${this._controlBtnStyle(false, pinSet)}">
+                    <img src="assets/icons/icon-lock.svg" alt="" style="width: 14px; height: 14px; ${pinSet ? 'filter: brightness(0) invert(1);' : ''}">
+                    <span>${pinSet ? 'Change PIN' : 'Set PIN'}</span>
+                </button>
+            `);
+        }
 
         if (buttons.length === 0) return '';
         return this._section('quick-controls', 'Quick Controls', `
@@ -439,6 +451,17 @@ const DevicesDetail = {
      *  button entities aren't wired yet — clicks toast a "coming soon" so
      *  the UI doesn't 400 while we plumb the entities + server route. */
     _renderHeaderActions(device, m, live) {
+        // 🔴 Account-only, and it was the one account-backed affordance the s151
+        // sweep did not reach (outside the six-route charter, so leg 3 was green
+        // on it). Both buttons publish on a SUPABASE REALTIME channel
+        // (_publishDeviceCommand), which needs an account — account-less they
+        // rendered enabled and failed on click with "No realtime client".
+        //
+        // ⚠️ That is worse than the routes the sweep did cover. A missing button
+        // reads as "not available here"; a button that is present, enabled, and
+        // errors reads as a BROKEN PRODUCT — the user cannot tell an unsupported
+        // action from a broken one, so they retry, and then report it.
+        if (DevicesPage._localMode === true) return '';
         const idAttr = DevicesPage._escape(device.device_id);
         const hasCrash = !!m?.app?.has_crash_report;
         const btn = (label, title, onClick, disabled) => `
@@ -491,6 +514,16 @@ const DevicesDetail = {
      *  DashieNative bridge method, and runs the existing upload path —
      *  same one the sidebar dialog uses. */
     async _publishDeviceCommand(deviceId, cmd, pendingToast) {
+        // 🔴 The ACTION guard, separate from the render guard above, and not
+        // redundant with it. Hiding the buttons is the UX; this is the
+        // invariant. Every account-less hole this sweep has found was a surface
+        // that stopped rendering while its function stayed callable — one new
+        // caller and it is reachable again, silently, because the thing that was
+        // "fixed" was the markup. A loud drop is what makes the next one visible.
+        if (DevicesPage._localMode === true) {
+            console.warn(`DROP: device-command suppressed cmd=${cmd} device=${deviceId} reason=local_mode`);
+            return;
+        }
         const sb = DashieAuth._getSupabaseClient?.();
         if (!sb) {
             Toast.error('No realtime client — cannot send command');
@@ -868,24 +901,14 @@ const DevicesDetail = {
         return this._section('danger', 'Danger Zone', `
             <div class="card" style="border-color: var(--status-error, #c00);">
                 <div class="card-body" style="padding: 4px 16px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb);">
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="font-weight: 500;">Remove from your account</div>
-                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Soft delete — the device can re-register on next sign-in and reclaim its identity.</div>
-                        </div>
-                        <button onclick="DevicesDetail._softDelete('${idAttr}', '${nameEsc}')"
-                            style="padding: 6px 14px; border-radius: 6px; border: 1px solid #fca5a5; background: #fff; color: #c00; cursor: pointer; font-size: 13px; font-weight: 500;">
-                            Remove
-                        </button>
-                    </div>
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0;">
                         <div style="flex: 1; min-width: 0;">
-                            <div style="font-weight: 500;">Permanently delete</div>
-                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Hard delete — removes all device records and metrics. Cannot be undone.</div>
+                            <div style="font-weight: 500;">Remove this device</div>
+                            <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">Deletes it from your account and releases it, so it appears again under “devices that can be added”.</div>
                         </div>
-                        <button onclick="DevicesDetail._hardDelete('${idAttr}', '${nameEsc}')"
+                        <button onclick="DevicesDetail._remove('${idAttr}', '${nameEsc}')"
                             style="padding: 6px 14px; border-radius: 6px; border: none; background: #c00; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500;">
-                            Delete Forever
+                            Remove
                         </button>
                     </div>
                 </div>
@@ -893,47 +916,108 @@ const DevicesDetail = {
         `, { defaultExpanded: false, titleColor: 'color: var(--status-error, #c00);' });
     },
 
-    async _softDelete(deviceId, deviceName) {
+    /**
+     * Remove — ONE button now (backlog #14, John's ruling; spec
+     * `20260802_DEVICE_REMOVE_REDISCOVER.md` §5a).
+     *
+     * 🔴 The two it replaces were a placebo and a trap. "Remove" called
+     * `delete_device` SOFT: the row stayed and the credential renewed forever,
+     * and its confirm text promised *"the device can re-register on next
+     * sign-in"* — which `device_revocation_enforce` exists specifically to
+     * PREVENT for a stable-id device. The copy described the behaviour the
+     * guard blocks, so the one button a user reaches for did nothing and said
+     * it had done something else.
+     *
+     * `unclaim_devices` is the whole ruling in one existing call: it clears
+     * `device_installs.account_id` (so the install re-presents under "devices
+     * that can be added") and deletes the caller's `user_devices` row. Nothing
+     * new was built for this — see §5e.
+     *
+     * ── 🔴 THE ONE HOLDER, and it did not start as one (B, 2026-08-04) ───────
+     *
+     * The spec's table listed TWO buttons to collapse (Danger-Zone Remove and
+     * Delete Forever) and there were FOUR: the dismissed-row Delete and the
+     * archived-row Delete in `devices.js` both called the soft path too, each
+     * with its own confirm copy, each false in its own direction —
+     *   dismissed: "The row will be removed… it'll reappear as a fresh entry"
+     *              (the row is NOT removed, and a stable-id device cannot
+     *               reappear — the exact promise the revocation guard exists to
+     *               prevent, the same sentence _softDelete was retired for)
+     *   archived:  "This cannot be undone"
+     *              (it very much can — the row survives and the credential keeps
+     *               renewing, so nothing was undone in the first place)
+     *
+     * Re-pointing only the button the spec named would have left the placebo
+     * reachable from two other places and kept `is_active`'s soft path alive,
+     * which is the precondition D's §5c waits on. So both delegate HERE. The
+     * lesson is my own from audit #8: **four copies are what made the drift
+     * invisible**, and a spec that enumerates call sites is a spec that can
+     * under-count them — grep for the CALL, not for the button.
+     *
+     * @param {object} [opts]
+     * @param {function} [opts.onStart]    after confirmation, before the write
+     * @param {function} [opts.onRemoved]  after a CONFIRMED removal only
+     * @param {function} [opts.onSettled]  always, success or failure
+     * @returns {Promise<boolean>} true only if the server confirmed the removal
+     */
+    async _remove(deviceId, deviceName, opts = {}) {
+        // `unclaim_devices` keys on install_id; the Console holds device_id.
+        // `list_devices` already returns install_id, so the map is local.
+        const device = (DevicesPage._devices || []).find(d => d.device_id === deviceId);
+        const installId = device?.install_id || null;
+
         const confirmed = await ConfirmModal.confirm({
             title: 'Remove device?',
-            message: `Remove "${deviceName}" from your account?\n\nThe device can re-register on next sign-in.`,
+            // Says what actually happens, and differs by case rather than
+            // promising one outcome for both. A device with no install row
+            // cannot be re-presented — claiming otherwise would reintroduce
+            // exactly the false promise this change removes.
+            message: installId
+                ? `Remove "${deviceName}" from your account?\n\nIt will stop syncing and will appear again under "devices that can be added", so you can re-add it later.`
+                : `Remove "${deviceName}" from your account?\n\nThis deletes it and its history. It will NOT reappear as an addable device.`,
             confirmLabel: 'Remove',
             cancelLabel: 'Cancel',
             danger: true,
         });
-        if (!confirmed) return;
+        if (!confirmed) return false;
+
+        opts.onStart?.();
         try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId });
+            if (installId) {
+                const res = await DashieAuth.dbRequest('unclaim_devices', { install_ids: [installId] });
+                // 🔴 A rejection is NOT an exception — `unclaim_devices` returns
+                // {unclaimed, rejected} and resolves either way. Removing the card
+                // on a rejection would report a deletion that did not happen, and
+                // the lie would survive until the next refresh repainted the row.
+                const rejected = (res?.rejected || []).find(r => r.id === installId);
+                if (rejected || !(res?.unclaimed || []).includes(installId)) {
+                    const why = rejected?.reason || 'the server did not confirm the removal';
+                    console.warn(`DROP: unclaim rejected device=${deviceId} install=${installId} reason=${why}`);
+                    Toast.error(`Could not remove "${deviceName}" — ${why}.`);
+                    return false;
+                }
+            } else {
+                // Residue 2 (spec §6): no install row — nothing to release, so a
+                // hard delete is the honest equivalent. It revokes correctly and
+                // does not re-present, which the confirm text above already said.
+                await DashieAuth.dbRequest('delete_device', { device_id: deviceId, hard_delete: true });
+            }
             DevicesPage._devices = (DevicesPage._devices || []).filter(d => d.device_id !== deviceId);
             DevicesPage._detailDeviceId = null;
+            // 🔴 onRemoved runs ONLY here — after the server confirmed. The
+            // rejection branch above returns early for the same reason: a caller
+            // that drops its own dismissal entry on a removal that did not happen
+            // reports a deletion twice over, and the second lie outlives the first.
+            opts.onRemoved?.();
             Toast.success(`Removed "${deviceName}"`);
             App.renderPage();
+            return true;
         } catch (e) {
-            console.error('[DevicesDetail] soft delete failed:', e);
+            console.error('[DevicesDetail] remove failed:', e);
             Toast.error(Toast.friendly(e, 'remove this device'));
-        }
-    },
-
-    async _hardDelete(deviceId, deviceName) {
-        const confirmed = await ConfirmModal.confirm({
-            title: 'Permanently delete this device?',
-            message: `This permanently deletes "${deviceName}" and all of its metrics, settings, and history.\n\nThis cannot be undone.`,
-            confirmLabel: 'Delete Forever',
-            cancelLabel: 'Cancel',
-            danger: true,
-            requireTypedConfirmation: deviceName,
-            typedConfirmationLabel: `Type "${deviceName}" to confirm`,
-        });
-        if (!confirmed) return;
-        try {
-            await DashieAuth.dbRequest('delete_device', { device_id: deviceId, hard_delete: true });
-            DevicesPage._devices = (DevicesPage._devices || []).filter(d => d.device_id !== deviceId);
-            DevicesPage._detailDeviceId = null;
-            Toast.success(`Deleted "${deviceName}" permanently`);
-            App.renderPage();
-        } catch (e) {
-            console.error('[DevicesDetail] hard delete failed:', e);
-            Toast.error(Toast.friendly(e, 'permanently delete this device'));
+            return false;
+        } finally {
+            opts.onSettled?.();
         }
     },
 

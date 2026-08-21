@@ -115,11 +115,33 @@ async def converse_local(hass: HomeAssistant, payload: dict) -> tuple[dict, int]
     rather than naming the Dashie-side reason: the exception type already
     carries the meaning, and only one build has that reason to give.
     """
+    # 🔴 STRIP `stream`. converse-local answers with ONE buffered JSON turn — this
+    # helper's callers hand the result straight back and have no NDJSON path. But the
+    # DEVICE sets stream:true on every turn (BrainConverseClient.kt) and the payload was
+    # forwarded verbatim, so the add-on was asked to stream and replied with an empty
+    # body — which the transport turned into `{}` and the caller reported as a perfectly
+    # ordinary HTTP 200 empty turn. A/B'd to certainty by Thread T on one field:
+    # {"text":…} → a full valid turn, {"text":…,"stream":true} → {}. Every local-route
+    # turn from a real device was empty. Sending a flag this endpoint cannot honour is
+    # the bug; not forwarding it is the fix. (Copy the dict — the caller keeps its own.)
+    body_payload = {k: v for k, v in (payload or {}).items() if k != "stream"}
+
     status, body = await call_addon_json(
-        hass, _CONVERSE_LOCAL_PATH, method="post", payload=payload, timeout_s=_BRAIN_TIMEOUT_S
+        hass, _CONVERSE_LOCAL_PATH, method="post", payload=body_payload, timeout_s=_BRAIN_TIMEOUT_S
     )
     if status == 403:
         raise SharingDisabled("add-on refused the local brain call (HTTP 403)")
+
+    # An empty turn on a 2xx is never legitimate — a real turn always carries content —
+    # and reporting it as success is what made the defect above invisible. The transport
+    # has already logged WHAT came back; this refuses to launder it into a good answer.
+    if status < 400 and not body:
+        _LOGGER.warning(
+            "DROP: converse-local returned an empty turn on HTTP %s — refusing to report it as success",
+            status,
+        )
+        return {"ok": False, "error": "converse_local_empty_turn", "status": status}, 502
+
     return body, status
 
 

@@ -22,22 +22,39 @@ const ApiKeysPage = {
     _testing: null,       // provider id currently being validated
     _testResult: {},      // { providerId: { ok: true|false|null, detail } } — last validation
 
-    /** Brain providers, read from the SHARED manifest — this page keeps no list
-     *  of its own. It used to, and the copy was the thing that would rot: a
-     *  provider added to onboarding and not here (or the reverse) reads as
-     *  perfectly normal code in both files.
+    /** Providers, read from the SHARED manifest — this page keeps no list of its
+     *  own. It used to, and the copy was the thing that would rot: a provider
+     *  added to one file and not the other reads as perfectly normal code in
+     *  both.
      *
      *  `fields` and `group` still drive the form and the section bucketing, they
-     *  are just declared once now. Tool providers live in the same manifest and
-     *  are rendered by the onboarding flow; this page stays brain-only, which is
-     *  a filter over one list rather than two lists.
+     *  are just declared once now. Since 2026-08-04 this page is the manifest's
+     *  ONLY consumer (the onboarding flow that rendered the tool providers was
+     *  deleted, unmounted), which is why the speech providers are selected here.
      *
      *  Filtered by SURFACE as well as kind, and that is load-bearing: Hermes is
      *  a brain provider whose key is set on the voice page, in its own row
      *  alongside its endpoint URL. Selecting on kind alone would have quietly
      *  added a second control for the same credential — which the first version
      *  of this refactor did. */
-    get PROVIDERS() { return window.ProviderManifest.bySurface('api-keys', 'brain'); },
+    get PROVIDERS() {
+        const M = window.ProviderManifest;
+        // Brain providers, plus the SPEECH tool providers (audit #5).
+        //
+        // 🔴 Why the second half exists at all: Deepgram, ElevenLabs and Inworld
+        // were already fully declared in the manifest with
+        // `surfaces: ['api-keys', 'onboarding']` — the filter below simply never
+        // let them through, and the only page that DID render them was never
+        // mounted. Every component of "the user can enter a Deepgram key"
+        // existed and was individually correct; the outcome was zero.
+        //
+        // Scoped to `group === 'speech'` rather than all tools on purpose. The
+        // remaining tool providers (search, images, sports) are a separate
+        // question with a separate answer, and two of them are AUTH.NONE with no
+        // fields at all — this page's card renderer assumes a field list.
+        return [...M.bySurface('api-keys', 'brain'),
+                ...M.bySurface('api-keys', 'tool').filter(p => p.group === 'speech')];
+    },
 
     /** Page sections, in render order. Direct provider keys lead (preferred — no markup);
      *  OpenRouter is the single-key catch-all (and the only path to Amazon Nova). */
@@ -46,6 +63,8 @@ const ApiKeysPage = {
           blurb: `Add a key for the models you use — ${BRAND.productName} runs its brain directly on it, no markup.` },
         { id: 'universal', title: 'One key for everything',
           blurb: 'A single OpenRouter key unlocks every model, including Amazon Nova. Direct keys above skip OpenRouter’s markup.' },
+        { id: 'speech', title: 'Speech',
+          blurb: 'Optional upgrades over Home Assistant’s own Whisper and Piper, which work without any key. Billed by the provider to your own account.' },
     ],
 
     topBarTitle() { return 'API Keys'; },
@@ -123,8 +142,15 @@ const ApiKeysPage = {
         const routable = this._routable;
         if (!routable) return this.PROVIDERS;   // old add-on → previous behaviour
         return this.PROVIDERS
-            .filter(p => routable.includes(p.id) || this._providers?.[p.id]?.set)
-            .map(p => (routable.includes(p.id) ? p : { ...p, orphaned: true }));
+            // 🔴 `routable` answers ONE question — "does this key flip BRAIN
+            // routing" — and it is the wrong question for a speech provider,
+            // which will never appear in that list however well its adapter
+            // works. Applying it to them would have hidden the very fields this
+            // change exists to add, and then, once a key was stored, badged them
+            // "Not used" with brain-specific remedy copy. Their availability is
+            // the manifest's `adapter` field, rendered below.
+            .filter(p => p.group === 'speech' || routable.includes(p.id) || this._providers?.[p.id]?.set)
+            .map(p => (p.group === 'speech' || routable.includes(p.id) ? p : { ...p, orphaned: true }));
     },
 
     _renderProviderCard(p) {
@@ -132,7 +158,21 @@ const ApiKeysPage = {
         const busy = this._busy === p.id;
         const testing = this._testing === p.id;
         const result = this._renderTestResult(p.id);
-        const pill = state.set
+        // 🔴 A stored key with no on-box adapter must SAY SO, and it must say it
+        // in the words the shared renderer already uses — "Key stored — not in
+        // use yet" (provider-auth-renderers.js). Writing a second inert-key
+        // vocabulary here is the specific thing John ruled against, and the
+        // page already carries a DIFFERENT one for a DIFFERENT state: `orphaned`
+        // / "Not used" means stored-and-unroutable, with a remedy (use
+        // OpenRouter, remove this). Stored-and-unspent has no remedy — the
+        // add-on owes the adapter, not the user.
+        //
+        // Only for a PENDING adapter. Everything else keeps the shipped
+        // wording, because a user-facing word is John's and nothing here asked
+        // to change the brain cards.
+        const pill = (state.set && p.adapter === window.ProviderManifest.ADAPTER.PENDING)
+            ? window.ProviderAuthRenderers.statusLine(p, true)
+            : state.set
             ? `<span style="font-size: 11px; font-weight: 700; color: var(--status-success, #16a34a); background: rgba(22,163,74,0.10); border-radius: 999px; padding: 3px 10px;">Key saved</span>`
             : `<span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--bg-muted, #f4f4f5); border-radius: 999px; padding: 3px 10px;">Not set</span>`;
         const inputs = p.fields.map(f => {

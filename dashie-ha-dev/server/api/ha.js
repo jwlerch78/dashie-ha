@@ -22,6 +22,9 @@ const haRegistry = require('../ha-registry');
 const haWorker = require('../ha-worker');
 const haClient = require('../ha-client');
 const config = require('../config');
+const { requireIngressUser } = require('../require-ingress-user');
+const servicePolicy = require('../ha-service-policy');
+const haTargets = require('../ha-target-resolver');
 
 const router = express.Router();
 
@@ -185,7 +188,14 @@ router.get('/history', async (req, res) => {
  * Console is responsible for calling update_device first/separately to
  * also update Supabase — this endpoint only handles the HA side.
  */
-router.post('/rename', requireSignedIn, express.json(), async (req, res) => {
+// Ingress-gated (§W). 🔴 My own spec was WRONG about this route: W5 filed it as
+// "persists to Supabase … a different mechanism, not a different gate". It does
+// not. `haRegistry.renameDevice` writes HOME ASSISTANT's device registry; the
+// Supabase copy refreshes later as a side effect of the poll it triggers. So this
+// is the same shape as /control — an HA operation behind an account gate — and on
+// the account-less edition it was refusing to rename a device that HA would let
+// the same user rename from its own UI.
+router.post('/rename', requireIngressUser('ha-rename'), express.json(), async (req, res) => {
     const { device_id, new_name } = req.body || {};
     if (!device_id || typeof device_id !== 'string') {
         return res.status(400).json({ error: 'device_id required' });
@@ -198,6 +208,10 @@ router.post('/rename', requireSignedIn, express.json(), async (req, res) => {
     }
 
     try {
+        console.log(
+            `RENAME: device=${device_id} to="${new_name.trim()}" ` +
+            `by=${req.haUser.id}${req.haUser.display_name ? ` (${req.haUser.display_name})` : ''}`,
+        );
         const updated = await haRegistry.renameDevice(device_id, new_name.trim());
         // Trigger an immediate metrics poll so user_devices.metrics + ha_device_name
         // refresh without waiting for the next 30s tick.
@@ -253,7 +267,20 @@ const CONTROL_MAP = {
  * Body: { device_id: '<dashie hex>', role: 'lock'|'volume'|..., value: bool|number }
  * Translates to a HA service call. Console doesn't need to know HA naming.
  */
-router.post('/control', requireSignedIn, express.json(), async (req, res) => {
+// 🔴 Gated on HA ingress identity, not on holding an account (spec §W).
+//
+// This is a service call on a Home Assistant entity, on the household's own box,
+// that HA already exposes to the caller — it spends nothing and mints nothing.
+// `requireSignedIn` asked an ACCOUNT-shaped question about a non-account
+// operation, so on the account-less edition every control was 401 while the very
+// same action was available from HA's own UI. It also never examined the caller
+// at all: it reads a stored JWT, which is a property of the BOX.
+//
+// ⚠️ On the accounted edition this is a LOOSENING, named and accepted rather than
+// slipped in: control moves from "holds an account on this box" to "is an HA user
+// who can open the panel". The blast radius is the closed CONTROL_MAP list on
+// entities this integration created, and HA already owns who can see the panel.
+router.post('/control', requireIngressUser('ha-control'), express.json(), async (req, res) => {
     const { device_id, role, value } = req.body || {};
     if (!device_id) return res.status(400).json({ error: 'device_id required' });
     if (!role) return res.status(400).json({ error: 'role required' });
@@ -285,6 +312,14 @@ router.post('/control', requireSignedIn, express.json(), async (req, res) => {
             return res.status(500).json({ error: 'unsupported control kind' });
         }
 
+        // Attribution, same reasoning as /service: a control that reboots a wall
+        // tablet should not be anonymous. Logged BEFORE the call so a service
+        // that hangs still leaves a record of who asked for it.
+        console.log(
+            `CONTROL: role=${role} value=${value} device=${device_id} ` +
+            `by=${req.haUser.id}${req.haUser.display_name ? ` (${req.haUser.display_name})` : ''} ` +
+            `→ ${entityId}`,
+        );
         await haRegistry.callService(map.domain, serviceName, entityId, serviceData);
         // Trigger a poll so the next /api/ha/status reflects the new state.
         haWorker.triggerRefresh(`post-${role}`);
@@ -379,7 +414,7 @@ router.get('/entities', async (req, res) => {
  * a hard 500 for normal HA-rejection cases like "entity not found" so the
  * Console chat can show the rejection inline rather than blowing up.)
  */
-router.post('/service', express.json(), async (req, res) => {
+router.post('/service', requireIngressUser('ha-service'), express.json(), async (req, res) => {
     const { domain, service, data } = req.body || {};
     if (!domain || !service || typeof domain !== 'string' || typeof service !== 'string') {
         return res.status(400).json({ success: false, error: 'domain and service are required' });
@@ -394,6 +429,64 @@ router.post('/service', express.json(), async (req, res) => {
         // — peel entity_id out of `data` for the target field.
         const serviceData = { ...payload };
         delete serviceData.entity_id;
+        // 🔴 SERVICE POLICY (D-status s49). Service-level, not domain-level: the
+        // domain allowlist below already contains `lock`, so a domain check
+        // permits `lock.open`. Ships in OBSERVE mode — the decision is logged and
+        // NOT applied until `service_policy_enforce` is set, because the caller is
+        // an LLM and the service set it uses in the field is not knowable from
+        // here. Harvest, widen, then flip.
+        const verdict = servicePolicy.evaluate(domain, service);
+        if (verdict.reason !== 'ok') {
+            console.warn(
+                `DROP: service-would-refuse service=${domain}.${service} reason=${verdict.reason} ` +
+                `enforcing=${verdict.enforcing} by=${req.haUser.id}`,
+            );
+            if (!verdict.allowed) {
+                return res.json({ success: false, error: `service_not_allowed: ${domain}.${service}` });
+            }
+        }
+        // 🔴 TARGET RESOLUTION, and it runs BEFORE the target verdict for the
+        // reason in ha-target-resolver's header: `{area_id:'kitchen'}` names no
+        // entity, so anything judging the raw payload sees nothing to object to
+        // and passes the call to every light in the kitchen. The looser the
+        // selector, the less there is to check — which is the wrong way round.
+        //
+        // This is layer 1 of D's "no entity_id ⇒ REFUSE" (s49 §4 item 2). Same
+        // OBSERVE ladder as the service verdict above: logged, not applied, until
+        // `service_policy_enforce` flips. The exposure half (item 1) hangs off
+        // `resolution.entities` and needs an integration release — see
+        // B-status addendum 89 for why the view it was specced against is not
+        // reachable from this box.
+        const resolution = await haTargets.resolve(domain, service, payload, haRegistry, servicePolicy);
+        const targetVerdict = servicePolicy.evaluateTargets(domain, service, resolution);
+        if (targetVerdict.reason !== 'ok') {
+            console.warn(
+                `DROP: service-would-refuse service=${domain}.${service} reason=${targetVerdict.reason} ` +
+                `enforcing=${targetVerdict.enforcing} by=${req.haUser.id}` +
+                (resolution.failure ? ` failure="${resolution.failure}"` : ''),
+            );
+            if (!targetVerdict.allowed) {
+                return res.json({ success: false, error: `service_${targetVerdict.reason}: ${domain}.${service}` });
+            }
+        }
+        // 🔴 ATTRIBUTION. This route can call ANY HA service with the add-on's
+        // supervisor token, and until now it logged only failures — so a
+        // successful `lock.open` left no record of who asked for it. The caller
+        // is an LLM acting on someone's behalf, which makes "on whose behalf"
+        // the interesting half. A household where anyone at the panel can open a
+        // lock is a choice; one where nobody can tell who did is not.
+        // 🔴 Log the RESOLVED targets, not `payload.entity_id`. An area- or
+        // label-targeted call has no entity_id, so the old line recorded the
+        // service and the caller and left "what did it actually touch" blank —
+        // for exactly the calls that touch the most. Attribution that thins out
+        // as the blast radius grows is attribution pointed the wrong way.
+        console.log(
+            `HA-SERVICE: ${domain}.${service} by=${req.haUser.id}` +
+            (req.haUser.display_name ? ` (${req.haUser.display_name})` : '') +
+            (resolution.entities.length
+                ? ` targets=${resolution.entities.join(',')} via=${resolution.sources.join('+')}`
+                : ' targets=none'),
+        );
         const result = await haRegistry.callService(domain, service, entityId, serviceData);
         return res.json({ success: true, result });
     } catch (e) {
@@ -566,6 +659,46 @@ async function findMediaEntity(dashieDeviceId, role) {
  *
  * Closes cleanly when the client disconnects (e.g. user closes the modal).
  */
+// ── THE MEDIA ROUTES STAY AS THEY ARE — a DECISION, not an omission ──────────
+//
+// /mjpeg, /image, /stream, /hls were the one §W group left ungated-by-ingress.
+// John ruled 2026-08-03: **do not gate them.** Written here because a future
+// reader will otherwise see the inconsistency with /control and /service and
+// "fix" it.
+//
+// His reason was field knowledge: tablets display video feeds and are NOT
+// ingress callers, so an ingress gate would trade a beta-visible outage for a
+// hardening.
+//
+// ⚠️ MEASURED REFINEMENT, recorded so nobody inherits a rationale that was never
+// checked: the tablet's video feeds do not travel these routes. They ride
+// `/api/dashie/feeds` and `/api/dashie/frigate/cameras` (`ApiPaths.HA` — the
+// INTEGRATION's router; see VideoFeedPreferences.kt / FrigateCameraFetcher.kt).
+// These four are consumed by the CONSOLE's device cards (devices-card.js:381+,
+// screenshots and camera panels). No Android or web-app caller for them exists.
+// So the ruling stands and costs nothing, but the stated mechanism does not
+// apply to these particular routes — if the question is ever reopened, that is
+// the fact that changes the answer.
+//
+// 🔴 The residual, ruled and not to be re-litigated — CORRECTED 2026-08-03 after
+// it was measured rather than assumed. The first version of this comment said
+// "anyone who can reach :8099 on the LAN", which OVERSTATED it:
+//
+//   `ports: {}`, no `host_network`, and `docker port` lists nothing → the port is
+//   published to NEITHER the host NOR the LAN. Realistic reach is another add-on
+//   on the same box, or host root — not guests on the wifi, not the internet.
+//
+// So: ungated means an entity on the Supervisor docker network can pull camera
+// frames without HA credentials, because the add-on proxies them with its own
+// token. Home Assistant's own model treats add-ons as semi-trusted, so this is a
+// real but BOUNDED exposure.
+//
+// ⚠️ The correction matters more than the wording: this is the sentence someone
+// reads when deciding whether to revisit the ruling, and **an inflated threat
+// model produces a wrong decision as surely as a deflated one.**
+//
+// **If revisited, the shape is device-token auth for kiosks, not an ingress
+// gate** — noted so the option is discoverable without re-deriving it.
 router.get('/mjpeg/:deviceId/:role', requireSignedIn, async (req, res) => {
     const { deviceId, role } = req.params;
     if (role !== 'screenshot' && role !== 'camera') {
@@ -849,7 +982,11 @@ async function _ensureStateChangedFanout() {
     });
 }
 
-router.get('/events', requireSignedIn, async (req, res) => {
+// Ingress-gated (§W). Also mis-filed in W5 as "Supabase-fed": it is a fan-out of
+// Home Assistant's own `state_changed`, with no Supabase anywhere in the path.
+// Without it the account-less Devices page has no real-time updates at all and
+// falls back to the 30s poll, which is a visibly worse page for no reason.
+router.get('/events', requireIngressUser('ha-events'), async (req, res) => {
     res.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
