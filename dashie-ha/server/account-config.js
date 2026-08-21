@@ -96,14 +96,34 @@ async function getAccountVoiceConfig() {
         const row = (Array.isArray(rows) && rows[0]) || {};
         const settings = row.settings || {};
         const model = settings?.ai?.model || null;
+        // 🔴 ONE FACT, THREE STORAGE HOMES — resolved here so consumers see one answer.
+        //
+        // "my LLM is qwen3 on my box" can live in: (1) voice.localEngines — the engines
+        // store the ADD-ON console renders and the STT/TTS legs already honour; (2)
+        // voice.localLlmUrl/localLlmModel — the WEB console's inline "My own AI" row; (3)
+        // the add-on's Configuration tab, the only one converse.js used to read. Measured
+        // 2026-08-21 on prod: (1) populated, (2) EMPTY estate-wide (the aliasing bug had
+        // deleted that row from the web console), (3) empty. So the console displayed a
+        // local model, the STT/TTS legs used it, and the brain answered from the cloud —
+        // display and behaviour disagreeing because they read different homes.
+        //
+        // Precedence: an engine the user SELECTED by name wins (ai.model = 'engine:<id>');
+        // then the explicitly-typed inline fields; then any usable stored LLM engine.
+        const engines = Array.isArray(settings?.voice?.localEngines) ? settings.voice.localEngines : [];
+        const usableEngine = (e) => e && e.kind === 'llm' && str(e.url) && str(e.model);
+        const selectedId = typeof model === 'string' && model.startsWith('engine:')
+          ? model.slice('engine:'.length) : null;
+        const llmEngine =
+          (selectedId && engines.find((e) => usableEngine(e) && e.id === selectedId)) ||
+          engines.find(usableEngine) || null;
         value = {
           model,
-          localLlmUrl: settings?.voice?.localLlmUrl || '',
-          localLlmModel: settings?.voice?.localLlmModel || '',
+          localLlmUrl: str(settings?.voice?.localLlmUrl) || str(llmEngine?.url),
+          localLlmModel: str(settings?.voice?.localLlmModel) || str(llmEngine?.model),
           // BYO-model API key (WS-I) — bearer for a remote OpenAI-compatible
           // endpoint. Console-only key (user_settings.voice.localLlmKey); passed to
           // node-io.js. Blank for keyless local Ollama/llama.cpp.
-          localLlmKey: settings?.voice?.localLlmKey || '',
+          localLlmKey: str(settings?.voice?.localLlmKey) || str(llmEngine?.key),
           // Hermes Agent endpoint (dedicated row, ai.model='hermes'). Its API key is
           // NOT in user_settings — it lives in the on-box key store ('hermes' provider).
           hermesUrl: settings?.voice?.hermesUrl || '',

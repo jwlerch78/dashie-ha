@@ -5,11 +5,21 @@
 // fields must survive) and executes any HA actions in the returned Turn itself. This
 // handler owns the ROUTE DECISION, in this precedence:
 //
-//   1. llm_url + llm_model in the add-on's Configuration tab  → this box's own endpoint
-//   2. a stored BYO provider key that covers the CHOSEN AI model → that provider, on the
-//      user's own key (brain/providers.js resolveByokTarget)
-//   3. a signed-in Dashie account                              → Dashie Cloud (metered)
-//   4. nothing                                                 → spoken setup guidance
+//   1.  llm_url + llm_model in the add-on's Configuration tab → this box's own endpoint
+//   1b. the ACCOUNT's own local endpoint (route 'local' + a resolved localLlmUrl/Model,
+//       from the engines store or the console's own-AI fields — account-config resolves
+//       the three storage homes into one answer)      → the user's own box
+//   2.  a stored BYO provider key that covers the CHOSEN AI model → that provider, on the
+//       user's own key (brain/providers.js resolveByokTarget)
+//   3.  a signed-in Dashie account                             → Dashie Cloud (metered)
+//   4.  nothing                                                → spoken setup guidance
+//
+// 🔴 Tier 1b was MISSING until 2026-08-21, and its absence is the second instance of the
+// degradation described below: account-config answered route:'local', the integration
+// duly sent the turn here, and this handler — finding no Configuration-tab endpoint —
+// fell through and had it answered by gemini. Measured: every X-Dashie-Brain-Route:local
+// call came back model=gemini-2.5-flash while the user's own qwen3 box sat idle, logged
+// and billed as a cloud turn. Same shape as the BYOK case, different input.
 //
 // 🔴 Routes 1-with-a-key, 2 and 3 all spend money the household pays for, and
 // until 2026-08-02 NONE of them consulted household sharing — see the spend gate
@@ -125,6 +135,13 @@ async function converse(payload) {
     const { jwt, userId } = await resolveAccount();
     const endpoint = String(opts.llm_url || '').trim();
     const optModel = String(opts.llm_model || '').trim();
+    // Cached with a TTL inside account-config, so this is not a per-turn round trip.
+    // Signed out there is no account to ask, and a read failure must not take voice
+    // out — it degrades to the tiers below, which is what happened before this tier
+    // existed at all.
+    const acct = jwt
+        ? await require('./account-config').getAccountVoiceConfig().catch(() => null)
+        : null;
 
     // ── Route (see the file header for the precedence and why) ──────────────────
     let shell = null;      // createAddonIO options for an on-box/BYOK turn
@@ -135,6 +152,26 @@ async function converse(payload) {
         routeTag = 'local';
         // The KEY decides, not the route: empty means Ollama on the user's own
         // hardware and no money moves; non-empty means a paid endpoint.
+        metered = !!shell.key.trim();
+    } else if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
+        // ── TIER 1b — the ACCOUNT's own local endpoint (added 2026-08-21) ───────
+        //
+        // 🔴 This is the tier whose absence made "local" mean gemini. account-config
+        // ALREADY resolved the endpoint and ALREADY answered route:'local' — its header
+        // even says it exists "→ endpoint + model for the LAN inference call" — and this
+        // handler never read it, so a turn the integration correctly sent here as local
+        // fell through to BYOK/cloud and was answered, logged and BILLED as a cloud turn.
+        //
+        // That is verbatim the degradation this file's own header calls forbidden: "a
+        // stored key validated green, routed 'local', and still billed credits — the exact
+        // silent degradation WS-I.8 exists to forbid." Same shape, different input: BYOK
+        // then, the account's own box now.
+        //
+        // Below the Configuration tab deliberately: a box-level override stays the most
+        // specific answer. Same key-decides metering rule as tier 1 — a keyless Ollama on
+        // the user's own hardware spends nothing and is never gated.
+        shell = { endpoint: acct.localLlmUrl, model: acct.localLlmModel, key: String(acct.localLlmKey || '') };
+        routeTag = 'local:account';
         metered = !!shell.key.trim();
     } else {
         const byok = resolveByokTarget(await chosenModel(!!jwt));
