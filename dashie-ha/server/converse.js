@@ -270,7 +270,7 @@ async function converse(payload) {
         );
         console.log(`DASHIE-BRAIN type=${turn?.type || '?'} ok=${turn?.ok !== false} ` +
             `latency=${Date.now() - t0}ms brain=${brain.BRAIN_SOURCE_SHA?.slice(0, 9) || '?'}`);
-        return { status: 200, body: turn };
+        return { status: 200, body: turn, routeTag };
     } catch (e) {
         console.error('DROP: brain crashed:', (e && e.stack) || e);
         return { status: 500, body: { error: 'brain_error', message: (e && e.message) || String(e) } };

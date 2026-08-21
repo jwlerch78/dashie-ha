@@ -190,7 +190,17 @@ router.post('/converse-local', express.json(), async (req, res) => {
     if (!body.text || typeof body.text !== 'string') {
         return res.status(400).json({ error: 'bad_request', message: 'text is required' });
     }
-    const { status, body: turn } = await converse(body);
+    const { status, body: turn, routeTag } = await converse(body);
+    // 🏷️ Which tier actually SERVED this turn, on the wire.
+    //
+    // `X-Dashie-Brain-Route: local` (set by the integration from the account's config)
+    // says where the turn was SENT; it cannot say which local tier answered — the
+    // Configuration tab, the account's own endpoint, or a BYOK provider all read
+    // "local". Verifying tier 1b cost a whole session partly because the only place
+    // that distinction existed was an add-on stdout line, and the nearest wire field
+    // (`route: "direct"`, the brain's INTERNAL pass routing) reads like an answer and
+    // is not one. This header is the answer, and it is greppable.
+    if (routeTag) res.set('X-Dashie-Brain-Tier', routeTag);
     res.status(status).json(turn);
 });
 
