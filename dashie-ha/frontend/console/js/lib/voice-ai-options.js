@@ -166,8 +166,11 @@ const VoiceAiOptions = {
     },
 
     /** @param {object} [detection] GET /api/voice/engines result — drives the Hermes
-     *  row's install/setup state (add-on mode). Absent on the website console. */
-    models(detection) {
+     *  row's install/setup state (add-on mode). Absent on the website console.
+     *  @param {string} [currentId] the stage's STORED `ai.model`, so the generic own-AI
+     *  row can render as a residual when saved engines have replaced it — see the block
+     *  at the end of this function. */
+    models(detection, currentId) {
         const C = window.AiModelCatalog;
         const all = C?.AI_MODEL_CATALOG || [];
         // "My Local LLM" leads the list — the privacy/local-first option.
@@ -216,9 +219,33 @@ const VoiceAiOptions = {
         },
         ──────────────────────────────────────────────────────────────────────────── */
         // Saved own-AI engines replace the generic "My own AI" inline-URL row.
+        const inlineOwnAiRow = out.find(o => o && o.id === 'local') || null;
         const withEngines = this.withSavedEngines('llm', out, 'local');
         out.length = 0;
         out.push(...withEngines);
+        // 🔴 RESIDUAL — the same load-bearing half as _managedCloudRow, for the row that
+        // saved engines REPLACE rather than one that becomes unavailable.
+        //
+        // An account can hold `ai.model='local'` (the generic own-AI choice) while this
+        // box has saved engines, which swap that row out. `VoiceAiCards.render()` then
+        // resolves the selection with `opts.find(…) || opts[0]` and displays the FIRST
+        // ENGINE as selected — a name the user never picked. Measured on John's account
+        // 2026-08-21: console read "Qwen3 on remote GPU · LOCAL", `ai.model` was still
+        // `local`, and because `resolveToSettings` only runs from the engine-row PICK
+        // handler it had never fired, so `voice.localLlmUrl`/`localLlmModel` — the ONLY
+        // thing the tablets read — were empty. The phantom selection is the root the
+        // three-homes divergence grew from.
+        //
+        // So: shown while it is what the account holds, never re-OFFERED once anything
+        // else is picked, and deliberately NOT auto-migrated to a saved engine (John,
+        // 2026-08-22) — inventing a choice the user never made is how the display became
+        // untrue in the first place, and it would write flat keys the tablets act on.
+        if (String(currentId || '') === 'local' && inlineOwnAiRow && !out.some(o => o && o.id === 'local')) {
+            out.unshift({
+                ...inlineOwnAiRow,
+                description: 'Set directly rather than from your saved engines. Pick a saved engine to use one of those instead.',
+            });
+        }
         for (const prov of this._PROVIDER_ORDER) {
             for (const m of all.filter(x => x.provider === prov)) {
                 const live = this._liveModelRates?.[m.id];   // margined, from rate card

@@ -1936,7 +1936,10 @@ const VoiceAiPage = {
      *  cloud provider groups). */
     _modelOptions(preset) {
         const O = window.VoiceAiOptions;
-        const catalog = O.presetFilter(preset, O.models(this._engines));
+        // Pass the STORED ai.model so a generic own-AI choice still renders (as a
+        // residual) on a box whose saved engines replaced that row — otherwise the card
+        // shows the first engine as selected, which is a name the account never chose.
+        const catalog = O.presetFilter(preset, O.models(this._engines, String(this._defaults?.['ai.model'] || '')));
         if (preset !== 'cloud') return catalog;
         const live = this._liveModelOptions().map(o => ({ ...o, group: 'Live · realtime conversation' }));
         return [...live, ...catalog];

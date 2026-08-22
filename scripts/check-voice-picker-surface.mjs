@@ -179,6 +179,62 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'a <script> tag for a deleted file 404s silently in every browser, and a whitelist entry for a page that does not exist reads as "this is reachable" to the next person — which is precisely how this page survived unmounted for three days');
 }
 
+// ── LEG 10 — the residual invariant, WIDENED past the one row I first scoped it to ──
+//
+// Leg 3 pins this exact class for `dashie_cloud`: a row that disappears while it is
+// still what the account STORES does not error and does not render empty — it makes
+// `VoiceAiCards`' `opts.find(…) || opts[0]` display the FIRST row as selected, a value
+// nobody chose. I wrote that gate and scoped it to one row.
+//
+// The same removal happens to the generic own-AI `local` row on every add-on box with a
+// saved engine, and nothing pinned it — so it shipped: John's console read "Qwen3 on
+// remote GPU · LOCAL" while `ai.model` was still `local` and the flat keys the tablets
+// read were empty (a126). This leg is that scope error corrected.
+{
+    const catalog = join(CONSOLE, 'js', 'lib', 'ai-models-catalog.js');
+    const ENGINE = { id: 'eng-x', url: 'http://box:11434', kind: 'llm', name: 'Qwen3 on remote GPU', model: 'qwen3:30b' };
+    const load = (enginesStore) => {
+        const sb = {
+            console: { log() {}, warn() {}, error() {} },
+            document: { title: '', querySelector: () => null },
+            DashieAuth: { isAddonMode: true, isLocalMode: false, isHaUser: true, isHaContext: true },
+        };
+        if (enginesStore) sb.EnginesStore = enginesStore;
+        sb.window = sb; sb.globalThis = sb;
+        const c = vm.createContext(sb);
+        vm.runInContext(readFileSync(FILES.brand, 'utf8'), c, { filename: FILES.brand });
+        if (existsSync(catalog)) vm.runInContext(readFileSync(catalog, 'utf8'), c, { filename: catalog });
+        vm.runInContext(readFileSync(FILES.options, 'utf8'), c, { filename: FILES.options });
+        return sb.window.VoiceAiOptions;
+    };
+    const O2 = load({ cached: (k) => (k === 'llm' ? [ENGINE] : []) });
+    const stored = O2.models(null, 'local');
+    // This is voice-ai-cards.js's resolution, verbatim.
+    const selected = (rows, id) => rows.find(x => x.id === id) || rows[0];
+
+    check('leg 10a — an account still storing ai.model=local sees its OWN row, not the first engine',
+        selected(stored, 'local')?.id === 'local',
+        `rows=${JSON.stringify(stored.map(o => o.id).slice(0, 3))} selected=${selected(stored, 'local')?.id}`,
+        'without the residual the card displays the first saved ENGINE as selected — a name the account never chose — while ai.model stays `local` and the flat keys the tablets read stay empty. That phantom selection is the root the three-homes divergence grew from (a126)');
+
+    check('leg 10b — and the residual says it is set directly, not from a saved engine',
+        /set directly/i.test(String(selected(stored, 'local')?.description || '')),
+        `description=${JSON.stringify(selected(stored, 'local')?.description)}`,
+        'a residual that reads like a normal offer re-advertises a state the user is being nudged out of; it has to say what it is');
+
+    const notStored = O2.models(null, 'gemini-2.5-flash');
+    check('leg 10c — NEGATIVE CONTROL: it is never re-OFFERED to an account on something else',
+        !notStored.some(o => o.id === 'local'),
+        `ids=${JSON.stringify(notStored.map(o => o.id).slice(0, 4))}`,
+        'the residual exists only while it is what the account holds — otherwise this leg would be satisfied by simply never removing the row, which is the behaviour the engines swap deliberately replaced');
+
+    const noEngines = load(null).models(null, 'local');
+    check('leg 10d — POSITIVE CONTROL: with no saved engines the REAL own-AI row is still there once',
+        noEngines.filter(o => o.id === 'local').length === 1,
+        `count=${noEngines.filter(o => o.id === 'local').length}`,
+        'pins the web-console path and proves the residual does not double the row when nothing replaced it');
+}
+
 // ── LEG 7 — the own-AI (local) MODEL row survives models() ───────────────────
 //
 // `models()` builds the own-AI row first ("My Local LLM leads the list"), then
