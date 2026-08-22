@@ -91,14 +91,37 @@ scenario({ keys: { openrouter: true } });   // no householdSharing key at all
 check('account-less default is ON → grants', await grant(), { granted: ['voice', 'ai', 'tools'], reason: 'ok' });
 
 console.log('\n── free routes are NEVER gated ────────────────────────────────────');
-scenario({ userSettings: { voice: { householdSharing: false } }, options: { llm_url: 'http://box:11434', llm_model: 'qwen3', llm_api_key: '' } });
+// 🔴 These three fixtures configured the local brain through the add-on
+// Configuration tab (`options.llm_url`/`llm_model`/`llm_api_key`). Those fields
+// were REMOVED on 2026-08-21 — the web UI is the only config surface — so an
+// account-less box's own AI box now comes from the local settings blob that
+// `converse.js` routes on (`ai.model='local'` + `voice.localLlm*`). The
+// PROPERTY being pinned is unchanged and is the whole point of the block: a
+// free route is never gated, and only the KEY decides free vs metered. Only the
+// input moved, so the fixtures are re-pointed rather than deleted — deleting
+// them would have retired the invariant along with the stale input.
+const localBox = (extra) => ({ userSettings: { ai: { model: 'local' }, voice: { householdSharing: false, ...extra } } });
+
+scenario(localBox({ localLlmUrl: 'http://box:11434', localLlmModel: 'qwen3' }));
 check('local endpoint, EMPTY key, sharing OFF → still granted', await grant(), { granted: ['voice', 'ai', 'tools'], reason: 'ok' });
 check('  …and its state is free', cap.capabilityState('ai'), 'free');
 
-scenario({ userSettings: { voice: { householdSharing: false } }, options: { llm_url: 'http://paid.example', llm_model: 'gpt', llm_api_key: 'sk-real' } });
+scenario(localBox({ localLlmUrl: 'http://paid.example', localLlmModel: 'gpt', localLlmKey: 'sk-real' }));
 check('SAME route with a NON-EMPTY key, sharing OFF → ai withheld',
   await grant(), { granted: ['voice', 'tools'], reason: 'ok' });
 check('  …and its state is metered', cap.capabilityState('ai'), 'metered');
+// …and it must be withheld for the SHARING reason, not because nothing is
+// configured. Without this the re-pointing above is satisfiable by a fixture
+// that configures no brain at all — the two look identical at the grant level,
+// which is the exact confusion the `withheld` map exists to end.
+check('  …withheld because SHARING is off, not because it is absent',
+  await withheld(), { ai: 'sharing_disabled' });
+
+// ⚖️ NEGATIVE CONTROL for the removal itself: the retired tab fields must no
+// longer conjure a brain. Without it, re-introducing that tier — the thing the
+// removal exists to prevent — would pass every other case in this file.
+scenario({ userSettings: { voice: { householdSharing: false } }, options: { llm_url: 'http://box:11434', llm_model: 'qwen3', llm_api_key: '' } });
+check('⚖️ the RETIRED Configuration-tab fields grant no brain', cap.capabilityState('ai'), 'absent');
 
 console.log('\n── absent ≠ free: an empty box must not claim it can think ────────');
 scenario({ userSettings: { voice: { householdSharing: true } } });
