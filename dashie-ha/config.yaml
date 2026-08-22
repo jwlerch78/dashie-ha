@@ -58,13 +58,15 @@ map:
 # http://<hostname>:8099 — no host ports published.
 ports: {}
 
-# llm_url:     an OpenAI-compatible model server — either a base URL (we append
-#              /v1/chat/completions), e.g. http://homeassistant.local:11434 for
-#              Ollama, or a FULL chat-completions URL for providers whose compat
-#              path differs (Gemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions,
-#              OpenRouter: https://openrouter.ai/api/v1/chat/completions).
-#              llm_model: the model id to run. llm_api_key: bearer key — leave
-#              blank for local Ollama/llama.cpp.
+# llm_url / llm_model / llm_api_key were REMOVED 2026-08-21 (John's ruling: the
+# web UI is the only brain-config surface — "we don't want those fields in the
+# config at all, it's just confusing"). Configure your own model server on the
+# panel's Voice & AI page instead ("My own AI (local / self-hosted)"); the
+# server resolves it from the account (or, signed out, from the panel's local
+# settings). COMPAT: a box whose stored options still carry the old keys gets
+# them stripped by the Supervisor's schema validation (warning in the
+# Supervisor log); the server no longer reads them either way, and converse.js
+# logs a loud DROP naming the migration if it finds them.
 # stt_url: an OpenAI-compatible transcription server (we append
 #          /v1/audio/transcriptions unless the URL already ends with it) —
 #          whisper.cpp server, faster-whisper/speaches, or a provider endpoint.
@@ -86,9 +88,6 @@ options:
   lease_ttl_minutes: 30
   cloud_env: beta
   install_integration: true
-  llm_url: ""
-  llm_model: ""
-  llm_api_key: ""
   stt_url: ""
   stt_model: "whisper-1"
   stt_api_key: ""
@@ -119,9 +118,6 @@ schema:
   lease_ttl_minutes: int(5,240)?
   cloud_env: list(beta|stable|development|production)
   install_integration: bool?
-  llm_url: str?
-  llm_model: str?
-  llm_api_key: password?
   stt_url: str?
   stt_model: str?
   stt_api_key: password?

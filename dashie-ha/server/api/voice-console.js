@@ -212,11 +212,26 @@ router.post('/converse-local', express.json(), async (req, res) => {
 // about is one you have to reproduce a bug to discover — and the same field
 // previously answered from the options file alone, which is a description of
 // configuration rather than of behaviour.
-router.get('/local-status', (req, res) => {
+router.get('/local-status', async (req, res) => {
     const opts = readOptions();
-    const endpoint = String(opts.llm_url || '').trim();
-    const model = String(opts.llm_model || '').trim();
     const signedIn = !!auth.readStoredJwt();
+    // The Configuration-tab llm_url/llm_model were REMOVED 2026-08-21 — the brain
+    // endpoint now DERIVES from the same sources converse.js routes on (account
+    // when signed in, the panel's local settings blob when signed out), so this
+    // probe can no longer answer 'local' from a tab field the route ignores —
+    // the exact stale-route pinning T measured (cont.19).
+    const capability = require('../capability');
+    let endpoint = '';
+    let model = '';
+    if (signedIn) {
+        const acct = await require('../account-config').getAccountVoiceConfig().catch(() => null);
+        if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
+            endpoint = acct.localLlmUrl; model = acct.localLlmModel;
+        }
+    } else {
+        const box = capability.readLocalBoxLlm();
+        if (box) { endpoint = box.url; model = box.model; }
+    }
     const byokTts = require('../byok-tts');
     const byokTtsProvider = byokTts.resolveProvider();
     res.json({

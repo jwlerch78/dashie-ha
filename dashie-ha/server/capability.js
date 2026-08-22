@@ -63,6 +63,28 @@ function signedIn() {
 }
 
 /**
+ * The SIGNED-OUT half of the own-endpoint brain tier: the panel's local
+ * settings blob (written by the Voice & AI page via /api/settings/local —
+ * same keys the account path resolves in account-config). Null unless the
+ * blob names a usable local LLM (ai.model='local' + url + model).
+ *
+ * Lives here — ONE holder — because three surfaces need the same answer
+ * (converse.js's route decision, capabilityState('ai') below, and the
+ * /api/voice/local-status probe) and the Configuration-tab era proved what
+ * happens when they read different homes of one fact.
+ */
+function readLocalBoxLlm() {
+    try {
+        const s = settingsStore.readUserSettings();
+        if (String(s?.ai?.model || '') !== 'local') return null;
+        const url = String(s?.voice?.localLlmUrl || '').trim();
+        const model = String(s?.voice?.localLlmModel || '').trim();
+        if (!url || !model) return null;
+        return { url, model, key: String(s?.voice?.localLlmKey || '') };
+    } catch { return null; }
+}
+
+/**
  * Does the household still lend its metered resources?
  *
  * ONE key name — `voice.householdSharing` — read from whichever settings backend
@@ -130,15 +152,18 @@ function capabilityState(cap, opts = null) {
     if ((METERED_KEYS[cap] || []).some(hasKey)) return 'metered';
 
     if (cap === 'ai') {
-        const endpoint = String(o.llm_url || '').trim();
-        const model = String(o.llm_model || '').trim();
-        if (!endpoint || !model) return 'absent';
-        // 🔴 The KEY decides, not the route. converse.js takes the local route on
-        // `endpoint && model` and passes `key: llm_api_key || ''`. Empty key =
-        // Ollama on the user's own hardware, where no money moves and gating it
-        // would be a pure outage. Non-empty = a paid endpoint. Same route,
-        // opposite answers, and only the key tells them apart.
-        return String(o.llm_api_key || '').trim() ? 'metered' : 'free';
+        // Signed out (the signed-in case already returned 'metered' above), so the
+        // only possible brain is the panel-configured local one. The Configuration
+        // tab's llm_url/llm_model were REMOVED 2026-08-21 (web UI is the only
+        // config surface); this now reads the same local settings blob converse.js
+        // routes on, through the same helper, so the two answers cannot disagree.
+        const box = readLocalBoxLlm();
+        if (!box) return 'absent';
+        // 🔴 The KEY decides, not the route. Empty key = Ollama on the user's own
+        // hardware, where no money moves and gating it would be a pure outage.
+        // Non-empty = a paid endpoint. Same route, opposite answers, and only the
+        // key tells them apart.
+        return box.key.trim() ? 'metered' : 'free';
     }
 
     // Home Assistant's own engines are always there: Whisper/Piper for voice,
@@ -206,6 +231,7 @@ module.exports = {
     METERED_KEYS,
     ACCOUNTLESS_SHARING_DEFAULT,
     readHouseholdSharing,
+    readLocalBoxLlm,
     capabilityState,
     grantableCapabilities,
     mayTakeMeteredRoute,

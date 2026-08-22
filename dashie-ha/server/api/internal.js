@@ -154,8 +154,9 @@ router.post('/authorize-device', express.json(), async (req, res) => {
  * The account's voice route + kiosk mirror block. Same wire shape as the
  * Dashie add-on's — the integration forwards it on /api/dashie/voice/status.
  * Route semantics here: account-config's resolveBrainRoute (ai.model + the
- * box's BYO key store). The add-on's Configuration-tab llm_url is the ASSIST
- * lane's brain and does not flip this route.
+ * box's BYO key store). (The Configuration-tab llm_url, which never flipped
+ * this route, was removed entirely on 2026-08-21 — the web UI is the only
+ * brain-config surface.)
  */
 router.get('/voice-config', async (req, res) => {
     try {
