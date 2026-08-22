@@ -190,7 +190,17 @@ router.post('/converse-local', express.json(), async (req, res) => {
     if (!body.text || typeof body.text !== 'string') {
         return res.status(400).json({ error: 'bad_request', message: 'text is required' });
     }
-    const { status, body: turn } = await converse(body);
+    const { status, body: turn, routeTag } = await converse(body);
+    // 🏷️ Which tier actually SERVED this turn, on the wire.
+    //
+    // `X-Dashie-Brain-Route: local` (set by the integration from the account's config)
+    // says where the turn was SENT; it cannot say which local tier answered — the
+    // Configuration tab, the account's own endpoint, or a BYOK provider all read
+    // "local". Verifying tier 1b cost a whole session partly because the only place
+    // that distinction existed was an add-on stdout line, and the nearest wire field
+    // (`route: "direct"`, the brain's INTERNAL pass routing) reads like an answer and
+    // is not one. This header is the answer, and it is greppable.
+    if (routeTag) res.set('X-Dashie-Brain-Tier', routeTag);
     res.status(status).json(turn);
 });
 
@@ -202,11 +212,26 @@ router.post('/converse-local', express.json(), async (req, res) => {
 // about is one you have to reproduce a bug to discover — and the same field
 // previously answered from the options file alone, which is a description of
 // configuration rather than of behaviour.
-router.get('/local-status', (req, res) => {
+router.get('/local-status', async (req, res) => {
     const opts = readOptions();
-    const endpoint = String(opts.llm_url || '').trim();
-    const model = String(opts.llm_model || '').trim();
     const signedIn = !!auth.readStoredJwt();
+    // The Configuration-tab llm_url/llm_model were REMOVED 2026-08-21 — the brain
+    // endpoint now DERIVES from the same sources converse.js routes on (account
+    // when signed in, the panel's local settings blob when signed out), so this
+    // probe can no longer answer 'local' from a tab field the route ignores —
+    // the exact stale-route pinning T measured (cont.19).
+    const capability = require('../capability');
+    let endpoint = '';
+    let model = '';
+    if (signedIn) {
+        const acct = await require('../account-config').getAccountVoiceConfig().catch(() => null);
+        if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
+            endpoint = acct.localLlmUrl; model = acct.localLlmModel;
+        }
+    } else {
+        const box = capability.readLocalBoxLlm();
+        if (box) { endpoint = box.url; model = box.model; }
+    }
     const byokTts = require('../byok-tts');
     const byokTtsProvider = byokTts.resolveProvider();
     res.json({

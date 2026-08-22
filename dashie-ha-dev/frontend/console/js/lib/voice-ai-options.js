@@ -157,16 +157,20 @@ const VoiceAiOptions = {
             return { note: `✓ Detected and ready${h.url ? ` at ${h.url}` : ''}.` };
         }
         // Not installed (add-on mode, detection ran) OR website console (no detection):
-        // HA users get the add-on deep-link, everyone else the upstream install docs.
-        if (DashieAuth?.isAddonMode || DashieAuth?.isHaUser) {
+        // HA contexts get the add-on deep-link, everyone else the upstream install docs.
+        // (isHaContext = the one holder; this site used to hand-write the same OR.)
+        if (DashieAuth?.isHaContext) {
             return { installGuide: { url: this._HERMES_ADDON_URL, label: 'Install add-on ↗' } };
         }
         return { installGuide: { url: this._HERMES_DOCS_URL } };
     },
 
     /** @param {object} [detection] GET /api/voice/engines result — drives the Hermes
-     *  row's install/setup state (add-on mode). Absent on the website console. */
-    models(detection) {
+     *  row's install/setup state (add-on mode). Absent on the website console.
+     *  @param {string} [currentId] the stage's STORED `ai.model`, so the generic own-AI
+     *  row can render as a residual when saved engines have replaced it — see the block
+     *  at the end of this function. */
+    models(detection, currentId) {
         const C = window.AiModelCatalog;
         const all = C?.AI_MODEL_CATALOG || [];
         // "My Local LLM" leads the list — the privacy/local-first option.
@@ -193,6 +197,36 @@ const VoiceAiOptions = {
                 { key: 'voice.localLlmModel', label: 'Model', placeholder: 'qwen3:8b', required: true },
                 { key: 'voice.localLlmKey', label: 'API key (optional)', type: 'password', placeholder: 'for remote endpoints' },
             ],
+        }, {
+            // Home Assistant as the AI MODEL — contract #76, Kotlin-canonical.
+            //
+            // ⚠️ NOT the same thing as the `ha_assist` PRESET. That hands the whole voice
+            // pipeline to HA (wake → STT → agent → TTS all Assist). This keeps Dashie's
+            // pipeline — its wake word, STT, voice, cards and tools — and swaps only the
+            // BRAIN for HA's conversation agent. Both write different keys; neither implies
+            // the other.
+            //
+            // Kotlin has offered this since the Local-preset picker landed; the console never
+            // had a row for it at all, so the option simply did not exist on the web side.
+            // A parity GAP, never a regression — `git log -S home_assistant` on this file
+            // returns zero commits.
+            //
+            // 🔴 Wire value is `home_assistant` (VoicePreferences.AI_MODEL_HOME_ASSISTANT), and
+            // selecting it writes the MODEL ID ONLY. There is NO brain-route value to write —
+            // the original ask assumed one, and Thread A's #76 declaration corrected it:
+            // `voice.brainRoute` is a probe CACHE the add-on owns (SYNC_EXEMPT, box-local).
+            // A row that wrote it would be inventing state the box is supposed to observe.
+            //
+            // selectOption's existing cascade branch already does the rest correctly — saves
+            // ai.model and demotes a live agent to single — which matches Kotlin's picker
+            // setter, so this row needs no handler of its own.
+            id: 'home_assistant',
+            label: 'Home Assistant',
+            group: 'Local',
+            description: 'Answer with Home Assistant’s own conversation agent, configured in HA. Keeps Dashie’s wake word, voice and cards — only the brain changes.',
+            locality: 'local',
+            cost: 'Free',
+            haOnly: true,
         }];
         /* ── Hermes Agent row — SOFT-REMOVED 2026-07-17 ──────────────────────────────
          * Hermes is no longer offered as an AI ENGINE (we may revisit it for its MEMORY, not
@@ -215,9 +249,33 @@ const VoiceAiOptions = {
         },
         ──────────────────────────────────────────────────────────────────────────── */
         // Saved own-AI engines replace the generic "My own AI" inline-URL row.
+        const inlineOwnAiRow = out.find(o => o && o.id === 'local') || null;
         const withEngines = this.withSavedEngines('llm', out, 'local');
         out.length = 0;
         out.push(...withEngines);
+        // 🔴 RESIDUAL — the same load-bearing half as _managedCloudRow, for the row that
+        // saved engines REPLACE rather than one that becomes unavailable.
+        //
+        // An account can hold `ai.model='local'` (the generic own-AI choice) while this
+        // box has saved engines, which swap that row out. `VoiceAiCards.render()` then
+        // resolves the selection with `opts.find(…) || opts[0]` and displays the FIRST
+        // ENGINE as selected — a name the user never picked. Measured on John's account
+        // 2026-08-21: console read "Qwen3 on remote GPU · LOCAL", `ai.model` was still
+        // `local`, and because `resolveToSettings` only runs from the engine-row PICK
+        // handler it had never fired, so `voice.localLlmUrl`/`localLlmModel` — the ONLY
+        // thing the tablets read — were empty. The phantom selection is the root the
+        // three-homes divergence grew from.
+        //
+        // So: shown while it is what the account holds, never re-OFFERED once anything
+        // else is picked, and deliberately NOT auto-migrated to a saved engine (John,
+        // 2026-08-22) — inventing a choice the user never made is how the display became
+        // untrue in the first place, and it would write flat keys the tablets act on.
+        if (String(currentId || '') === 'local' && inlineOwnAiRow && !out.some(o => o && o.id === 'local')) {
+            out.unshift({
+                ...inlineOwnAiRow,
+                description: 'Set directly rather than from your saved engines. Pick a saved engine to use one of those instead.',
+            });
+        }
         for (const prov of this._PROVIDER_ORDER) {
             for (const m of all.filter(x => x.provider === prov)) {
                 const live = this._liveModelRates?.[m.id];   // margined, from rate card
@@ -242,7 +300,7 @@ const VoiceAiOptions = {
     // Engine domain (matches Kotlin VoicePreferences + the runtime voice providers):
     // dashie_cloud = fixed cloud vendor; va_default = the device's Home Assistant
     // voice pipeline; android_voice = on-device. `haOnly` options are hidden for
-    // non-HA accounts (gated on DashieAuth.isHaUser by the page).
+    // non-HA contexts (gated on DashieAuth.isHaContext by the page).
     // Base STT rows that always exist regardless of detection. The detected
     // engine-direct row (ha_engine, labeled "Whisper (Home Assistant)") is
     // injected by sttOptions() when /api/voice/engines finds a Whisper engine.
@@ -262,15 +320,18 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's speech-to-text." },
-        // "On-Device" family (grouped in the picker). Native = the OS SpeechRecognizer
-        // (Google-services devices only, plays a chime); Fast/Accurate = bundled sherpa-onnx,
-        // fully offline, no chime, works on Amazon Fire / Echo / de-Googled devices too.
-        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
-          description: 'Built-in device speech recognizer.' },
-        { id: 'sherpa_moonshine_tiny', label: 'On-Device (Fast)', locality: 'local', cost: 'Free',
-          description: 'Bundled offline STT — faster & lighter.' },
-        { id: 'sherpa_moonshine_base', label: 'On-Device (Accurate)', locality: 'local', cost: 'Free',
-          description: 'Bundled offline STT — higher accuracy.' },
+        // "On-Device" family (grouped in the picker). Provenance labels, not quality
+        // labels (naming ruling 2026-08-20, Kotlin VoiceAiOptions.kt is the source):
+        // (System) = the OS SpeechRecognizer (Google-services devices only, plays a
+        // chime); (Open Source) = bundled sherpa-onnx Moonshine, fully offline, no
+        // chime, works on Amazon Fire / Echo / de-Googled devices too.
+        // `sherpa_moonshine_tiny` is RETIRED from the offering (same ruling) — the id
+        // stays a valid persisted wire value on devices that stored it, but no picker
+        // offers it and no reseed selects it.
+        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+          description: "Your device's built-in speech recognizer (usually Google's)." },
+        { id: 'sherpa_moonshine_base', label: 'On-Device (Open Source)', locality: 'local', cost: 'Free',
+          description: 'Open-source Moonshine model, runs inside Dashie. Fully offline, works on any device.' },
     ],
 
     // Base TTS rows that always exist. The detected engine-direct row (ha_engine,
@@ -295,8 +356,10 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's text-to-speech." },
-        { id: 'android_voice', label: 'On-Device (Native)', locality: 'local', cost: 'Free',
-          description: 'Built-in device text-to-speech.' },
+        // "(System)" tracks the STT row deliberately: same id, same device capability,
+        // same provenance question — one id must not read two ways one section apart.
+        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+          description: "Your device's built-in text-to-speech (usually Google's)." },
     ],
 
     // ── detection-gated option builders ──────────────────────
@@ -448,12 +511,23 @@ const VoiceAiOptions = {
      *  HA pipeline, Android. */
     sttOptions(detection, currentId) {
         const base = Object.fromEntries(this.STT.map(o => [o.id, o]));
-        // Order: cloud → On-Device family (Fast/Accurate/Native) → HA → +Add local (bottom).
+        // Order: cloud → On-Device family (Open Source/System) → HA → +Add local (bottom).
         // local_stt_url is the inline "+ Add local speech-to-text" row (withSavedEngines swaps
         // it in place), so putting it last lands the Add row at the bottom.
         const out = [this._managedCloudRow(base.dashie_cloud, currentId),
-                     base.sherpa_moonshine_tiny, base.sherpa_moonshine_base, base.android_voice,
+                     base.sherpa_moonshine_base, base.android_voice,
                      this._whisperOption(detection), base.va_default, base.local_stt_url];
+        // Residual for a device that already STORED the retired tiny model: the card
+        // resolves a selection with `opts.find(…) || opts[0]`, so without this row a
+        // tiny-storing device renders the FIRST option as selected while the device
+        // still runs tiny — the exact lying-card defect leg 3 of the picker gate
+        // documents for the managed cloud row. Same pattern: shown only when stored,
+        // no cost, and it says plainly that the model is retired.
+        if (String(currentId || '') === 'sherpa_moonshine_tiny') {
+            out.push({ id: 'sherpa_moonshine_tiny', label: 'On-Device (retired model)',
+                locality: 'local', cost: '',
+                description: 'This bundled model was retired — pick another option.' });
+        }
         return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
     },
 

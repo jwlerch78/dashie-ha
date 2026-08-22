@@ -136,12 +136,14 @@ const VoiceAiPage = {
         ['Sulafat', 'Sulafat — Warm'],
     ],
 
-    /** Drop HA-only voice options (va_default / piper / voice_assistant) for
-     *  accounts without Home Assistant. Gated on the live user_profiles.is_ha_user
-     *  flag (DashieAuth.isHaUser). Accepts both descriptor objects ({haOnly}) and
-     *  the control-method [value, label, haOnly] tuples. */
+    /** Drop HA-only voice options (va_default / piper / voice_assistant / the
+     *  ha_assist preset) for contexts without Home Assistant. Gated on the ONE
+     *  holder, DashieAuth.isHaContext (add-on mode OR the account flag) — gating
+     *  on the raw signup-era flag alone is what hid every HA option inside the
+     *  add-on itself (T s43 cont.15). Accepts both descriptor objects ({haOnly})
+     *  and the control-method [value, label, haOnly] tuples. */
     _haFilter(options) {
-        if (DashieAuth.isHaUser) return options;
+        if (DashieAuth.isHaContext) return options;
         return options.filter(o => Array.isArray(o) ? !o[2] : !o.haOnly);
     },
 
@@ -652,6 +654,12 @@ const VoiceAiPage = {
         // Live is Cloud-only (fully cloud + credits) — leaving Cloud drops the
         // agent back to a cascade mode.
         if (id !== 'cloud' && this._agentMode() === 'live') {
+            // Loud: this DROPS a Live engine selection. conversationModel is left alone on
+            // purpose (the user may switch back to Cloud), so the console will still show a
+            // Live model beside a cascade engine until they do — see the coherence block
+            // below for why that pair must never be silent.
+            console.warn(`DROP: preset=${id} is not Cloud — demoting agentMode live -> single ` +
+                `(conversationModel='${d['voice.conversationModel'] || ''}' kept but inert)`);
             this.saveDefault('voice.agentMode', 'single');
         }
         if (id !== 'ha_assist') {
@@ -678,7 +686,35 @@ const VoiceAiPage = {
         // billed to credits); dialog is left as-is for those. Writes real values
         // so the Android runtime honors them, not just the console display.
         if (id === 'cloud' || id === 'hybrid') {
-            if (this._agentMode() !== 'live') this.saveDefault('voice.agentMode', 'dialog');
+            // 🔴 ENGINE COHERENCE (John + O, 2026-08-21) — the THIRD copy of this rule, and the
+            // one that was left behind. Kotlin `VoicePresetSeeder` (98c93dad) and the webapp's
+            // `applyPresetSeeding` (67d181c3f) were fixed; this is the canonical console, so
+            // until now ANY preset touch here re-stamped `dialog` and re-broke the very account
+            // A had just repaired (contract #43's open divergence).
+            //
+            // It used to be a blind `if (agentMode !== 'live') → 'dialog'`, which DERIVED
+            // NOTHING from the selected model: a household carrying a Gemini Live
+            // `voice.conversationModel` got `agentMode='dialog'` stamped over it on the
+            // HA→Cloud flip. agentMode is the SOLE engine selector on the device, so the tablet
+            // ran the cascade on ai.model=claude while the console displayed the Live model the
+            // user had picked (10/10 turns model=claude-sonnet on John's own household).
+            //
+            // A non-blank conversationModel IS the Live selection and is the MORE SPECIFIC
+            // signal — a user who wants a cascade engine has no Live model selected. Derive
+            // from it rather than defaulting over it. Never strip a Live selection on re-apply.
+            const agentMode = this._agentMode();
+            const liveModel = String(d['voice.conversationModel'] || '');
+            if (id === 'cloud' && liveModel) {
+                if (agentMode !== 'live') {
+                    // Not a DROP — this is the repair. Loud anyway: it is the exact
+                    // disagreement that hid this bug, and it should be visible when corrected.
+                    console.warn(`engine coherence: agentMode='${agentMode}' disagreed with Live ` +
+                        `conversationModel='${liveModel}' — deriving agentMode=live`);
+                }
+                this.saveDefault('voice.agentMode', 'live');
+            } else if (agentMode !== 'live') {
+                this.saveDefault('voice.agentMode', 'dialog');
+            }
             // voice.alwaysOpenDialog is no longer seeded ON — the row is hidden
             // (KEEP_DIALOG_OPEN_UI) and the runtime ignores it, so seeding it would only
             // write state the user can't see or change.
@@ -808,7 +844,11 @@ const VoiceAiPage = {
             if (stageKey === 'tts') {
                 this._selectProvider('tts', has('android_voice') ? 'android_voice' : 'dashie_cloud');
             } else {
-                this._selectProvider('stt', has('sherpa_moonshine_tiny') ? 'sherpa_moonshine_tiny' : 'dashie_cloud');
+                // base, not tiny — tiny is retired from the offering (2026-08-20 ruling;
+                // Kotlin VoicePresetSeeder made the same move). A device that still
+                // STORES tiny keeps it via the currentIsLocal keep above only if the
+                // row were offered; with the row retired, a preset touch reseeds to base.
+                this._selectProvider('stt', has('sherpa_moonshine_base') ? 'sherpa_moonshine_base' : 'dashie_cloud');
             }
             return;
         }
@@ -1200,7 +1240,10 @@ const VoiceAiPage = {
     async _maybePromptHouseholdSharing() {
         try {
             if (typeof ConfirmModal === 'undefined') return;
-            if (!DashieAuth.isAddonMode || !DashieAuth.isHaUser) return;
+            // Was `isAddonMode && isHaUser` — under the one-holder predicate the
+            // conjunction collapses to add-on mode alone (add-on ⇒ HA context),
+            // and the nudge is about the add-on's own kiosks/satellites anyway.
+            if (!DashieAuth.isAddonMode) return;
             if (this._activeTab !== 'settings') return;
             if (!this._defaults) return;                                        // defaults not loaded yet
             if (this._defaults['voice.householdSharing'] === true) return;      // already on
@@ -1486,7 +1529,7 @@ const VoiceAiPage = {
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
-        const showEntities = showPipeline && !isHaAssist && DashieAuth.isHaUser;
+        const showEntities = showPipeline && !isHaAssist && DashieAuth.isHaContext;
         // Gemini cascade models search via native Google grounding (not Tavily) → the
         // Web-search-source card shows "Google" instead. Applies in dialog/single.
         const isGeminiAiModel = String(d['ai.model'] || '').startsWith('gemini-');
@@ -1927,7 +1970,16 @@ const VoiceAiPage = {
      *  cloud provider groups). */
     _modelOptions(preset) {
         const O = window.VoiceAiOptions;
-        const catalog = O.presetFilter(preset, O.models(this._engines));
+        // Pass the STORED ai.model so a generic own-AI choice still renders (as a
+        // residual) on a box whose saved engines replaced that row — otherwise the card
+        // shows the first engine as selected, which is a name the account never chose.
+        // 🔴 _haFilter, like every other card. The model card was the ONE option list that
+        // did not run through it, so an `haOnly` model row would have been offered to
+        // accounts with no Home Assistant — silently, since nothing here would error. Added
+        // with the `home_assistant` row (#76) because that is the first haOnly model to exist;
+        // the omission was invisible until there was something for it to leak.
+        const catalog = O.presetFilter(preset,
+            this._haFilter(O.models(this._engines, String(this._defaults?.['ai.model'] || ''))));
         if (preset !== 'cloud') return catalog;
         const live = this._liveModelOptions().map(o => ({ ...o, group: 'Live · realtime conversation' }));
         return [...live, ...catalog];

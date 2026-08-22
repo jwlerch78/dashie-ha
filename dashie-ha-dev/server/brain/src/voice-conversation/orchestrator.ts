@@ -1716,11 +1716,35 @@ function noiseTurn(t0: number): Turn {
   };
 }
 
-function errorTurn(t0: number, result: { error?: string; latency_ms: number }, stages: Stage[]): Turn {
+/** Spoken when the user's OWN model endpoint cannot be reached. Named, not inline,
+ *  because it is the one failure the core is ruled to voice itself — everything else
+ *  stays the client's fallback. Says what is wrong and whose it is, so the fix is
+ *  obvious (their box), and does NOT promise a retry we are not making. */
+const LOCAL_BRAIN_UNREACHABLE_VOICE =
+  "Your local AI box isn't responding, so I can't answer that right now.";
+
+/** The terminal failure turn.
+ *
+ *  ⚠️ `voice: ''` is deliberate for the general case — the core does NOT invent an
+ *  apology, it emits an empty turn and lets the client speak its own fallback, so one
+ *  wording change does not have to ship through this bundle.
+ *
+ *  🔴 The exception is an UNREACHABLE local endpoint, and it is a ruling, not a
+ *  preference (John, 2026-08-22: surface, don't fail over). A user who chose a local
+ *  box and whose box is down must be TOLD that — silently answering from the cloud is
+ *  a privacy downgrade for exactly the people who opted out of it, and the generic
+ *  fallback ("sorry, I couldn't get an answer") is indistinguishable from three other
+ *  causes we have already chased this week. Keys on the `unreachable` FLAG the Node IO
+ *  sets, never on matching its message text. Cloud never sets it and is unchanged. */
+function errorTurn(
+  t0: number,
+  result: { error?: string; latency_ms: number; unreachable?: boolean },
+  stages: Stage[],
+): Turn {
   return {
     ok: false,
     type: 'error',
-    voice: '',
+    voice: result.unreachable ? LOCAL_BRAIN_UNREACHABLE_VOICE : '',
     text: null,
     action: null,
     parsed_ok: false,

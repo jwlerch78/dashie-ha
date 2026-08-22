@@ -30,11 +30,17 @@ who builds this and how it's funded: [PROVENANCE.md](https://github.com/jwlerch7
 
 ### LLM (the brain)
 
-| Option | Meaning |
-|---|---|
-| `llm_url` | An OpenAI-compatible chat server. Either a **base URL** (we append `/v1/chat/completions`) — e.g. `http://192.168.1.50:11434` for Ollama — or a **full** chat-completions URL for providers whose compat path differs. |
-| `llm_model` | Model id, e.g. `qwen2.5:7b` or `gemini-2.5-flash`. |
-| `llm_api_key` | Bearer key for the endpoint. Leave blank for local Ollama / llama.cpp. |
+The brain is configured in the **Dashie panel** (Voice & AI → **My own AI
+(local / self-hosted)**), not here. Point it at an OpenAI-compatible chat
+server — a **base URL** (we append `/v1/chat/completions`), e.g.
+`http://192.168.1.50:11434` for Ollama, or a **full** chat-completions URL for
+providers whose compat path differs — plus the model id (e.g. `qwen2.5:7b`)
+and an optional bearer key (blank for local Ollama / llama.cpp).
+
+> The old `llm_url` / `llm_model` / `llm_api_key` Configuration-tab options
+> were removed in 0.9.17 — the panel is the only brain-config surface. If your
+> saved add-on config still carries them, the Supervisor strips them with a
+> warning and they are ignored; re-enter the endpoint in the panel once.
 
 Full-URL examples:
 
@@ -77,17 +83,18 @@ models are reliable.
 it shows your local-mode status — which engines are configured and where to
 change them. Home Assistant has already authenticated you to reach the panel at
 all, so there is nothing further to prove unless you want hosted compute. If you
-point `llm_url`, `stt_url`, and `tts_url` at your own servers, you never sign in
-and no Dashie service is contacted.
+point the panel's "My own AI" row plus `stt_url` and `tts_url` at your own
+servers, you never sign in and no Dashie service is contacted.
 
 Signing in is how you buy the hosted option, and that's all it is.
 
 Sign in from the **Dashie panel** in the HA sidebar (link + code, approve
 from any browser). While signed in, every engine you leave blank runs on
 Dashie Cloud under your account — brain, speech-to-text, and voices —
-metered against your credit balance. Configured URLs always win over the
+metered against your credit balance. Configured endpoints always win over the
 hosted fallback, so mixing (own LLM + hosted voices, or the reverse) is one
-Configuration-tab edit.
+edit — the LLM in the panel's Voice & AI page, speech URLs in the
+Configuration tab.
 
 Options are read fresh on each turn — changing configuration only needs an add-on
 **restart**, never a rebuild.
@@ -97,8 +104,8 @@ Options are read fresh on each turn — changing configuration only needs an add
 The LLM stage is prompt-heavy. A GPU or Apple-silicon box on your LAN answers in
 a few seconds; a CPU-only 4-core HA box can take **minutes per turn** on prompt
 prefill alone. If your HA box is modest, run the model server on a faster machine
-on your LAN and point `llm_url` / `stt_url` / `tts_url` at it — mixing is fine
-(e.g. local Whisper + cloud LLM).
+on your LAN and point the panel's "My own AI" row / `stt_url` / `tts_url` at it —
+mixing is fine (e.g. local Whisper + cloud LLM).
 
 ## Permissions & what this add-on touches
 

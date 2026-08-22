@@ -5,21 +5,33 @@
 // fields must survive) and executes any HA actions in the returned Turn itself. This
 // handler owns the ROUTE DECISION, in this precedence:
 //
-//   1.  llm_url + llm_model in the add-on's Configuration tab → this box's own endpoint
-//   1b. the ACCOUNT's own local endpoint (route 'local' + a resolved localLlmUrl/Model,
-//       from the engines store or the console's own-AI fields — account-config resolves
-//       the three storage homes into one answer)      → the user's own box
+//   1.  the user's OWN local endpoint, resolved from the web UI's config surface:
+//       signed in → the ACCOUNT (route 'local' + a resolved localLlmUrl/Model, from
+//       the engines store or the console's own-AI fields — account-config resolves
+//       the three storage homes into one answer)      → tag `local:account`
+//       signed out → the panel's LOCAL settings blob (ai.model='local' +
+//       voice.localLlmUrl/localLlmModel via /api/settings/local) → tag `local:box`
 //   2.  a stored BYO provider key that covers the CHOSEN AI model → that provider, on the
 //       user's own key (brain/providers.js resolveByokTarget)
 //   3.  a signed-in Dashie account                             → Dashie Cloud (metered)
 //   4.  nothing                                                → spoken setup guidance
 //
-// 🔴 Tier 1b was MISSING until 2026-08-21, and its absence is the second instance of the
-// degradation described below: account-config answered route:'local', the integration
-// duly sent the turn here, and this handler — finding no Configuration-tab endpoint —
-// fell through and had it answered by gemini. Measured: every X-Dashie-Brain-Route:local
-// call came back model=gemini-2.5-flash while the user's own qwen3 box sat idle, logged
-// and billed as a cloud turn. Same shape as the BYOK case, different input.
+// 🔴 The Configuration-tab tier (`llm_url`/`llm_model`, the old tier 1) was REMOVED
+// 2026-08-21 — John's ruling: the web UI is the ONLY brain-config surface. The tab
+// fields were also the thing that could pin `route: local` on a box after the
+// account moved its model elsewhere (T cont.19): the route is otherwise DERIVED per
+// call (resolveBrainRoute over live account state, 30s TTL), so with the tab gone
+// nothing on the add-on stores a route at all. A box whose saved options still
+// carry the old keys: the Supervisor strips unknown options against the tightened
+// schema; if they do arrive here anyway, we log a loud DROP (below) and ignore them.
+//
+// 🔴 The account tier was MISSING until 2026-08-21, and its absence is the second
+// instance of the degradation described below: account-config answered route:'local',
+// the integration duly sent the turn here, and this handler — finding no
+// Configuration-tab endpoint — fell through and had it answered by gemini. Measured:
+// every X-Dashie-Brain-Route:local call came back model=gemini-2.5-flash while the
+// user's own qwen3 box sat idle, logged and billed as a cloud turn. Same shape as
+// the BYOK case, different input.
 //
 // 🔴 Routes 1-with-a-key, 2 and 3 all spend money the household pays for, and
 // until 2026-08-02 NONE of them consulted household sharing — see the spend gate
@@ -122,6 +134,7 @@ async function chosenModel(signedIn) {
     catch { return ''; }
 }
 
+
 /**
  * Run one turn. Auth (bridge secret) is checked by the caller (index.js).
  * @param {object} payload parsed VoiceRequest body
@@ -133,8 +146,15 @@ async function converse(payload) {
 
     const opts = readOptions();
     const { jwt, userId } = await resolveAccount();
-    const endpoint = String(opts.llm_url || '').trim();
-    const optModel = String(opts.llm_model || '').trim();
+    // ── Migration DROP for the REMOVED Configuration-tab tier (2026-08-21) ──────
+    // The Supervisor strips unknown options against the tightened schema, so these
+    // should never be populated — but a box that somehow still carries them must
+    // hear loudly that they are ignored, not silently lose its brain config.
+    if (String(opts.llm_url || '').trim() || String(opts.llm_model || '').trim()) {
+        console.warn('DROP: ignoring removed Configuration-tab llm_url/llm_model — ' +
+            'the web UI (Voice & AI → "My own AI") is the only brain-config surface now; ' +
+            'set your model server there');
+    }
     // Cached with a TTL inside account-config, so this is not a per-turn round trip.
     // Signed out there is no account to ask, and a read failure must not take voice
     // out — it degrades to the tiers below, which is what happened before this tier
@@ -147,14 +167,9 @@ async function converse(payload) {
     let shell = null;      // createAddonIO options for an on-box/BYOK turn
     let routeTag = '';     // for the DASHIE-TURN log line
     let metered = false;   // does this route spend the household's money?
-    if (endpoint && optModel) {
-        shell = { endpoint, model: optModel, key: String(opts.llm_api_key || '') };
-        routeTag = 'local';
-        // The KEY decides, not the route: empty means Ollama on the user's own
-        // hardware and no money moves; non-empty means a paid endpoint.
-        metered = !!shell.key.trim();
-    } else if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
-        // ── TIER 1b — the ACCOUNT's own local endpoint (added 2026-08-21) ───────
+    const localBox = !jwt ? capability.readLocalBoxLlm() : null;
+    if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
+        // ── TIER 1 (signed in) — the ACCOUNT's own local endpoint (added 2026-08-21) ─
         //
         // 🔴 This is the tier whose absence made "local" mean gemini. account-config
         // ALREADY resolved the endpoint and ALREADY answered route:'local' — its header
@@ -167,11 +182,20 @@ async function converse(payload) {
         // silent degradation WS-I.8 exists to forbid." Same shape, different input: BYOK
         // then, the account's own box now.
         //
-        // Below the Configuration tab deliberately: a box-level override stays the most
-        // specific answer. Same key-decides metering rule as tier 1 — a keyless Ollama on
-        // the user's own hardware spends nothing and is never gated.
+        // The KEY decides the metering, not the route: a keyless Ollama on the user's
+        // own hardware spends nothing and is never gated.
         shell = { endpoint: acct.localLlmUrl, model: acct.localLlmModel, key: String(acct.localLlmKey || '') };
         routeTag = 'local:account';
+        metered = !!shell.key.trim();
+    } else if (localBox) {
+        // ── TIER 1 (signed out) — the panel's LOCAL settings blob ────────────────
+        //
+        // The account-less posture of the same tier. Before 2026-08-21 an account-less
+        // box configured its brain in the Configuration tab; with that tab removed, the
+        // panel's Voice & AI page (which writes /api/settings/local when signed out) is
+        // the config surface here too — same keys the account path resolves.
+        shell = { endpoint: localBox.url, model: localBox.model, key: localBox.key };
+        routeTag = 'local:box';
         metered = !!shell.key.trim();
     } else {
         const byok = resolveByokTarget(await chosenModel(!!jwt));
@@ -232,8 +256,8 @@ async function converse(payload) {
             console.log(`DASHIE-TURN route=cloud text="${text}" entities=${nCloud}`);
             return await converseCloud({ ...payload, text }, jwt);
         }
-        console.warn('DROP: converse with no brain configured (sign in, add a provider API key, or set llm_url + llm_model in the add-on Configuration tab)');
-        return speak("The Dashie brain isn't set up yet. Sign in to Dashie Cloud from the add-on's panel, or point me at an A.I. model server in its configuration.");
+        console.warn('DROP: converse with no brain configured (sign in, add a provider API key, or set "My own AI" on the panel\'s Voice & AI page)');
+        return speak("The Dashie brain isn't set up yet. Sign in to Dashie Cloud from the add-on's panel, or point me at your own A.I. model server on its Voice and A.I. page.");
     }
 
     const model = shell.model;
@@ -270,7 +294,7 @@ async function converse(payload) {
         );
         console.log(`DASHIE-BRAIN type=${turn?.type || '?'} ok=${turn?.ok !== false} ` +
             `latency=${Date.now() - t0}ms brain=${brain.BRAIN_SOURCE_SHA?.slice(0, 9) || '?'}`);
-        return { status: 200, body: turn };
+        return { status: 200, body: turn, routeTag };
     } catch (e) {
         console.error('DROP: brain crashed:', (e && e.stack) || e);
         return { status: 500, body: { error: 'brain_error', message: (e && e.message) || String(e) } };
