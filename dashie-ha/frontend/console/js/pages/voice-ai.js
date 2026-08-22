@@ -1973,7 +1973,13 @@ const VoiceAiPage = {
         // Pass the STORED ai.model so a generic own-AI choice still renders (as a
         // residual) on a box whose saved engines replaced that row — otherwise the card
         // shows the first engine as selected, which is a name the account never chose.
-        const catalog = O.presetFilter(preset, O.models(this._engines, String(this._defaults?.['ai.model'] || '')));
+        // 🔴 _haFilter, like every other card. The model card was the ONE option list that
+        // did not run through it, so an `haOnly` model row would have been offered to
+        // accounts with no Home Assistant — silently, since nothing here would error. Added
+        // with the `home_assistant` row (#76) because that is the first haOnly model to exist;
+        // the omission was invisible until there was something for it to leak.
+        const catalog = O.presetFilter(preset,
+            this._haFilter(O.models(this._engines, String(this._defaults?.['ai.model'] || ''))));
         if (preset !== 'cloud') return catalog;
         const live = this._liveModelOptions().map(o => ({ ...o, group: 'Live · realtime conversation' }));
         return [...live, ...catalog];

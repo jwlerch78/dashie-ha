@@ -197,6 +197,36 @@ const VoiceAiOptions = {
                 { key: 'voice.localLlmModel', label: 'Model', placeholder: 'qwen3:8b', required: true },
                 { key: 'voice.localLlmKey', label: 'API key (optional)', type: 'password', placeholder: 'for remote endpoints' },
             ],
+        }, {
+            // Home Assistant as the AI MODEL — contract #76, Kotlin-canonical.
+            //
+            // ⚠️ NOT the same thing as the `ha_assist` PRESET. That hands the whole voice
+            // pipeline to HA (wake → STT → agent → TTS all Assist). This keeps Dashie's
+            // pipeline — its wake word, STT, voice, cards and tools — and swaps only the
+            // BRAIN for HA's conversation agent. Both write different keys; neither implies
+            // the other.
+            //
+            // Kotlin has offered this since the Local-preset picker landed; the console never
+            // had a row for it at all, so the option simply did not exist on the web side.
+            // A parity GAP, never a regression — `git log -S home_assistant` on this file
+            // returns zero commits.
+            //
+            // 🔴 Wire value is `home_assistant` (VoicePreferences.AI_MODEL_HOME_ASSISTANT), and
+            // selecting it writes the MODEL ID ONLY. There is NO brain-route value to write —
+            // the original ask assumed one, and Thread A's #76 declaration corrected it:
+            // `voice.brainRoute` is a probe CACHE the add-on owns (SYNC_EXEMPT, box-local).
+            // A row that wrote it would be inventing state the box is supposed to observe.
+            //
+            // selectOption's existing cascade branch already does the rest correctly — saves
+            // ai.model and demotes a live agent to single — which matches Kotlin's picker
+            // setter, so this row needs no handler of its own.
+            id: 'home_assistant',
+            label: 'Home Assistant',
+            group: 'Local',
+            description: 'Answer with Home Assistant’s own conversation agent, configured in HA. Keeps Dashie’s wake word, voice and cards — only the brain changes.',
+            locality: 'local',
+            cost: 'Free',
+            haOnly: true,
         }];
         /* ── Hermes Agent row — SOFT-REMOVED 2026-07-17 ──────────────────────────────
          * Hermes is no longer offered as an AI ENGINE (we may revisit it for its MEMORY, not
