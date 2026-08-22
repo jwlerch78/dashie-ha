@@ -51,6 +51,13 @@ const tools = require('./tool-gate');
 // deterministically; prose synthesis keeps warmth.
 const TEMPERATURE = { decide: 0, narrate: 0.7 };
 
+/** Ceiling on ONE model call. There was none: `fetch` here had no signal, so a box
+ *  that accepts the connection and then never answers held the turn open forever —
+ *  the user just never gets a reply. Generous on purpose (a cold local model can
+ *  take tens of seconds to first token); this is a hang-stop, not a latency budget.
+ *  A genuinely unreachable host still fails on its own long before this. */
+const GATEWAY_TIMEOUT_MS = 45000;
+
 /** Balance answer when there is nothing (or nobody) to read. The core with
  *  billing:'byok' never REJECTS a turn on !spendable — it only disables the
  *  Dashie-funded tools — so failing open here risks at most one paid tool call
@@ -109,9 +116,12 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
     async function callGateway({ provider, prompt, modelId, kind = 'narrate' }) {
         const t0 = Date.now();
         const useModel = modelId || model;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), GATEWAY_TIMEOUT_MS);
         try {
             const resp = await fetch(chatUrl, {
                 method: 'POST',
+                signal: ctl.signal,
                 headers: { 'Content-Type': 'application/json', ...authHeaders },
                 body: JSON.stringify({
                     model: useModel,
@@ -146,7 +156,31 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                 },
             };
         } catch (e) {
-            return { ok: false, error: (e && e.message) || String(e), latency_ms: Date.now() - t0 };
+            const latency_ms = Date.now() - t0;
+            const aborted = e && (e.name === 'AbortError' || ctl.signal.aborted);
+            const cause = (e && (e.cause?.code || e.message)) || String(e);
+            // 🔴 The model call failing used to leave NO trace: the turn came back
+            // ok:false with an empty model/provider, the core spoke a generic apology,
+            // and the add-on log said nothing — so "Sorry, I couldn't get an answer"
+            // was indistinguishable from a stream swallow, an HA restart, or an add-on
+            // that was never reachable (T's three causes). Name the endpoint and the
+            // reason; that is what makes the next one a log line instead of a session.
+            log(`DROP: brain gateway call failed — url=${chatUrl} model=${useModel} ` +
+                `provider=${providerLabel || 'local'} reason=${aborted ? `timeout after ${GATEWAY_TIMEOUT_MS}ms` : cause} ` +
+                `latency=${latency_ms}ms`);
+            return {
+                ok: false,
+                error: (e && e.message) || String(e),
+                latency_ms,
+                // Additive, so callers can tell "your box did not answer" from "your box
+                // answered with an error" WITHOUT matching on a message string. The
+                // spoken line John ruled for this case ("your local AI box isn't
+                // responding") keys on THIS, not on prose.
+                unreachable: true,
+                unreachable_detail: aborted ? 'timeout' : String(cause),
+            };
+        } finally {
+            clearTimeout(timer);
         }
     }
 
