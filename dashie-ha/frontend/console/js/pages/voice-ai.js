@@ -654,6 +654,12 @@ const VoiceAiPage = {
         // Live is Cloud-only (fully cloud + credits) — leaving Cloud drops the
         // agent back to a cascade mode.
         if (id !== 'cloud' && this._agentMode() === 'live') {
+            // Loud: this DROPS a Live engine selection. conversationModel is left alone on
+            // purpose (the user may switch back to Cloud), so the console will still show a
+            // Live model beside a cascade engine until they do — see the coherence block
+            // below for why that pair must never be silent.
+            console.warn(`DROP: preset=${id} is not Cloud — demoting agentMode live -> single ` +
+                `(conversationModel='${d['voice.conversationModel'] || ''}' kept but inert)`);
             this.saveDefault('voice.agentMode', 'single');
         }
         if (id !== 'ha_assist') {
@@ -680,7 +686,35 @@ const VoiceAiPage = {
         // billed to credits); dialog is left as-is for those. Writes real values
         // so the Android runtime honors them, not just the console display.
         if (id === 'cloud' || id === 'hybrid') {
-            if (this._agentMode() !== 'live') this.saveDefault('voice.agentMode', 'dialog');
+            // 🔴 ENGINE COHERENCE (John + O, 2026-08-21) — the THIRD copy of this rule, and the
+            // one that was left behind. Kotlin `VoicePresetSeeder` (98c93dad) and the webapp's
+            // `applyPresetSeeding` (67d181c3f) were fixed; this is the canonical console, so
+            // until now ANY preset touch here re-stamped `dialog` and re-broke the very account
+            // A had just repaired (contract #43's open divergence).
+            //
+            // It used to be a blind `if (agentMode !== 'live') → 'dialog'`, which DERIVED
+            // NOTHING from the selected model: a household carrying a Gemini Live
+            // `voice.conversationModel` got `agentMode='dialog'` stamped over it on the
+            // HA→Cloud flip. agentMode is the SOLE engine selector on the device, so the tablet
+            // ran the cascade on ai.model=claude while the console displayed the Live model the
+            // user had picked (10/10 turns model=claude-sonnet on John's own household).
+            //
+            // A non-blank conversationModel IS the Live selection and is the MORE SPECIFIC
+            // signal — a user who wants a cascade engine has no Live model selected. Derive
+            // from it rather than defaulting over it. Never strip a Live selection on re-apply.
+            const agentMode = this._agentMode();
+            const liveModel = String(d['voice.conversationModel'] || '');
+            if (id === 'cloud' && liveModel) {
+                if (agentMode !== 'live') {
+                    // Not a DROP — this is the repair. Loud anyway: it is the exact
+                    // disagreement that hid this bug, and it should be visible when corrected.
+                    console.warn(`engine coherence: agentMode='${agentMode}' disagreed with Live ` +
+                        `conversationModel='${liveModel}' — deriving agentMode=live`);
+                }
+                this.saveDefault('voice.agentMode', 'live');
+            } else if (agentMode !== 'live') {
+                this.saveDefault('voice.agentMode', 'dialog');
+            }
             // voice.alwaysOpenDialog is no longer seeded ON — the row is hidden
             // (KEEP_DIALOG_OPEN_UI) and the runtime ignores it, so seeding it would only
             // write state the user can't see or change.
