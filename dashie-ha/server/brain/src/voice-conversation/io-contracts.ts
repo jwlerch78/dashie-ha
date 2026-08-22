@@ -45,6 +45,16 @@ export interface GatewayResult {
   raw?: GatewayRaw;
   latency_ms: number;
   error?: string;
+  /** The model endpoint could not be REACHED at all (dead host, refused, or the
+   *  call timed out) — as opposed to it answering with an error. Set only by the
+   *  add-on's Node IO, where the endpoint is the user's own box; the cloud lane
+   *  leaves it undefined and is unaffected.
+   *
+   *  It exists so `errorTurn` can speak a specific line for this case WITHOUT
+   *  matching on a message string: "unreachable" is a fact the caller already
+   *  knows, and re-deriving it from prose is how these couplings rot. */
+  unreachable?: boolean;
+  unreachable_detail?: string;
 }
 
 /** A web-search gather's results, normalized across providers. */
