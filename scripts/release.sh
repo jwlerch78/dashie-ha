@@ -209,6 +209,20 @@ node "$ADDON_ROOT/scripts/check-brain-route-tiers.mjs"
 echo "==> Checking the dev channel's config surface against canonical"
 node "$ADDON_ROOT/scripts/compose-dev-config.mjs" --check
 
+# Removing an option from config.yaml does NOT remove it from a box's stored
+# options — measured on John's box after 0.9.20, where 4 of 5 removed keys
+# survived. The startup prune fixes that, and it WRITES the household's stored
+# configuration, so its refusal branches (empty/absent/misshapen schema) are what
+# stand between a cleanup and an emptied config.
+echo "==> Checking the orphan-option prune (its refusals, above all)"
+node "$ADDON_ROOT/scripts/check-orphan-prune.mjs"
+
+# cloud_env decides which Supabase project a household reaches, and its resolved
+# name travels on the wire as `supabase_env`, where the console picks a Google
+# client from it. The dev/prod rename must move NEITHER.
+echo "==> Checking cloud_env names (rename must not move a box or break sign-in)"
+node "$ADDON_ROOT/scripts/check-cloud-env-names.mjs"
+
 # ── /service, both halves — and check-service-policy was a FOURTH unrun gate ──
 #
 # 🔴 The block above says this defect was "found while wiring the four above".

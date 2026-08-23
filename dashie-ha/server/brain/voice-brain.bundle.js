@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 3a1a10207a92c3107f9da50c96ff6e941c8f9e3d
+   Source git SHA: 31205e806b25ff4aace46de03053b610d1edc4b6
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5327,6 +5327,7 @@ function noiseTurn(t0) {
 var LOCAL_BRAIN_UNREACHABLE_VOICE = "Your local AI box isn't responding, so I can't answer that right now.";
 var byokProviderUnreachableVoice = (provider) => `I couldn't reach ${provider}. Check your API key settings in the Dashie console.`;
 var byokModelUnavailableVoice = (model) => `Your API key doesn't have access to ${model}. Pick a different model in the console.`;
+var byokKeyRejectedVoice = (provider) => `Your ${provider} API key was rejected \u2014 check your API key settings.`;
 function failureVoice(result) {
   if (result.unreachable) return LOCAL_BRAIN_UNREACHABLE_VOICE;
   if (result.provider_unreachable && result.provider_label) {
@@ -5334,6 +5335,9 @@ function failureVoice(result) {
   }
   if (result.model_unavailable && result.model_id) {
     return byokModelUnavailableVoice(modelLabel(result.model_id));
+  }
+  if (result.key_rejected && result.provider_label) {
+    return byokKeyRejectedVoice(result.provider_label);
   }
   return "";
 }
@@ -5446,4 +5450,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "3a1a10207a92c3107f9da50c96ff6e941c8f9e3d";
+module.exports.BRAIN_SOURCE_SHA = "31205e806b25ff4aace46de03053b610d1edc4b6";

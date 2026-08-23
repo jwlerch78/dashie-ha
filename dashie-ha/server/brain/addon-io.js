@@ -148,12 +148,28 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                         `provider=${providerLabel} status=404 latency=${latency_ms}ms — ` +
                         `the key is valid but its project does not serve this model`);
                 }
+                // 🔴 401/403 = the KEY itself was refused (wrong, expired, revoked, or
+                // rotated out from under the household). Until 2026-08-23 this set NEITHER
+                // flag and fell through to `voice: ''` — so the single most common real BYOK
+                // failure was a completely silent dead turn: the user asks, and nothing
+                // happens. Its own flag rather than reuse, because the remedy differs from
+                // both neighbours: not "your box is down", not "pick another model", but
+                // "replace the key".
+                const keyRejected = (resp.status === 401 || resp.status === 403) && !!providerLabel;
+                if (keyRejected) {
+                    log(`DROP: provider rejected the key — url=${chatUrl} model=${useModel} ` +
+                        `provider=${providerLabel} status=${resp.status} latency=${latency_ms}ms — ` +
+                        `the stored key is wrong, expired or revoked`);
+                }
                 return {
                     ok: false,
                     error: providerLabel ? `${providerLabel}: ${msg}` : msg,
                     latency_ms,
                     ...(modelUnavailable
                         ? { model_unavailable: true, provider_label: providerLabel, model_id: useModel }
+                        : {}),
+                    ...(keyRejected
+                        ? { key_rejected: true, provider_label: providerLabel }
                         : {}),
                 };
             }

@@ -237,13 +237,25 @@ check('provider answers 404 → model_unavailable + the model id (not a network 
   { mu: modelGone.model_unavailable === true, model: modelGone.model_id, pu: modelGone.provider_unreachable === true },
   { mu: true, model: 'gemini-2.5-flash', pu: false });
 
+// 401/403: the KEY was refused. Until 2026-08-23 this set NOTHING and the turn went
+// out silent — the most common real BYOK failure, and the one a household is most
+// able to fix, was indistinguishable from the assistant not answering.
+for (const status of [401, 403]) {
+  const rejected = await flagsFor(status, { providerLabel: 'Gemini' });
+  check(`provider rejects the KEY (${status}) → key_rejected + the provider name`,
+    { kr: rejected.key_rejected === true, label: rejected.provider_label,
+      mu: rejected.model_unavailable === true, pu: rejected.provider_unreachable === true },
+    { kr: true, label: 'Gemini', mu: false, pu: false });
+}
+
 // ⚖️ Controls. Without these, "always flag something" passes: a 500 is a real
 // provider error the user cannot act on differently, and the on-box lane must keep
 // the flag that was already ruled for it.
 const serverErr = await flagsFor(500, { providerLabel: 'Gemini' });
-check('⚖️ a provider 500 is NOT a model problem', 
-  { mu: serverErr.model_unavailable === true, pu: serverErr.provider_unreachable === true },
-  { mu: false, pu: false });
+check('⚖️ a provider 500 is NOT a model problem, NOR a key problem',
+  { mu: serverErr.model_unavailable === true, pu: serverErr.provider_unreachable === true,
+    kr: serverErr.key_rejected === true },
+  { mu: false, pu: false, kr: false });
 
 const boxDown = await flagsFor('dead', {});
 check('⚖️ the on-box lane still sets `unreachable`, not the BYOK flags',

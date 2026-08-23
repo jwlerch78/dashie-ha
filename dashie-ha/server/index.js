@@ -320,6 +320,12 @@ haWorker.start();
 installer.ensureIntegration();
 // Put the Dashie panel in the HA sidebar without hunting for the toggle.
 supervisor.ensureSidebarPanel();
+// Clear stored options whose schema key is gone. Removing an option from
+// config.yaml removes it from the TAB, not from the box's stored config — measured
+// on John's box after 0.9.20, where four of five removed keys survived, including
+// the `log_level: debug` he had actually set. Fire-and-forget: every branch of the
+// prune fails toward doing nothing, and startup must not wait on the Supervisor.
+require('./prune-orphan-options').pruneOrphanOptions();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[dashie-ha] listening on :${PORT} (bridge + console) — brain @ ${brainMeta.shortSha || '?'}`);

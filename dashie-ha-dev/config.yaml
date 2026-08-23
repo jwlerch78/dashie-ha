@@ -73,7 +73,7 @@ options:
   # between turning household sharing off and a satellite noticing. Clamped
   # 5..240 in server/config.js — a 0 would expire every lease on arrival.
   lease_ttl_minutes: 30
-  cloud_env: beta
+  cloud_env: dev
   install_integration: true
   stt_url: ""
   stt_model: "whisper-1"
@@ -112,7 +112,10 @@ options:
 schema:
   service_policy_enforce: bool?
   lease_ttl_minutes: int(5,240)?
-  cloud_env: list(beta|stable|development|production)
+  # dev|prod are the current names; the rest are accepted legacy aliases and are
+  # listed ONLY so a box already storing one stays valid (server/config.js
+  # ENV_ALIASES maps them). Narrow this once the estate has converged.
+  cloud_env: list(dev|prod|beta|stable|development|production)
   install_integration: bool?
   stt_url: str?
   stt_model: str?

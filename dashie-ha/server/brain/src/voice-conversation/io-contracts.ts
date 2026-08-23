@@ -76,6 +76,13 @@ export interface GatewayResult {
   /** WIRE model id for the model_unavailable line. The core turns it into a
    *  speakable name via _shared/model-labels.ts (generated from the catalog). */
   model_id?: string;
+  /** The provider REFUSED the key itself (HTTP 401/403 — wrong, expired, revoked,
+   *  or rotated). Its own flag rather than folding into `provider_unreachable`,
+   *  because the household's next action is different: replace the key, not check
+   *  the network. Until 2026-08-23 this case set nothing and the turn went out
+   *  silent, which made the most common real BYOK failure indistinguishable from
+   *  the assistant simply not answering. */
+  key_rejected?: boolean;
 }
 
 /** A web-search gather's results, normalized across providers. */
