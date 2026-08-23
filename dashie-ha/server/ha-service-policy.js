@@ -19,9 +19,12 @@
 //
 // So enforcement is OFF by default: every decision is logged, none is applied.
 // Harvest real traffic, widen until the markers name only what we mean to refuse,
-// then flip `service_policy_enforce`. Same rollout as `ai_auth_enforce`,
-// `device_revocation_enforce` and `scope_enforce`: **ship the claim early, flip
-// late.** (Thread D's ruling, D-status s49 §4.)
+// then flip `service_policy_enforce`. Same rollout as `device_revocation_enforce`
+// and `scope_enforce`: **ship the claim early, flip late.** (Thread D's ruling,
+// D-status s49 §4.) ⚠️ This list named `ai_auth_enforce` too until 2026-08-23,
+// when it was removed as a config option: it was declared in config.yaml and read
+// NOWHERE, so its rung was never built and the flag could not do anything. Citing
+// it as precedent implied a ladder that did not exist.
 //
 // ⚠️ Deliberately STRICT to begin with. In observe mode strictness costs nothing
 // and buys evidence — a list that starts permissive teaches you nothing, because

@@ -73,7 +73,6 @@ models are reliable.
 
 | Option | Meaning |
 |---|---|
-| `log_level` | Add-on log verbosity. `debug` shows per-turn engine routing. |
 | `cloud_env` | Which Dashie Cloud environment a signed-in account uses. **During the beta this defaults to `beta`** — Dashie Cloud accounts run on our staging environment until the beta ends (stated here so it's not a surprise); `stable` is the production environment accounts will move to. `development`/`production` are accepted as legacy aliases. |
 | `install_integration` | On (default): the add-on installs/updates the bundled Dashie Voice integration into `/config/custom_components/dashie_voice`. See **Permissions** below for exactly what this touches. Off: manage the integration yourself (HACS/manual). |
 

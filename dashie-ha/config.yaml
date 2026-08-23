@@ -81,7 +81,6 @@ ports: {}
 # integration into /config/custom_components (never touches a HACS/manual
 # install; see server/integration-installer.js). Off = manage it yourself.
 options:
-  log_level: info
   # Capability-lease TTL in minutes (CONTRACTS #65). Bounds the worst-case delay
   # between turning household sharing off and a satellite noticing. Clamped
   # 5..240 in server/config.js — a 0 would expire every lease on arrival.
@@ -104,17 +103,16 @@ options:
   #   refuses. Flip per box, after checking the DROP: markers on THAT box --
   #   the risky set is not knowable from the code, since /service is an
   #   LLM-driven passthrough.
-  # ai_auth_enforce: the same shape on the AI auth path.
+  #
+  # (A second rung, ai_auth_enforce, was removed 2026-08-23: it was declared here
+  # and read NOWHERE, so it could never do anything. #48.)
   #
   # Default OFF is the whole point: enabling by default would enforce on every
   # box that takes a release, which is an estate-wide behaviour change rather
   # than a rollout.
   service_policy_enforce: false
-  ai_auth_enforce: false
 schema:
   service_policy_enforce: bool?
-  ai_auth_enforce: bool?
-  log_level: list(trace|debug|info|notice|warning|error|fatal)
   lease_ttl_minutes: int(5,240)?
   cloud_env: list(beta|stable|development|production)
   install_integration: bool?
