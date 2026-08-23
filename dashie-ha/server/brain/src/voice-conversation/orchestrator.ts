@@ -621,6 +621,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     language: req.language || 'system',
     timezone: req.timezone,   // client IANA zone → correct "today" in the prompt (server is UTC)
     webSearchEnabled: promptWebSearch,
+    // → buildPrompt's three-state web guidance: NATIVE only when grounding is genuinely on;
+    // absent/false must never imply reachability (fail closed — a missing wire is not an ability).
+    groundingEnabled: geminiGrounds,
     announcement: isAnnouncement,
     clientTools,   // → toolsListFor drops device-only tools this caller can't fulfill
     multiEnabled,  // → buildPrompt appends the capability-gated multi-emission block when true
