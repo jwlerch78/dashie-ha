@@ -1746,6 +1746,9 @@ const byokProviderUnreachableVoice = (provider: string) =>
 const byokModelUnavailableVoice = (model: string) =>
   `Your API key doesn't have access to ${model}. Pick a different model in the console.`;
 
+const byokKeyRejectedVoice = (provider: string) =>
+  `Your ${provider} API key was rejected — check your API key settings.`;
+
 /** The spoken line for a failed turn, or '' to leave it to the client.
  *
  *  Keys on FLAGS the IO layer sets, never on matching its message text — the same
@@ -1759,6 +1762,7 @@ function failureVoice(result: {
   unreachable?: boolean;
   provider_unreachable?: boolean;
   model_unavailable?: boolean;
+  key_rejected?: boolean;
   provider_label?: string;
   model_id?: string;
 }): string {
@@ -1768,6 +1772,9 @@ function failureVoice(result: {
   }
   if (result.model_unavailable && result.model_id) {
     return byokModelUnavailableVoice(modelLabel(result.model_id));
+  }
+  if (result.key_rejected && result.provider_label) {
+    return byokKeyRejectedVoice(result.provider_label);
   }
   return '';
 }
@@ -1789,7 +1796,7 @@ function errorTurn(
   t0: number,
   result: {
     error?: string; latency_ms: number; unreachable?: boolean;
-    provider_unreachable?: boolean; model_unavailable?: boolean;
+    provider_unreachable?: boolean; model_unavailable?: boolean; key_rejected?: boolean;
     provider_label?: string; model_id?: string;
   },
   stages: Stage[],

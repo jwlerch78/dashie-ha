@@ -32,23 +32,42 @@ const ENVIRONMENTS = {
     //
     // Both hosts already serve /auth.html, which forwards to the mobile-auth
     // page preserving the query string. Verified 2026-07-30: both HTTP 200.
-    beta: {
+    dev: {
         url: 'https://cwglbtosingboqepsmjk.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3Z2xidG9zaW5nYm9xZXBzbWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDY4NjYsImV4cCI6MjA3MzIyMjg2Nn0.VCP5DSfAwwZMjtPl33bhsixSiu_lHsM6n42FMJRP3YA',
         verificationBase: 'https://dev.dashieapp.com',
     },
-    stable: {
+    prod: {
         url: 'https://cseaywxcvnxcsypaqaid.supabase.co',
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzZWF5d3hjdm54Y3N5cGFxYWlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MDIxOTEsImV4cCI6MjA3MzE3ODE5MX0.Wnd7XELrtPIDKeTcHVw7dl3awn3BlI0z9ADKPgSfHhA',
         verificationBase: 'https://app.dashieapp.com',
     },
 };
-const ENV_ALIASES = { development: 'beta', production: 'stable' };
+// 🔴 The CANONICAL names are `dev` / `prod` (John, 2026-08-23: "we should update it
+// to be just Dev and prod. Not beta, stable, etc."). Every earlier name is kept as an
+// alias — this is a RENAME, and a rename that breaks the boxes already carrying the
+// old value is a migration nobody asked for.
+//
+// Dual-accept rather than rewriting stored options, deliberately:
+//   · the alias table already existed and is the proven path (`development`/
+//     `production` have mapped here for months);
+//   · rewriting a box's stored `cloud_env` changes which SUPABASE its account talks
+//     to if the mapping is ever wrong — a far worse failure than an old name;
+//   · John's dev box deliberately stores `stable` to run against prod. Under this
+//     table it keeps resolving to the identical environment object, renamed.
+// The schema below still ACCEPTS the legacy values for the same reason: a stored
+// value that is no longer in a `list()` is a state I cannot measure from here, and
+// a125 is the standing reminder that doc-derived HA behaviour claims can be wrong.
+// Narrowing the list is a later step, after the estate has converged.
+const ENV_ALIASES = {
+    beta: 'dev', stable: 'prod',              // the 0.9.20-and-earlier names
+    development: 'dev', production: 'prod',   // the names those replaced
+};
 
 // Environment comes from the add-on option (Configuration tab), read once at
 // process start — changing it requires an add-on restart, which is the natural
 // moment anyway (credentials are per-environment).
-let envName = 'beta';
+let envName = 'dev';
 try {
     const opts = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'options.json'), 'utf8'));
     const requested = ENV_ALIASES[opts.cloud_env] || opts.cloud_env;

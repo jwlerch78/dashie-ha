@@ -6,6 +6,19 @@
    ============================================================ */
 
 const DashieAuth = {
+    /** Which `supabase_env` values from the add-on mean the PRODUCTION project.
+     *
+     *  🔴 This list decides which GOOGLE CLIENT ID the console signs in with, so a
+     *  missing member is a silent auth break, not a cosmetic one: a prod box whose
+     *  env name is not listed falls through to the development client.
+     *
+     *  It named only `production`/`stable` until 2026-08-23, when the canonical
+     *  names became `dev`/`prod` (server/config.js ENV_ALIASES). Renaming the
+     *  server without this line would have pointed every prod box — John's
+     *  included, since his dev add-on deliberately runs against prod — at the wrong
+     *  client. Legacy names stay because boxes still store them. */
+    _PROD_SUPABASE_ENVS: ['prod', 'production', 'stable'],
+
     // --- Config (auto-detect environment by hostname) ---
     _configs: {
         production: {
@@ -578,7 +591,7 @@ const DashieAuth = {
                 this._addonSupabaseConfig = {
                     url: status.supabase_url,
                     anonKey: status.supabase_anon_key,
-                    googleClientId: this._configs[['production', 'stable'].includes(status.supabase_env) ? 'production' : 'development'].googleClientId,
+                    googleClientId: this._configs[this._PROD_SUPABASE_ENVS.includes(status.supabase_env) ? 'production' : 'development'].googleClientId,
                 };
                 console.log('[DashieAuth] Using Supabase from add-on:', status.supabase_env, status.supabase_url);
             }

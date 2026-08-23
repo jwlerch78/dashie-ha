@@ -29,8 +29,13 @@
 // account moved its model elsewhere (T cont.19): the route is otherwise DERIVED per
 // call (resolveBrainRoute over live account state, 30s TTL), so with the tab gone
 // nothing on the add-on stores a route at all. A box whose saved options still
-// carry the old keys: the Supervisor strips unknown options against the tightened
-// schema; if they do arrive here anyway, we log a loud DROP (below) and ignore them.
+// carry the old keys: they are simply IGNORED, and we log a loud DROP (below).
+// ⚠️ This used to say the Supervisor strips unknown options against the tightened
+// schema. MEASURED FALSE (T s44 cont.7, on John's box after 0.9.20): of five keys
+// removed from schema, the Supervisor stripped exactly ONE — the one sitting at its
+// default — and KEPT four, including two of these llm_* fields. So an orphaned
+// option is the normal case, not the exception, and the DROP below is load-bearing
+// rather than defensive. `prune-orphan-options.js` removes them at startup.
 //
 // 🔴 The account tier was MISSING until 2026-08-21, and its absence is the second
 // instance of the degradation described below: account-config answered route:'local',
@@ -154,9 +159,12 @@ async function converse(payload) {
     const opts = readOptions();
     const { jwt, userId } = await resolveAccount();
     // ── Migration DROP for the REMOVED Configuration-tab tier (2026-08-21) ──────
-    // The Supervisor strips unknown options against the tightened schema, so these
-    // should never be populated — but a box that somehow still carries them must
-    // hear loudly that they are ignored, not silently lose its brain config.
+    // 🔴 These ARE populated on real boxes. The original note here assumed the
+    // Supervisor strips options whose schema key is gone; measured false 4/5 (see
+    // the header). The startup prune now clears them, but this DROP stays: it
+    // covers the window before the first prune and any box where the Supervisor
+    // API is unavailable, and a box must hear loudly that a value it can still see
+    // in its own config is being ignored.
     if (String(opts.llm_url || '').trim() || String(opts.llm_model || '').trim()) {
         console.warn('DROP: ignoring removed Configuration-tab llm_url/llm_model — ' +
             'the web UI (Voice & AI → "My own AI") is the only brain-config surface now; ' +

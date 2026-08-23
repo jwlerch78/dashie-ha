@@ -39,8 +39,9 @@ and an optional bearer key (blank for local Ollama / llama.cpp).
 
 > The old `llm_url` / `llm_model` / `llm_api_key` Configuration-tab options
 > were removed in 0.9.17 — the panel is the only brain-config surface. If your
-> saved add-on config still carries them, the Supervisor strips them with a
-> warning and they are ignored; re-enter the endpoint in the panel once.
+> saved add-on config still carries them they are ignored, and the add-on now
+> clears them from your stored configuration on startup. Re-enter the endpoint in
+> the panel once.
 
 Full-URL examples:
 
@@ -85,7 +86,7 @@ models are reliable.
 
 | Option | Meaning |
 |---|---|
-| `cloud_env` | Which Dashie Cloud environment a signed-in account uses. **During the beta this defaults to `beta`** — Dashie Cloud accounts run on our staging environment until the beta ends (stated here so it's not a surprise); `stable` is the production environment accounts will move to. `development`/`production` are accepted as legacy aliases. |
+| `cloud_env` | Which Dashie Cloud environment a signed-in account uses: `dev` or `prod`. **During the beta this defaults to `dev`** — Dashie Cloud accounts run on our staging environment until the beta ends (stated here so it's not a surprise); `prod` is the production environment accounts will move to. The older names `beta`/`stable` (and `development`/`production`) still work and mean `dev`/`prod`; nothing needs changing on an existing box. |
 | `install_integration` | On (default): the add-on installs/updates the bundled Dashie Voice integration into `/config/custom_components/dashie_voice`. See **Permissions** below for exactly what this touches. Off: manage the integration yourself (HACS/manual). |
 
 ## Dashie Cloud (hosted engines)
