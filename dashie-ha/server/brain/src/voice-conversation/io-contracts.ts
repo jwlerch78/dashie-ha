@@ -55,6 +55,27 @@ export interface GatewayResult {
    *  knows, and re-deriving it from prose is how these couplings rot. */
   unreachable?: boolean;
   unreachable_detail?: string;
+
+  /** The user's own BYOK PROVIDER could not be reached (same failure as
+   *  `unreachable`, but the endpoint is a cloud provider on the household's own
+   *  key, not a box they own). Split from `unreachable` deliberately: the two
+   *  need OPPOSITE sentences — one names a machine in the user's house, the
+   *  other names a vendor — and 2026-08-22 shipped a version where a Gemini blip
+   *  told people their local AI box was down when they had no box at all.
+   *  Add-on only; BYOK does not exist in the cloud lane, which IS the provider. */
+  provider_unreachable?: boolean;
+  /** The provider ANSWERED and refused the model: the key is valid but its
+   *  project/plan does not serve the selected model (the HTTP 404 class John hit
+   *  on 0.9.18). Distinct from `provider_unreachable` because the user's next
+   *  action is different — pick another model, not check the network/key. */
+  model_unavailable?: boolean;
+  /** Human provider name ('Gemini', 'OpenAI') for the two lines above. Supplied
+   *  by the IO layer, which already holds it; the core must never map ids to
+   *  vendor names itself. */
+  provider_label?: string;
+  /** WIRE model id for the model_unavailable line. The core turns it into a
+   *  speakable name via _shared/model-labels.ts (generated from the catalog). */
+  model_id?: string;
 }
 
 /** A web-search gather's results, normalized across providers. */

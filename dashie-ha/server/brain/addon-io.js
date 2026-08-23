@@ -136,7 +136,26 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
             if (!resp.ok) {
                 const error = body?.error?.message || body?.error || `HTTP ${resp.status}`;
                 const msg = typeof error === 'string' ? error : JSON.stringify(error);
-                return { ok: false, error: providerLabel ? `${providerLabel}: ${msg}` : msg, latency_ms };
+                // 🔴 A 404 from a provider that ACCEPTED our key means the key is fine and
+                // the MODEL is not available to it — John hit exactly this on 0.9.18 (a new
+                // GCP project cannot get gemini-2.5-flash) and heard nothing at all, because
+                // key validation asks `/models` about the KEY and never about the SELECTED
+                // model. Flagged so the core can speak the ruled line; the core keys on the
+                // FLAG, never on this message text.
+                const modelUnavailable = resp.status === 404 && !!providerLabel;
+                if (modelUnavailable) {
+                    log(`DROP: provider refused the model — url=${chatUrl} model=${useModel} ` +
+                        `provider=${providerLabel} status=404 latency=${latency_ms}ms — ` +
+                        `the key is valid but its project does not serve this model`);
+                }
+                return {
+                    ok: false,
+                    error: providerLabel ? `${providerLabel}: ${msg}` : msg,
+                    latency_ms,
+                    ...(modelUnavailable
+                        ? { model_unavailable: true, provider_label: providerLabel, model_id: useModel }
+                        : {}),
+                };
             }
             const content = body?.choices?.[0]?.message?.content ?? '';
             const u = body?.usage || {};
@@ -186,10 +205,15 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                 // the DROP above; it simply does not get a sentence that names a machine
                 // the user does not own. `voice: ''` — the client's own generic wording —
                 // stays the default for it, exactly as it was before the flag existed.
-                ...(providerLabel ? {} : {
-                    unreachable: true,
-                    unreachable_detail: aborted ? 'timeout' : String(cause),
-                }),
+                // 🔴 SAME failure, TWO sentences, because the user's next action differs:
+                // an unreachable box is theirs to fix, an unreachable provider is a
+                // key/network question. Splitting the flag is what stopped a Gemini blip
+                // telling people their local AI box was down when they own no box —
+                // and the BYOK half then had to stop being SILENT, which is this branch.
+                ...(providerLabel
+                    ? { provider_unreachable: true, provider_label: providerLabel }
+                    : { unreachable: true }),
+                unreachable_detail: aborted ? 'timeout' : String(cause),
             };
         } finally {
             clearTimeout(timer);

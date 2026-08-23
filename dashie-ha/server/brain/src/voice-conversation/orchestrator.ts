@@ -40,6 +40,7 @@ import { redactToolArgs } from './redact-args.ts';
 import { parseContent, isLikelyNoise } from './parse.ts';
 import { isEndIntent, classifyMiss, NOISE_REPLY } from './dialog-policy.ts';
 import { providerForModel } from './models.ts';
+import { modelLabel } from '../_shared/model-labels.ts';
 import { detectMutableEntity } from './force-search.ts';
 import { templateSports } from './synthesis/sports.ts';
 import { templateSlate } from './synthesis/sports.ts';
@@ -1717,11 +1718,56 @@ function noiseTurn(t0: number): Turn {
 }
 
 /** Spoken when the user's OWN model endpoint cannot be reached. Named, not inline,
- *  because it is the one failure the core is ruled to voice itself — everything else
- *  stays the client's fallback. Says what is wrong and whose it is, so the fix is
+ *  because it is one of the failures the core is ruled to voice itself — everything
+ *  else stays the client's fallback. Says what is wrong and whose it is, so the fix is
  *  obvious (their box), and does NOT promise a retry we are not making. */
 const LOCAL_BRAIN_UNREACHABLE_VOICE =
   "Your local AI box isn't responding, so I can't answer that right now.";
+
+/** The two BYOK failure lines (John, 2026-08-23: "Wording's fine" — approved
+ *  verbatim; adjust only for substitution grammar, never meaning).
+ *
+ *  🔴 WHY THEY EXIST: the 2026-08-22 fix stopped `unreachable` being set for BYOK,
+ *  which correctly ended the "your local AI box" line for people with no box — and
+ *  replaced it with SILENCE, because the "client's own fallback" this file assumes
+ *  does not exist for this class. T measured it: the user asks and simply gets
+ *  nothing back. "No wrong message" had been achieved by "no message".
+ *
+ *  They name the PROVIDER and the MODEL because the user's next action differs per
+ *  case: an unreachable provider is a key/network problem, a refused model is a
+ *  pick-something-else problem. A generic apology cannot tell them apart, which is
+ *  the whole failure this pair of lines closes. */
+const byokProviderUnreachableVoice = (provider: string) =>
+  `I couldn't reach ${provider}. Check your API key settings in the Dashie console.`;
+
+const byokModelUnavailableVoice = (model: string) =>
+  `Your API key doesn't have access to ${model}. Pick a different model in the console.`;
+
+/** The spoken line for a failed turn, or '' to leave it to the client.
+ *
+ *  Keys on FLAGS the IO layer sets, never on matching its message text — the same
+ *  discipline `unreachable` was introduced with. Order matters only in that the
+ *  cases are mutually exclusive by construction (the IO layer sets exactly one).
+ *
+ *  ⚠️ A missing `provider_label` degrades to '' rather than speaking "I couldn't
+ *  reach undefined." Silence is the pre-existing behaviour and the safe floor;
+ *  a malformed sentence is worse than none. */
+function failureVoice(result: {
+  unreachable?: boolean;
+  provider_unreachable?: boolean;
+  model_unavailable?: boolean;
+  provider_label?: string;
+  model_id?: string;
+}): string {
+  if (result.unreachable) return LOCAL_BRAIN_UNREACHABLE_VOICE;
+  if (result.provider_unreachable && result.provider_label) {
+    return byokProviderUnreachableVoice(result.provider_label);
+  }
+  if (result.model_unavailable && result.model_id) {
+    return byokModelUnavailableVoice(modelLabel(result.model_id));
+  }
+  return '';
+}
 
 /** The terminal failure turn.
  *
@@ -1738,13 +1784,17 @@ const LOCAL_BRAIN_UNREACHABLE_VOICE =
  *  sets, never on matching its message text. Cloud never sets it and is unchanged. */
 function errorTurn(
   t0: number,
-  result: { error?: string; latency_ms: number; unreachable?: boolean },
+  result: {
+    error?: string; latency_ms: number; unreachable?: boolean;
+    provider_unreachable?: boolean; model_unavailable?: boolean;
+    provider_label?: string; model_id?: string;
+  },
   stages: Stage[],
 ): Turn {
   return {
     ok: false,
     type: 'error',
-    voice: result.unreachable ? LOCAL_BRAIN_UNREACHABLE_VOICE : '',
+    voice: failureVoice(result),
     text: null,
     action: null,
     parsed_ok: false,

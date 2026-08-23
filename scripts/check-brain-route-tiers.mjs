@@ -211,5 +211,44 @@ const viaProvider = await callDead({ providerLabel: 'Gemini' });
 check('a BYOK PROVIDER is unreachable → flag NOT set (no "your local AI box")',
   { ok: viaProvider.ok, unreachable: viaProvider.unreachable === true }, { ok: false, unreachable: false });
 
+console.log('\n── 🔇 THE SILENT TURN: a BYOK failure must SAY something ───────────');
+// The 2026-08-22 fix stopped the wrong sentence and left silence in its place (T
+// cont.34/35). These pin the two ruled lines by the FLAGS the core keys on, so the
+// wording can be re-read from the core without this file guessing at prose.
+const flagsFor = async (status, opts) => {
+  const stubbedFetch = globalThis.fetch;
+  globalThis.fetch = status === 'dead'
+    ? REAL_FETCH
+    : async () => ({ ok: false, status, json: async () => ({ error: { message: 'nope' } }) });
+  try {
+    const io = createAddonIO({ chatUrl: status === 'dead' ? DEAD : 'http://x/v1/chat/completions',
+      model: 'gemini-2.5-flash', log: () => {}, ...opts });
+    return await io.callGateway({ prompt: 'hi' });
+  } finally { globalThis.fetch = stubbedFetch; }
+};
+
+const provDown = await flagsFor('dead', { providerLabel: 'Gemini' });
+check('BYOK provider unreachable → provider_unreachable + the provider name',
+  { pu: provDown.provider_unreachable === true, label: provDown.provider_label, box: provDown.unreachable === true },
+  { pu: true, label: 'Gemini', box: false });
+
+const modelGone = await flagsFor(404, { providerLabel: 'Gemini' });
+check('provider answers 404 → model_unavailable + the model id (not a network claim)',
+  { mu: modelGone.model_unavailable === true, model: modelGone.model_id, pu: modelGone.provider_unreachable === true },
+  { mu: true, model: 'gemini-2.5-flash', pu: false });
+
+// ⚖️ Controls. Without these, "always flag something" passes: a 500 is a real
+// provider error the user cannot act on differently, and the on-box lane must keep
+// the flag that was already ruled for it.
+const serverErr = await flagsFor(500, { providerLabel: 'Gemini' });
+check('⚖️ a provider 500 is NOT a model problem', 
+  { mu: serverErr.model_unavailable === true, pu: serverErr.provider_unreachable === true },
+  { mu: false, pu: false });
+
+const boxDown = await flagsFor('dead', {});
+check('⚖️ the on-box lane still sets `unreachable`, not the BYOK flags',
+  { box: boxDown.unreachable === true, pu: boxDown.provider_unreachable === true },
+  { box: true, pu: false });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

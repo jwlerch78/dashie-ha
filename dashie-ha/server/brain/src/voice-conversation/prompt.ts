@@ -159,6 +159,29 @@ function dropUnofferedExamples(text: string, context: ToolsContext): string {
     .join('\n');
 }
 
+/** Keep the web-capability guidance that matches THIS turn's offering, drop the other.
+ *
+ *  The two providers reach the web by different routes (`promptWebSearch` below / web-lane.ts),
+ *  and they need opposite instructions: a tool-offered model must be told the call is mandatory,
+ *  a natively-grounding model must be told to just answer. Measured 2026-08-23 (Thread V,
+ *  prompt-probe, repeat=3) — ONE shared text cannot serve both, it only moves the failure:
+ *
+ *      shared text v2   haiku 75%   gemini  83%
+ *      shared text v3   haiku 62%   gemini 100%    ← helping gemini cost haiku 13 points
+ *
+ *  Both times the branch written for one model was misapplied by the other. So the guidance is
+ *  filtered by the SAME condition that filters the tool list itself, which is the established
+ *  pattern here (`toolsListFor`) rather than a new mechanism. Prompt text stays single-sourced in
+ *  js/ai/prompts/*.md; only the selection lives in code.
+ *  ⚠️ Mirrored in js/ai/prompts/prompt-builder.js — the web/console builder. */
+export function selectWebGuidance(text: string, webSearchOffered: boolean): string {
+  const drop = webSearchOffered ? 'NATIVE' : 'TOOL';
+  const keep = webSearchOffered ? 'TOOL' : 'NATIVE';
+  return text
+    .replace(new RegExp(`<!--WEB:${drop}-->[\\s\\S]*?<!--/WEB:${drop}-->\\n?`, 'g'), '')
+    .replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '');
+}
+
 function toolsListFor(context: ToolsContext): string {
   const drop: string[] = [];
   if (context.webSearchEnabled === false) drop.push('- web_search:');
