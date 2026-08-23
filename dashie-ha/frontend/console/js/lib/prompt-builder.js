@@ -287,12 +287,19 @@
      * ⚠️ MIRROR of selectWebGuidance in supabase/functions/voice-conversation/prompt.ts — the
      * brain-side builder. Same markers, same semantics; change both together.
      */
-    function selectWebGuidance(text, webSearchOffered) {
-      const drop = webSearchOffered ? 'NATIVE' : 'TOOL';
-      const keep = webSearchOffered ? 'TOOL' : 'NATIVE';
-      return text
-        .replace(new RegExp(`<!--WEB:${drop}-->[\\s\\S]*?<!--/WEB:${drop}-->\\n?`, 'g'), '')
-        .replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '');
+    function selectWebGuidance(text, webSearchOffered, groundingEnabled) {
+      // THREE states, not two (corrected 2026-08-23). !webSearchOffered is ALSO true when the
+      // account opted out of web search or the sports guard fired — in those cases there is no web
+      // access at all, so the NATIVE block ("this device reaches the web for you automatically")
+      // would be a lie, and against an opted-out household it would contradict their own setting.
+      // Undefined groundingEnabled is treated as OFF: fail closed, never invent a capability.
+      const keep = webSearchOffered ? 'TOOL' : groundingEnabled ? 'NATIVE' : null;
+      let out = text;
+      for (const block of ['TOOL', 'NATIVE']) {
+        if (block === keep) continue;
+        out = out.replace(new RegExp(`<!--WEB:${block}-->[\\s\\S]*?<!--/WEB:${block}-->\\n?`, 'g'), '');
+      }
+      return keep ? out.replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '') : out;
     }
 
     async function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) {
@@ -374,6 +381,7 @@
         prompt += '\n\n' + selectWebGuidance(
           fillTemplate(responseFormat, baseValues),
           context.webSearchEnabled !== false,
+          context.groundingEnabled,
         );
       } else {
         // Initial request (no data yet) - use slim format focused on tool selection.
@@ -385,6 +393,7 @@
         prompt += '\n\n' + selectWebGuidance(
           fillTemplate(responseFormat, baseValues),
           context.webSearchEnabled !== false,
+          context.groundingEnabled,
         );
       }
 
