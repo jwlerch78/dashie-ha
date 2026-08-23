@@ -193,6 +193,16 @@ node "$ADDON_ROOT/scripts/check-sharing-state.mjs"
 echo "==> Checking console endpoints (every route the SPA calls is served)"
 node "$ADDON_ROOT/scripts/check-console-endpoints.mjs"
 
+# ── Which ENDPOINT gets the inference call (2026-08-22 live defect) ───────────
+# `route:'local'` answers where ORCHESTRATION runs and is returned for three
+# different targets (the account's own box, a BYOK provider key, Hermes), which
+# are told apart only by `routeReason`. converse.js gated its own-box tier on
+# `route`, so it claimed all three: a BYOK Gemini household had every turn sent
+# to its own terminated GPU box. Every component was individually correct, which
+# is why no other gate here can see it — this one asserts the OUTCOME.
+echo "==> Checking brain route tiers (which endpoint actually receives the turn)"
+node "$ADDON_ROOT/scripts/check-brain-route-tiers.mjs"
+
 # ── /service, both halves — and check-service-policy was a FOURTH unrun gate ──
 #
 # 🔴 The block above says this defect was "found while wiring the four above".

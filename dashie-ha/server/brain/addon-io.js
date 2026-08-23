@@ -176,8 +176,20 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                 // answered with an error" WITHOUT matching on a message string. The
                 // spoken line John ruled for this case ("your local AI box isn't
                 // responding") keys on THIS, not on prose.
-                unreachable: true,
-                unreachable_detail: aborted ? 'timeout' : String(cause),
+                //
+                // 🔴 …and therefore it must ONLY be set for the on-box posture. This
+                // gateway serves BOTH shells — the account's own model server (no
+                // providerLabel) and a BYOK cloud provider (labelled). Setting it
+                // unconditionally told a BYOK Gemini household that "your local AI box
+                // isn't responding" when Gemini was the thing that failed and they have no
+                // local box at all (2026-08-22 rider). A provider failure is still LOUD in
+                // the DROP above; it simply does not get a sentence that names a machine
+                // the user does not own. `voice: ''` — the client's own generic wording —
+                // stays the default for it, exactly as it was before the flag existed.
+                ...(providerLabel ? {} : {
+                    unreachable: true,
+                    unreachable_detail: aborted ? 'timeout' : String(cause),
+                }),
             };
         } finally {
             clearTimeout(timer);

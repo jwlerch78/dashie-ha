@@ -6,8 +6,8 @@
 // handler owns the ROUTE DECISION, in this precedence:
 //
 //   1.  the user's OWN local endpoint, resolved from the web UI's config surface:
-//       signed in → the ACCOUNT (route 'local' + a resolved localLlmUrl/Model, from
-//       the engines store or the console's own-AI fields — account-config resolves
+//       signed in → the ACCOUNT (routeReason 'local_model' + a resolved localLlmUrl/Model,
+//       from the engines store or the console's own-AI fields — account-config resolves
 //       the three storage homes into one answer)      → tag `local:account`
 //       signed out → the panel's LOCAL settings blob (ai.model='local' +
 //       voice.localLlmUrl/localLlmModel via /api/settings/local) → tag `local:box`
@@ -15,6 +15,16 @@
 //       user's own key (brain/providers.js resolveByokTarget)
 //   3.  a signed-in Dashie account                             → Dashie Cloud (metered)
 //   4.  nothing                                                → spoken setup guidance
+//
+// 🔴 TIER 1 IS SELECTED BY `routeReason`, NEVER BY `route` (2026-08-22). `route` says
+// where ORCHESTRATION runs — it is 'local' for tiers 1 AND 2 AND for Hermes, because all
+// three are executed by this add-on rather than the cloud edge fn. It does NOT name the
+// inference endpoint. `resolveBrainRoute`'s `reason` is the discriminator:
+// 'local_model' | 'byok' | 'hermes' | 'cloud'. Gating tier 1 on `route` made it claim
+// every turn the other two owned — see the block at the tier itself.
+//
+// ⚠️ HERMES HAS NO TIER HERE. `reason:'hermes'` currently falls through to route 3 and is
+// logged as a loud DROP rather than silently spending. That is a known gap, not a design.
 //
 // 🔴 The Configuration-tab tier (`llm_url`/`llm_model`, the old tier 1) was REMOVED
 // 2026-08-21 — John's ruling: the web UI is the ONLY brain-config surface. The tab
@@ -168,8 +178,21 @@ async function converse(payload) {
     let routeTag = '';     // for the DASHIE-TURN log line
     let metered = false;   // does this route spend the household's money?
     const localBox = !jwt ? capability.readLocalBoxLlm() : null;
-    if (acct?.route === 'local' && acct.localLlmUrl && acct.localLlmModel) {
+    if (acct?.routeReason === 'local_model' && acct.localLlmUrl && acct.localLlmModel) {
         // ── TIER 1 (signed in) — the ACCOUNT's own local endpoint (added 2026-08-21) ─
+        //
+        // 🔴 GATED ON `routeReason`, NOT `route` — and the difference is the whole of the
+        // 2026-08-22 live defect. `route` answers WHERE ORCHESTRATION RUNS, not which
+        // endpoint receives the inference call. `resolveBrainRoute` returns route:'local'
+        // for THREE different targets, discriminated only by `reason`:
+        //     'local_model' → the account's own box   ← the only one this tier owns
+        //     'byok'        → the household's provider key (resolveByokTarget, below)
+        //     'hermes'      → the Hermes agent
+        // Reading the where-flag as a which-endpoint flag made this tier claim all three.
+        // A BYOK Gemini household with a leftover engine row had every turn sent to its
+        // own (terminated) GPU box and died in ~10s — while `resolveByokTarget` two
+        // screens down would have answered it correctly. Hermes was the silent third
+        // victim: this file never mentions hermes, so those turns were claimed too.
         //
         // 🔴 This is the tier whose absence made "local" mean gemini. account-config
         // ALREADY resolved the endpoint and ALREADY answered route:'local' — its header
@@ -211,6 +234,21 @@ async function converse(payload) {
             };
             routeTag = `byok:${byok.provider}`;
             metered = true;   // the household's own provider key, always
+        } else if (acct?.route === 'local') {
+            // 🔴 NO SILENT DROP (standing rule 2). We are about to send a turn to the
+            // metered cloud brain for an account that asked for an ON-BOX route and got
+            // no shell — the exact silent degradation this file's header forbids.
+            //
+            // Today the only way to land here is `routeReason: 'hermes'`: converse.js has
+            // never had a Hermes tier, so before the gate above was corrected these turns
+            // were mis-claimed by TIER 1 and sent to whatever local LLM the account had
+            // lying around. That was wrong; falling through to cloud is *also* wrong, and
+            // it is not mine to invent a Hermes tier under a live-defect fix. So it is
+            // made LOUD instead of quietly correct-looking, and a real tier is owed.
+            console.warn(`DROP: account routed '${acct.route}' (reason=${acct.routeReason}) but no on-box ` +
+                `target resolved — falling through to the metered cloud brain. ` +
+                `model=${acct.model || '(unset)'} hermesUrl=${acct.hermesUrl ? 'set' : 'unset'}. ` +
+                `This turn will SPEND. converse.js has no Hermes tier yet.`);
         }
     }
 
