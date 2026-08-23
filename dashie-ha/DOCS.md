@@ -55,6 +55,15 @@ models are reliable.
 
 ### STT (speech-to-text)
 
+> **These settings are for Home Assistant's own voice.** The add-on publishes an STT
+> and a TTS entity, and this is what they use — so they are what an Assist pipeline
+> or a Wyoming/ESP32 satellite speaks and listens through. They are **separate from**
+> the engines you pick in the Dashie panel, which are what a Dashie tablet calls
+> directly for its own voice. Setting one does not configure the other. Bringing the
+> two together under one household setting is intended, but is not built yet: a
+> tablet can run an on-device engine that a small satellite cannot, so it needs more
+> than a single shared URL.
+
 | Option | Meaning |
 |---|---|
 | `stt_url` | An OpenAI-compatible transcription server (we append `/v1/audio/transcriptions` unless the URL already ends with it) — whisper.cpp server, faster-whisper / speaches, or a provider endpoint. |
@@ -62,6 +71,9 @@ models are reliable.
 | `stt_api_key` | Bearer key, if the endpoint needs one. |
 
 ### TTS (text-to-speech)
+
+> Same scope as STT above: this is Home Assistant's TTS entity, not the Dashie
+> panel's engine picker.
 
 | Option | Meaning |
 |---|---|

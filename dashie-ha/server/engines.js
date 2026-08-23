@@ -5,9 +5,45 @@
 // POST /api/voice/tts ({text, voice?}) for spoken audio; this module forwards each
 // to the CONFIGURED engine (add-on options). v0 targets any OpenAI-compatible
 // engine server — whisper.cpp/faster-whisper (/v1/audio/transcriptions) and
-// Kokoro/Piper-shim (/v1/audio/speech) — the same "Local Engines" lane the Dashie
-// console productized. The hosted (Dashie Cloud) engines slot into this same
-// seam with the account port.
+// Kokoro/Piper-shim (/v1/audio/speech) — the same KIND of engine the Dashie
+// console's "Local Engines" lane productized. The hosted (Dashie Cloud) engines
+// slot into this same seam with the account port.
+//
+// ── ⚠️ WHY THE stt_*/tts_* ADD-ON OPTIONS EXIST, AND WHY THEY ARE NOT DUPLICATES ──
+//
+// Read this before proposing their removal. It has been proposed once already, on
+// the reasoning that the web console offers the same fields — and that reasoning is
+// wrong, because it compares the option NAMES instead of the CONSUMERS:
+//
+//   these options            → the HA-facing STT/TTS ENTITIES. The integration
+//                              (dashie_voice/stt.py, tts.py, const.py:44-45) calls
+//                              /api/voice/stt and /api/voice/tts, so this is what
+//                              Home Assistant's own Assist pipelines and Wyoming
+//                              satellites speak and listen through.
+//   console voice.local*     → the DEVICE-DIRECT lane. A Dashie tablet calls its
+//                              own configured STT/TTS server itself; nothing in
+//                              this file is involved.
+//
+// Two consumers, two config surfaces. `readOptions()` is the ONLY source here —
+// engines.js never reads the account or the panel's local settings blob — so for an
+// ACCOUNT-LESS box these options are the sole path: without stt_url there is no
+// speech-to-text at all (the 503 below says so literally), and TTS survives only
+// via a BYOK speech key. The `llm_url`/`llm_model` removal is not a precedent for
+// removing these: it was safe precisely BECAUSE converse.js gained account and
+// panel tiers in the same change to read what the console writes. This file has no
+// such tier.
+//
+// Product decision 2026-08-23: convergence IS the intent — one household voice
+// configuration, set in the console, that a Dashie voice pipeline and an
+// ESP32/Voice-PE style satellite both consume. It is deliberately NOT scheduled,
+// because a single flat value cannot express it: an on-device-capable tablet may
+// run a local Moonshine STT that an ESP32 endpoint cannot use, so resolution has to
+// be per-consumer-CLASS, not one URL for everyone. That design question is open.
+//
+// 🔵 Known limitation until then: a signed-out box can configure local STT/TTS in
+// the web console and those values are written and never read BY THESE ENTITIES.
+// It is not visibly broken only because the options below still cover that case —
+// which is another reason removing them ahead of the tier would strand people.
 
 'use strict';
 
@@ -67,6 +103,8 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
  */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
+    // Sole STT source for this lane — see the header block on why this is not a
+    // duplicate of the console's voice.localSttUrl (different consumer).
     const base = String(opts.stt_url || '').trim().replace(/\/+$/, '');
     let audio;
     try {
@@ -199,6 +237,8 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
+    // Sole TTS source for this lane (BYOK speech key below is the only other
+    // account-less path) — see the header block before proposing its removal.
     const base = String(opts.tts_url || '').trim().replace(/\/+$/, '');
     let payload;
     try {
