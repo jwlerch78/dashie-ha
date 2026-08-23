@@ -274,6 +274,27 @@
      * @param {Object} options.context - Additional context values (including personalityMode)
      * @returns {Promise<string>} Complete prompt
      */
+    /**
+     * Keep the web-capability guidance that matches this turn's offering, drop the other.
+     *
+     * A tool-offered model must be told the web_search call is MANDATORY; a natively-grounding
+     * model (Gemini) has no tool to call and must be told to just answer. Measured 2026-08-23
+     * (Thread V, prompt-probe, repeat=3): ONE shared text cannot serve both — it only moves the
+     * failure (shared v2 = haiku 75% / gemini 83%; shared v3 = haiku 62% / gemini 100%, i.e.
+     * helping Gemini cost haiku 13 points). Each time, the branch written for one model was
+     * misapplied by the other.
+     *
+     * ⚠️ MIRROR of selectWebGuidance in supabase/functions/voice-conversation/prompt.ts — the
+     * brain-side builder. Same markers, same semantics; change both together.
+     */
+    function selectWebGuidance(text, webSearchOffered) {
+      const drop = webSearchOffered ? 'NATIVE' : 'TOOL';
+      const keep = webSearchOffered ? 'TOOL' : 'NATIVE';
+      return text
+        .replace(new RegExp(`<!--WEB:${drop}-->[\\s\\S]*?<!--/WEB:${drop}-->\\n?`, 'g'), '')
+        .replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '');
+    }
+
     async function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) {
 
       const dateTime = formatDateTime();
@@ -350,7 +371,10 @@
 
         // With retrieved data, use the full response format (includes all display flags)
         const responseFormat = await loadTemplate('response-format.md');
-        prompt += '\n\n' + fillTemplate(responseFormat, baseValues);
+        prompt += '\n\n' + selectWebGuidance(
+          fillTemplate(responseFormat, baseValues),
+          context.webSearchEnabled !== false,
+        );
       } else {
         // Initial request (no data yet) - use slim format focused on tool selection.
         // fillTemplate is essential here — response-format-initial.md references
@@ -358,7 +382,10 @@
         // placeholder and can't pick a tool. (Bug hidden until LANGUAGE_INSTRUCTION
         // landed on base-context.md — same surface, easier to spot.)
         const responseFormat = await loadTemplate('response-format-initial.md');
-        prompt += '\n\n' + fillTemplate(responseFormat, baseValues);
+        prompt += '\n\n' + selectWebGuidance(
+          fillTemplate(responseFormat, baseValues),
+          context.webSearchEnabled !== false,
+        );
       }
 
       // Add personality suffix if applicable (append after response format)
