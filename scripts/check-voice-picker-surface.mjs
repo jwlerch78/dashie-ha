@@ -354,6 +354,40 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'without the tolerant definition, leg 9a just forces every site through a helper that repeats the bug');
 }
 
+// ── LEG 11 — an edit to the ACTIVE engine must reach the tablets ────────────
+//
+// engines-store.js's own header says the resolved flat keys (voice.localLlmUrl /
+// localLlmModel / localSttUrl / localTtsUrl) are "the ONLY thing the tablets ever
+// see". The engine RECORD is console-side bookkeeping the device never reads. So a
+// user who fixes the URL of the engine they are ALREADY using has changed nothing
+// the device can observe unless something re-pushes the resolved keys.
+//
+// `LocalEnginesPage._reResolveIfSelected()` is that something, and until this leg it
+// was entirely ungated: deleting it, or inverting its is-this-the-active-one guard,
+// would leave every tablet calling the OLD endpoint with the console showing the new
+// one — display and behaviour disagreeing again, silently, which is the exact shape
+// a126 traced and a128 closed on the picker side. `remove()` deliberately does NOT
+// re-resolve (its confirm dialog promises devices keep working until you pick
+// something else), so this leg is about the EDIT path only.
+{
+    const src = readFileSync(join(CONSOLE, 'js', 'pages', 'local-engines.js'), 'utf8');
+
+    check('leg 11a — saveDraft re-resolves after writing the engine record',
+        /await\s+EnginesStore\.save\([\s\S]{0,400}?_reResolveIfSelected\(/.test(src),
+        `saveDraft→_reResolveIfSelected wired=${/_reResolveIfSelected\(/.test(src)}`,
+        'without it an edited URL updates the registry the device never reads and never reaches voice.local* — the tablets keep calling the old box while the console shows the new one');
+
+    check('leg 11b — and it pushes through resolveToSettings, not a hand-written key list',
+        /_reResolveIfSelected\([\s\S]{0,600}?EnginesStore\.resolveToSettings\(/.test(src),
+        `resolveToSettings used inside the re-resolve=${/_reResolveIfSelected\([\s\S]{0,600}?resolveToSettings\(/.test(src)}`,
+        'a second hand-written mapping of engine→flat keys is the hand-mirror shape: it would drift from engine-resolution.js, which is itself generated and shared with Kotlin');
+
+    check('leg 11c — ⚖️ NEGATIVE CONTROL: it is guarded on being the ACTIVE engine',
+        /_reResolveIfSelected\([\s\S]{0,600}?matchSelected\([\s\S]{0,200}?return;/.test(src),
+        `active-guard present=${/matchSelected\(/.test(src)}`,
+        'without the guard, editing ANY saved engine would overwrite the flat keys and silently switch the household onto an engine nobody selected — which is worse than the bug this fixes, and would make 11a pass trivially');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);

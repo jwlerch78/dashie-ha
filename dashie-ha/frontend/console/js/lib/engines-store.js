@@ -32,6 +32,24 @@
    key, no lint:settings change, old APKs unaffected. resolveToSettings() below is
    that mapping, and it is the ONLY thing the tablets ever see.
 
+   🔴 Which means every path that changes what the household is USING has to push
+   those keys, or the device keeps the old value while the console shows the new
+   one. Traced end-to-end 2026-08-23; the set is closed and each part is pinned:
+     pick an engine row  → voice-ai.js resolves on select (the only firing site
+                           for a NEW selection — a126: selecting the *Local
+                           preset* is not selecting an engine row, and the
+                           residual own-AI row exists so that case stops lying)
+     EDIT the active one → local-engines.js `_reResolveIfSelected()` re-pushes.
+                           Load-bearing and previously ungated; now
+                           check-voice-picker-surface leg 11.
+     edit a NON-active   → deliberately nothing. Overwriting the flat keys here
+                           would switch the household onto an engine nobody
+                           selected.
+     REMOVE an engine    → deliberately nothing. The confirm dialog promises
+                           "any device currently using it keeps working until you
+                           pick something else", so the last-known-good endpoint
+                           is kept on purpose.
+
    NO SECRETS HERE: an endpoint needing a key uses the API Keys page (whose values
    live on the HA box's /data volume, never in Supabase).
    ============================================================ */
