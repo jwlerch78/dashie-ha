@@ -4,13 +4,13 @@
 // One question, answered in one place: given the account's chosen AI model and the box's
 // key store, WHERE does the brain run and WHAT endpoint does node-io hit?
 //
-//   ai.model = 'local' | 'hermes'      → add-on brain, user's own endpoint (pre-existing)
+//   ai.model = 'local'                 → add-on brain, user's own endpoint (pre-existing)
 //   ai.model = cloud id + BYO key set  → add-on brain, that provider's OpenAI-compatible
 //                                        endpoint with the stored key (this module)
 //   anything else                      → cloud edge fn (Dashie credits)
 //
 // v1 BYOK providers are the OpenAI-compatible set: OpenAI + Gemini (its /openai compat
-// surface) + Hermes. Claude and Bedrock keys can be STORED (key-store.js) but need thin
+// surface). Claude and Bedrock keys can be STORED (key-store.js) but need thin
 // protocol adapters (Anthropic messages / SigV4) — deferred, so a stored claude/bedrock key
 // deliberately does NOT flip routing (turns stay on the metered cloud brain, which is not a
 // silent-degradation case: nothing was promised to run on that key yet).
@@ -50,10 +50,9 @@ const OPENAI_COMPAT = {
 /** Providers whose stored key ACTUALLY changes routing. The console renders a key field only
  *  for these (+ any provider that already has an orphaned key, so it can still be removed) —
  *  a structural guard against re-introducing a field that silently does nothing.
- *  `hermes` routes via ai.model==='hermes' rather than OPENAI_COMPAT, so it's added by hand.
  *  `bedrock` is deliberately ABSENT: it needs SigV4 request signing and has no compat endpoint;
  *  its Nova models are covered by OpenRouter instead. */
-const ROUTABLE_PROVIDERS = [...Object.keys(OPENAI_COMPAT), 'hermes'];
+const ROUTABLE_PROVIDERS = [...Object.keys(OPENAI_COMPAT)];
 
 /** OUR model id → OpenRouter wire id ("one key, every model", John 2026-07-14).
  *
@@ -92,11 +91,10 @@ function openRouterCovers(modelId) {
 /**
  * Should this account's brain run in the add-on, and why?
  * @param {object} acct  getAccountVoiceConfig() result (needs .model)
- * @returns {{route: 'local'|'cloud', reason: 'local_model'|'hermes'|'byok'|'cloud', provider?: string}}
+ * @returns {{route: 'local'|'cloud', reason: 'local_model'|'byok'|'cloud', provider?: string}}
  */
 function resolveBrainRoute(acct) {
     const model = acct?.model || null;
-    if (model === 'hermes') return { route: 'local', reason: 'hermes' };
     if (model === 'local') return { route: 'local', reason: 'local_model' };
     const provider = providerForModel(model);
     // Direct provider key first (cheaper — no OpenRouter margin — and the more specific

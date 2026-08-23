@@ -481,7 +481,6 @@ const VoiceAiPage = {
             'voice.localLlmUrl', 'voice.localLlmModel',
             'voice.searxngUrl', 'voice.localTtsUrl', 'voice.localTtsVoiceId', 'voice.localSttUrl',
             'voice.localLlmKey',   // BYO-model API key (remote endpoints) — WS-I; read server-side by node-io.js
-            'voice.hermesUrl',     // Hermes Agent endpoint — WS-I; key lives in the on-box key store (API Keys page)
             // engine-direct HA voice (detection-gated picker)
             'voice.haTtsEngineId', 'voice.haTtsVoiceId', 'voice.haSttEngineId'];
         if (dottedKey === 'ai.conversationTimeout') value = Number(rawValue);
@@ -517,7 +516,7 @@ const VoiceAiPage = {
         if (String(d['voice.controlMethod']) === 'voice_assistant') return 'ha_assist';
         const localVoice = String(d['voice.ttsProvider']) !== 'dashie_cloud'
             && String(d['voice.sttProvider']) !== 'dashie_cloud';
-        if (['local', 'hermes'].includes(String(d['ai.model'])) && localVoice) return 'local';
+        if (String(d['ai.model']) === 'local' && localVoice) return 'local';
         if (localVoice) return 'hybrid';
         return 'cloud';
     },
@@ -667,10 +666,12 @@ const VoiceAiPage = {
             // model (credits or BYO key — the key routing itself is Phase 2).
             // HA Assist has no Dashie brain → ai.model untouched.
             const model = String(d['ai.model'] || '');
-            // 'local' and 'hermes' are both local-family sentinels — entering the
-            // Local preset must not clobber a Hermes choice, and leaving it resets
-            // either back to the cloud default.
-            const isLocalModel = model === 'local' || model === 'hermes';
+            // 'local' is the one local-family sentinel. It was `local` OR `hermes` until
+            // 2026-08-23, when Hermes was stripped as a brain — an account somehow still
+            // storing 'hermes' is now treated as non-local, so entering the Local preset
+            // migrates it to 'local' rather than preserving a model nothing can serve.
+            // (Measured before the strip: zero prod accounts store it.)
+            const isLocalModel = model === 'local';
             if (id === 'local' && !isLocalModel) this.saveDefault('ai.model', 'local');
             if (id !== 'local' && isLocalModel) this.saveDefault('ai.model', VoiceAiApi.DEFAULTS['ai.model']);
         }
@@ -2039,7 +2040,7 @@ const VoiceAiPage = {
         // An OpenRouter key covers EVERY model in the catalog (providers.js OPENROUTER_MODELS
         // maps all 14, incl. claude-*/Nova) — so one key flips the whole picker to "API account",
         // not just the rows whose vendor key is set. Rows without a `provider` (search sources,
-        // the local/hermes rows) are unaffected either way.
+        // the local row) are unaffected either way.
         const universal = !!ks.openrouter;
         return options.map(o => (o.provider && (ks[o.provider] || universal)) ? { ...o, keyed: true } : o);
     },

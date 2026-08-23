@@ -32,11 +32,14 @@ const ApiKeysPage = {
      *  ONLY consumer (the onboarding flow that rendered the tool providers was
      *  deleted, unmounted), which is why the speech providers are selected here.
      *
-     *  Filtered by SURFACE as well as kind, and that is load-bearing: Hermes is
-     *  a brain provider whose key is set on the voice page, in its own row
-     *  alongside its endpoint URL. Selecting on kind alone would have quietly
-     *  added a second control for the same credential — which the first version
-     *  of this refactor did. */
+     *  Filtered by SURFACE as well as kind. ⚠️ The example that made this vivid was
+     *  Hermes — a brain provider whose key was set on the voice page beside its
+     *  endpoint URL, so selecting on kind alone quietly added a SECOND control for
+     *  one credential (which the first version of this refactor did). Hermes was
+     *  stripped 2026-08-23 and no provider is 'voice-ai'-only today, so the surface
+     *  filter currently changes nothing on THIS page — it is kept because the failure
+     *  it prevents is a property of selecting on kind, not of Hermes, and the next
+     *  provider with its own dedicated row would reintroduce it silently. */
     get PROVIDERS() {
         const M = window.ProviderManifest;
         // Brain providers, plus the SPEECH tool providers (audit #5).
@@ -304,7 +307,7 @@ const ApiKeysPage = {
         const p = this.PROVIDERS.find(x => x.id === providerId);
         const name = p?.name || providerId;
         const r = await this._runValidation(providerId);
-        if (r.ok === null) return;  // no test for this provider (bedrock/hermes) — silent
+        if (r.ok === null) return;  // no test for this provider (bedrock) — silent
         if (typeof ConfirmModal === 'undefined') return;
         await ConfirmModal.confirm({
             title: r.ok ? `✓ ${name} key is valid` : `✗ ${name} key was rejected`,

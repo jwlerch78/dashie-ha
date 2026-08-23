@@ -17,14 +17,11 @@
 //   4.  nothing                                                → spoken setup guidance
 //
 // 🔴 TIER 1 IS SELECTED BY `routeReason`, NEVER BY `route` (2026-08-22). `route` says
-// where ORCHESTRATION runs — it is 'local' for tiers 1 AND 2 AND for Hermes, because all
-// three are executed by this add-on rather than the cloud edge fn. It does NOT name the
-// inference endpoint. `resolveBrainRoute`'s `reason` is the discriminator:
-// 'local_model' | 'byok' | 'hermes' | 'cloud'. Gating tier 1 on `route` made it claim
-// every turn the other two owned — see the block at the tier itself.
-//
-// ⚠️ HERMES HAS NO TIER HERE. `reason:'hermes'` currently falls through to route 3 and is
-// logged as a loud DROP rather than silently spending. That is a known gap, not a design.
+// where ORCHESTRATION runs — it is 'local' for tiers 1 AND 2 alike, because both are
+// executed by this add-on rather than the cloud edge fn. It does NOT name the inference
+// endpoint. `resolveBrainRoute`'s `reason` is the discriminator:
+// 'local_model' | 'byok' | 'cloud'. Gating tier 1 on `route` made it claim every turn
+// tier 2 owned — see the block at the tier itself.
 //
 // 🔴 The Configuration-tab tier (`llm_url`/`llm_model`, the old tier 1) was REMOVED
 // 2026-08-21 — John's ruling: the web UI is the ONLY brain-config surface. The tab
@@ -187,12 +184,11 @@ async function converse(payload) {
         // for THREE different targets, discriminated only by `reason`:
         //     'local_model' → the account's own box   ← the only one this tier owns
         //     'byok'        → the household's provider key (resolveByokTarget, below)
-        //     'hermes'      → the Hermes agent
-        // Reading the where-flag as a which-endpoint flag made this tier claim all three.
+        // Reading the where-flag as a which-endpoint flag made this tier claim both.
         // A BYOK Gemini household with a leftover engine row had every turn sent to its
         // own (terminated) GPU box and died in ~10s — while `resolveByokTarget` two
-        // screens down would have answered it correctly. Hermes was the silent third
-        // victim: this file never mentions hermes, so those turns were claimed too.
+        // screens down would have answered it correctly. (A third reason, 'hermes', was
+        // claimed the same way; it was stripped from the vocabulary on 2026-08-23.)
         //
         // 🔴 This is the tier whose absence made "local" mean gemini. account-config
         // ALREADY resolved the endpoint and ALREADY answered route:'local' — its header
@@ -239,16 +235,18 @@ async function converse(payload) {
             // metered cloud brain for an account that asked for an ON-BOX route and got
             // no shell — the exact silent degradation this file's header forbids.
             //
-            // Today the only way to land here is `routeReason: 'hermes'`: converse.js has
-            // never had a Hermes tier, so before the gate above was corrected these turns
-            // were mis-claimed by TIER 1 and sent to whatever local LLM the account had
-            // lying around. That was wrong; falling through to cloud is *also* wrong, and
-            // it is not mine to invent a Hermes tier under a live-defect fix. So it is
-            // made LOUD instead of quietly correct-looking, and a real tier is owed.
+            // Reachable today when `routeReason` is 'local_model' but the account stores no
+            // usable endpoint (tier 1's url/model guard fails), or when 'byok' resolves no
+            // target because the key vanished between the route decision and this call.
+            // Both are real states a household can reach, and both would otherwise look
+            // exactly like a normal cloud turn on the bill.
+            //
+            // (It also caught `routeReason: 'hermes'` between 2026-08-22 and the 08-23
+            // strip that removed Hermes from the vocabulary entirely.)
             console.warn(`DROP: account routed '${acct.route}' (reason=${acct.routeReason}) but no on-box ` +
                 `target resolved — falling through to the metered cloud brain. ` +
-                `model=${acct.model || '(unset)'} hermesUrl=${acct.hermesUrl ? 'set' : 'unset'}. ` +
-                `This turn will SPEND. converse.js has no Hermes tier yet.`);
+                `model=${acct.model || '(unset)'} localLlmUrl=${acct.localLlmUrl ? 'set' : 'unset'} ` +
+                `localLlmModel=${acct.localLlmModel ? 'set' : 'unset'}. This turn will SPEND.`);
         }
     }
 

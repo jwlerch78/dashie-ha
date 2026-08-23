@@ -17,7 +17,6 @@
 // validation against a real HA before the native clients depend on them.
 
 const haRegistry = require('./ha-registry');
-const keyStore = require('./key-store');
 const { getAccountVoiceConfig } = require('./account-config');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;   // engines change rarely; Re-scan bypasses
@@ -136,102 +135,8 @@ async function _detectKokoro(debug) {
     }
 }
 
-/** Probe the Hermes add-on's OpenAI-compatible API, capturing the STATUS so the
- *  console can tell apart the setup states: 200 = reachable+authed (ready);
- *  401/403 = reachable but the bearer is missing/wrong (needs the API key);
- *  anything unreachable = running-but-not-up-yet (starting). Bearer comes from
- *  the on-box key store (the 'hermes' provider), never user_settings. */
-async function _probeHermesApi(url, key, debug) {
-    const base = String(url || '').replace(/\/+$/, '');
-    if (!base) return { reachable: false, authed: false };
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 4000);
-    try {
-        const headers = key ? { Authorization: `Bearer ${key}` } : {};
-        const resp = await fetch(`${base}/v1/models`, { headers, signal: ctl.signal });
-        clearTimeout(timer);
-        if (debug) debug.hermes_probe_status = resp.status;
-        if (resp.ok) return { reachable: true, authed: true, status: resp.status };
-        // Up, but rejected — 401/403 = no/bad key; other non-ok still means "server is up".
-        return { reachable: true, authed: false, status: resp.status };
-    } catch (e) {
-        clearTimeout(timer);
-        if (debug) debug.hermes_probe_error = e.message;
-        return { reachable: false, authed: false, error: e.name === 'AbortError' ? 'timeout' : (e.cause?.code || e.message) };
-    }
-}
-
-/** Is the Dashie Hermes add-on installed / started / reachable / authed? (WS-I.3)
- *  Mirrors _detectKokoro for install state, then — because the add-on brain runs
- *  in THIS container — probes Hermes over the internal supervisor network
- *  (http://<addon-hostname>:8642), which is also the endpoint the brain will use.
- *  Returns a flat state block the console maps to row messaging:
- *    { installed, running, reachable, authed, url, slug, version } */
-async function _detectHermes(debug) {
-    const token = process.env.SUPERVISOR_TOKEN;
-    if (!token) return { installed: false, reason: 'no_supervisor' };
-    try {
-        const resp = await fetch('http://supervisor/addons', {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!resp.ok) {
-            if (debug) debug.hermes_error = `addons HTTP ${resp.status}`;
-            return { installed: false, reason: `http_${resp.status}` };
-        }
-        const body = await resp.json();
-        const addons = body?.data?.addons || [];
-        const hit = addons.find(a =>
-            /(^|_)dashie_hermes$/.test(String(a.slug || '')) ||
-            /hermes/i.test(String(a.name || '')));
-        if (debug) debug.hermes_match = hit || null;
-        if (!hit) return { installed: false };
-
-        const running = hit.state === 'started';
-        const result = {
-            installed: true, running, reachable: false, authed: false,
-            url: null, slug: hit.slug, version: hit.version || null,
-        };
-        if (!running) return result;
-
-        // Resolve the internal hostname for the probe (same source addon_bridge.py uses).
-        let host = null;
-        try {
-            const info = await fetch(`http://supervisor/addons/${hit.slug}/info`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (info.ok) {
-                const j = await info.json();
-                host = j?.data?.hostname || j?.data?.ip_address || null;
-            }
-        } catch (e) {
-            if (debug) debug.hermes_info_error = e.message;
-        }
-        if (!host) return result;   // running but host unknown → treat as "starting"
-
-        result.url = `http://${host}:8642`;
-        const key = keyStore.readKeys().hermes?.key || '';
-        const probe = await _probeHermesApi(result.url, key, debug);
-        result.reachable = probe.reachable;
-        result.authed = probe.authed;
-        return result;
-    } catch (e) {
-        if (debug) debug.hermes_error = e.message;
-        return { installed: false, reason: 'probe_failed' };
-    }
-}
-
-/**
- * Detect local voice engines. Cached for CACHE_TTL_MS; `refresh` bypasses the
- * cache (the Console's "Re-scan" affordance). `debug` attaches a `_debug` block
- * with raw WS shapes for §4.3 validation (never cached).
- *
- * Returns: { available, tts: [...], stt: [...], kokoro: {...}, _debug? }
- *   available=false means HA WS isn't reachable (no supervisor token / dev env);
- *   the Console then falls back to URL-based local_* rows only.
- */
 /** OpenAI-compatible reachability + model list — GET {url}/v1/models with an
- *  optional bearer. Reused by the brain (BYO-model) block below and available for
- *  a future Hermes add-on probe (Voice Master Plan WS-I). Best-effort. */
+ *  optional bearer. Used by the brain (BYO-model) block below. Best-effort. */
 async function probeOpenAiCompat(url, key, debug) {
     const base = String(url || '').trim().replace(/\/+$/, '');
     if (!base) return { reachable: false, models: [] };
@@ -250,7 +155,7 @@ async function probeOpenAiCompat(url, key, debug) {
 }
 
 /** BYO-model brain endpoint (WS-I): if the account configured a custom OpenAI-
- *  compatible URL (voice.localLlmUrl — Ollama / self-hosted Hermes / remote), probe
+ *  compatible URL (voice.localLlmUrl — Ollama / llama.cpp / remote), probe
  *  it so the picker can pre-fill URL/models like the Kokoro block does. No URL
  *  configured → { configured:false }. Same shape/pattern as _detectKokoro. */
 async function _detectBrain(debug) {
@@ -279,24 +184,32 @@ async function _detectHaLanguage(debug) {
     }
 }
 
+/**
+ * Detect local voice engines. Cached for CACHE_TTL_MS; `refresh` bypasses the
+ * cache (the Console's "Re-scan" affordance). `debug` attaches a `_debug` block
+ * with raw WS shapes for §4.3 validation (never cached).
+ *
+ * Returns: { available, tts: [...], stt: [...], kokoro: {...}, _debug? }
+ *   available=false means HA WS isn't reachable (no supervisor token / dev env);
+ *   the Console then falls back to URL-based local_* rows only.
+ */
 async function detectVoiceEngines({ refresh = false, debug = false } = {}) {
     if (!haRegistry.isAvailable()) {
-        return { available: false, tts: [], stt: [], kokoro: { installed: false, reason: 'ha_unavailable' }, hermes: { installed: false, reason: 'ha_unavailable' }, brain: { configured: false } };
+        return { available: false, tts: [], stt: [], kokoro: { installed: false, reason: 'ha_unavailable' }, brain: { configured: false } };
     }
     if (!refresh && !debug && _cache && (Date.now() - _cache.fetchedAt) < CACHE_TTL_MS) {
         return _cache.result;
     }
 
     const dbg = debug ? {} : null;
-    const [tts, stt, kokoro, hermes, brain, haLanguage] = await Promise.all([
+    const [tts, stt, kokoro, brain, haLanguage] = await Promise.all([
         _detectTts(dbg),
         _detectStt(dbg),
         _detectKokoro(dbg),
-        _detectHermes(dbg),
         _detectBrain(dbg),
         _detectHaLanguage(dbg),
     ]);
-    const result = { available: true, tts, stt, kokoro, hermes, brain, haLanguage };
+    const result = { available: true, tts, stt, kokoro, brain, haLanguage };
 
     // Cache only the clean (non-debug) result so a debug call never poisons it.
     if (!debug) _cache = { result, fetchedAt: Date.now() };

@@ -246,6 +246,12 @@ export interface PromptContext {
   providedSports?: unknown;     // §23.6: pre-fetched sports → pass-1 voices it in personality
   providedCalendar?: unknown;   // 20260711: pre-fetched calendar window → pass-1 digests it directly
   webSearchEnabled?: boolean;   // T3: false → omit web_search from the offered tools list
+  /** Gemini native Google Search grounding for THIS turn (`geminiGrounds`, orchestrator.ts:568).
+   *  NOT the same as `webSearchEnabled === false`: that is also false when the sports guard fires
+   *  or the account opted out of web search, and in those cases there is no web access at all.
+   *  Only this flag says "no tool, but the model still reaches the web". Drives which web-
+   *  capability block the prompt carries — see selectWebGuidance in prompt.ts. */
+  groundingEnabled?: boolean;
   // true → this turn IS a scheduled action firing: omit schedule_action from the offered
   // tools list so the replay cannot re-schedule itself (see VoiceRequest.announcement).
   announcement?: boolean;

@@ -85,6 +85,11 @@ function languageNameFor(code: string): string {
 //  - device-only tools the CALLER can't fulfill: omit them. See DEVICE_ONLY_TOOLS below.
 export type ToolsContext = {
   webSearchEnabled?: boolean;
+  /** Gemini native Google Search grounding for THIS turn (`geminiGrounds`). Distinct from
+   *  webSearchEnabled: both are false when the account opted out of web search or the sports
+   *  guard fired, and only this one says the model can still reach the web. See
+   *  selectWebGuidance. */
+  groundingEnabled?: boolean;
   announcement?: boolean;
   /** `client_fulfilled_tools` from the request — what this device/caller can actually run. */
   clientTools?: string[];
@@ -157,6 +162,50 @@ function dropUnofferedExamples(text: string, context: ToolsContext): string {
       return !m || offered.has(m[1]);
     })
     .join('\n');
+}
+
+/** Keep the web-capability guidance that matches THIS turn's offering, drop the other.
+ *
+ *  The two providers reach the web by different routes (`promptWebSearch` below / web-lane.ts),
+ *  and they need opposite instructions: a tool-offered model must be told the call is mandatory,
+ *  a natively-grounding model must be told to just answer. Measured 2026-08-23 (Thread V,
+ *  prompt-probe, repeat=3) — ONE shared text cannot serve both, it only moves the failure:
+ *
+ *      shared text v2   haiku 75%   gemini  83%
+ *      shared text v3   haiku 62%   gemini 100%    ← helping gemini cost haiku 13 points
+ *
+ *  Both times the branch written for one model was misapplied by the other. So the guidance is
+ *  filtered by the SAME condition that filters the tool list itself, which is the established
+ *  pattern here (`toolsListFor`) rather than a new mechanism. Prompt text stays single-sourced in
+ *  js/ai/prompts/*.md; only the selection lives in code.
+ *  ⚠️ Mirrored in js/ai/prompts/prompt-builder.js — the web/console builder.
+ *
+ *  ⚠️ THREE states, not two (corrected 2026-08-23 after John: "Gemini should never be used
+ *  without its search enabled — we'll always have that on in production"). `webSearchEnabled` is
+ *  `promptWebSearch` (orchestrator.ts:591) and it is FALSE for three different reasons:
+ *      1. Gemini IS grounding      → web reachable, no tool  → NATIVE
+ *      2. sports guard on Gemini   → grounding OFF *and* tool withheld (orchestrator.ts:589)
+ *      3. account opted out of web (T3, `webSearchAllowed` false, orchestrator.ts:524)
+ *  In 2 and 3 there is **no web access at all**, so claiming "this device reaches the web for you
+ *  automatically" would be FALSE — and in 3 it would actively contradict a setting the household
+ *  deliberately turned off. Emitting NATIVE on a bare `!webSearchOffered` did exactly that; this
+ *  is the fix. When neither block applies, BOTH are dropped and the closed-list decline above
+ *  correctly governs the turn. */
+export function selectWebGuidance(
+  text: string,
+  webSearchOffered: boolean,
+  /** Is Gemini's native Google Search grounding ON for this turn (`geminiGrounds`)? Undefined =
+   *  unknown → treated as OFF, i.e. no capability is claimed. Fail-closed on purpose: a missing
+   *  wire must never invent an ability. */
+  groundingEnabled?: boolean,
+): string {
+  const keep = webSearchOffered ? 'TOOL' : groundingEnabled ? 'NATIVE' : null;
+  let out = text;
+  for (const block of ['TOOL', 'NATIVE']) {
+    if (block === keep) continue;
+    out = out.replace(new RegExp(`<!--WEB:${block}-->[\\s\\S]*?<!--/WEB:${block}-->\\n?`, 'g'), '');
+  }
+  return keep ? out.replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '') : out;
 }
 
 function toolsListFor(context: ToolsContext): string {
@@ -408,10 +457,10 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
       prompt += '\n\n' + fillTemplate(inquiryTemplate, inquiryValues);
     }
     // With retrieved data, use the full response format (all display flags).
-    prompt += '\n\n' + dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_FULL, baseValues), context);
+    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_FULL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
   } else {
     // Initial request — slim format focused on tool selection.
-    prompt += '\n\n' + dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context);
+    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
     // Multi-tool emission (capability-gated): teach pass-1 to emit {type:"multi", steps:[…]}
     // ONLY when the caller declared the `multi` capability. Withheld otherwise so old clients —
     // which never declare it — keep today's exact single-tool behavior (a multi envelope would

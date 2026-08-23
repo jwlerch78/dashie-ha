@@ -50,7 +50,7 @@ const { getAccountVoiceConfig } = require('./account-config');
  *  the answer is per-capability: a box with a brain key but no TTS key lends
  *  `ai` and not `voice`, and that partial grant is a normal steady state. */
 const METERED_KEYS = {
-    ai: ['openrouter', 'gemini', 'claude', 'openai', 'bedrock', 'hermes'],
+    ai: ['openrouter', 'gemini', 'claude', 'openai', 'bedrock'],
     voice: ['deepgram', 'elevenlabs', 'inworld'],
     tools: ['tavily', 'brave', 'pexels', 'apisports'],
 };

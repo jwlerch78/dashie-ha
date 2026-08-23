@@ -27,11 +27,14 @@
 //   keySource   where to get one, and what the free tier is. Onboarding that
 //               says "paste a key" without saying where is not onboarding.
 //   surfaces    WHERE this provider is configurable. Not every provider belongs
-//               on every screen: Hermes has its own dedicated row on the voice
-//               page (endpoint URL + key together), so listing it on the API-keys
-//               page would give one credential two controls. Being explicit here
-//               is what lets both screens read ONE list without either of them
-//               growing a special case.
+//               on every screen: Bedrock is api-keys ONLY — it has no
+//               OpenAI-compatible endpoint the server can route, so it must not be
+//               offered during onboarding, but an existing key still has to render
+//               somewhere it can be removed. Being explicit here is what lets every
+//               screen read ONE list without any of them growing a special case.
+//               (Until 2026-08-23 this note used Hermes — the only 'voice-ai'-only
+//               row — as its example; Hermes was stripped as a brain, so the example
+//               moved to a row that still exists.)
 //               ⚠️ 'onboarding' currently names NO PAGE (deleted 2026-08-04 —
 //               the first-run flow was never mounted). The value is kept rather
 //               than stripped from twelve entries because it records which
@@ -174,15 +177,6 @@
                 { id: 'secretAccessKey', label: 'Secret access key', placeholder: '', secret: true },
                 { id: 'region', label: 'Region', placeholder: 'us-east-1', secret: false },
             ],
-        },
-        {
-            id: 'hermes', name: 'Hermes', kind: 'brain', group: 'direct',
-            surfaces: ['voice-ai'],
-            capabilities: [CAP.LLM], credential: CRED_STATIC,
-            auth: AUTH.API_KEY, required: true, adapter: ADAPTER.SHIPPED,
-            unlocks: 'A self-hosted or third-party OpenAI-compatible endpoint',
-            keySource: { url: '', free: 'Your own server' },
-            fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
 
         // ── Tools ────────────────────────────────────────────────────────────
