@@ -33,9 +33,12 @@
 // This WRITES the user's stored configuration, so every branch fails toward doing
 // nothing:
 //   · no SUPERVISOR_TOKEN, unreachable, non-200, unparseable → return, silent.
-//   · schema missing / not an object / EMPTY → return. An empty schema would make
-//     every stored option look orphaned; that is the one input that could wipe a
-//     box's configuration, so it is refused explicitly rather than handled.
+//   · schema in a shape we do not understand → return, LOUDLY. (It shipped once
+//     misreading the shape and returning quietly, which is how it ran nowhere for
+//     a release without a single line of evidence.)
+//   · schema understood but EMPTY → return. An empty allow-list would make every
+//     stored option look orphaned; that is the one input that could wipe a box's
+//     configuration, so it is refused explicitly rather than handled.
 //   · nothing orphaned → return without a write.
 // It only ever REMOVES keys absent from a non-empty schema. It never adds a key,
 // never changes a value, and never throws — startup must not depend on it.
@@ -76,11 +79,38 @@ async function pruneOrphanOptions() {
 
         const schema = data.schema;
         const stored = data.options;
-        if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return [];
-        // 🔴 The guard that matters: an empty schema makes EVERY stored option look
-        // orphaned. Refuse rather than interpret — this is the branch that would
-        // wipe a household's configuration.
-        const allowed = Object.keys(schema);
+
+        // 🔴 THE SHAPE. `/addons/self/info` returns `schema` as an ARRAY of
+        // `{name, type}` rows — measured from the endpoint, T s44 cont.12. This code
+        // first shipped assuming a `{key: type}` MAP and refused on `Array.isArray`,
+        // so it returned early on every box, at every startup, having done nothing.
+        // Both halves of that mistake are worth keeping visible:
+        //
+        //   · it was the one refusal branch with no `DROP:`, so a function that could
+        //     never execute was also the only one that never said so (standing rule 2
+        //     is what this file was built around, and it had a hole in exactly the
+        //     branch that fired);
+        //   · its test fed the MAP shape, so the gate asserted the author's model of
+        //     the API rather than the API. Green, and testing nothing.
+        //
+        // ⚠️ And deleting the guard alone is a CONFIGURATION WIPE, which is why the
+        // shape read and the refusal below have to change together: `Object.keys()`
+        // on an 11-row array yields `"0".."10"`, the empty-schema refusal does not
+        // fire (11 ≠ 0), every real stored key reads as orphaned, and this function
+        // POSTs `{}` — clearing the household's config including `cloud_env`, which
+        // decides which Supabase the box talks to. On John's box, prod.
+        const allowed = Array.isArray(schema)
+            ? schema.map((row) => row && row.name).filter(Boolean)   // the real API shape
+            : (schema && typeof schema === 'object' ? Object.keys(schema) : null);
+
+        if (allowed === null) {
+            console.warn(`DROP: option prune — supervisor schema is neither an array of rows nor a key map (got ${typeof schema}); leaving stored options untouched`);
+            return [];
+        }
+        // 🔴 The refusal that matters, and it is only REACHABLE now that the shape is
+        // read correctly: an empty allow-list makes EVERY stored option look orphaned.
+        // Also the safe landing for an array whose rows carry no `name` — a shape we
+        // failed to understand yields nothing allowed, and nothing allowed refuses.
         if (allowed.length === 0) {
             console.warn('DROP: option prune — supervisor reported an EMPTY schema; refusing to treat every stored option as orphaned');
             return [];
