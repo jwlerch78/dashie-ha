@@ -67,27 +67,14 @@ ports: {}
 # cloud_env: which Dashie Cloud environment a signed-in account uses.
 # The dev channel defaults to `beta` (staging) so test sign-ins hit the
 # staging backend — see DOCS.md; `stable` (app.dashieapp.com) is prod.
+# ── COMPOSED FROM canonical dashie-ha/config.yaml — DO NOT HAND-EDIT BELOW ──
 options:
-  log_level: debug
   # Capability-lease TTL in minutes (CONTRACTS #65). Bounds the worst-case delay
   # between turning household sharing off and a satellite noticing. Clamped
   # 5..240 in server/config.js — a 0 would expire every lease on arrival.
   lease_ttl_minutes: 30
-  # ⚠️ DEV CHANNEL ONLY — seconds, and it OVERRIDES the minutes above.
-  # Declared here and deliberately NOT in the prod channel's schema, so Home
-  # Assistant rejects it there before it can reach the add-on. That absence is
-  # the whole enforcement: no code branch, and no way to leave a 60-second
-  # revocation window running in a real household by accident.
-  # 0 / unset = off. Exists so the lease test suite costs minutes rather than
-  # the 3+ hours a real 30-minute TTL prices it at — without it the suite is
-  # priced like a soak and stops being run, which is how a revocation mechanism
-  # silently rots.
-  lease_ttl_seconds: 0
   cloud_env: beta
   install_integration: true
-  llm_url: ""
-  llm_model: ""
-  llm_api_key: ""
   stt_url: ""
   stt_model: "whisper-1"
   stt_api_key: ""
@@ -104,27 +91,35 @@ options:
   #   refuses. Flip per box, after checking the DROP: markers on THAT box --
   #   the risky set is not knowable from the code, since /service is an
   #   LLM-driven passthrough.
-  # ai_auth_enforce: the same shape on the AI auth path.
+  #
+  # (A second rung, ai_auth_enforce, was removed 2026-08-23: it was declared here
+  # and read NOWHERE, so it could never do anything. #48.)
   #
   # Default OFF is the whole point: enabling by default would enforce on every
   # box that takes a release, which is an estate-wide behaviour change rather
   # than a rollout.
   service_policy_enforce: false
-  ai_auth_enforce: false
+  # ⚠️ DEV CHANNEL ONLY — seconds, and it OVERRIDES the minutes above.
+  # Declared here and deliberately NOT in the prod channel's schema, so Home
+  # Assistant rejects it there before it can reach the add-on. That absence is
+  # the whole enforcement: no code branch, and no way to leave a 60-second
+  # revocation window running in a real household by accident.
+  # 0 / unset = off. Exists so the lease test suite costs minutes rather than
+  # the 3+ hours a real 30-minute TTL prices it at — without it the suite is
+  # priced like a soak and stops being run, which is how a revocation mechanism
+  # silently rots.
+  lease_ttl_seconds: 0
 schema:
   service_policy_enforce: bool?
-  ai_auth_enforce: bool?
-  log_level: list(trace|debug|info|notice|warning|error|fatal)
   lease_ttl_minutes: int(5,240)?
-  lease_ttl_seconds: int(0,14400)?
   cloud_env: list(beta|stable|development|production)
   install_integration: bool?
-  llm_url: str?
-  llm_model: str?
-  llm_api_key: password?
   stt_url: str?
   stt_model: str?
   stt_api_key: password?
   tts_url: str?
   tts_voice: str?
   tts_api_key: password?
+
+  lease_ttl_seconds: int(0,14400)?
+# ── END COMPOSED ──

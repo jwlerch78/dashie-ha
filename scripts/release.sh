@@ -203,6 +203,12 @@ node "$ADDON_ROOT/scripts/check-console-endpoints.mjs"
 echo "==> Checking brain route tiers (which endpoint actually receives the turn)"
 node "$ADDON_ROOT/scripts/check-brain-route-tiers.mjs"
 
+# The dev channel's options/schema must equal canonical + the declared dev overlay.
+# Checked here as well as composed above, so a hand-edit between cuts is caught
+# rather than silently overwritten at the next release.
+echo "==> Checking the dev channel's config surface against canonical"
+node "$ADDON_ROOT/scripts/compose-dev-config.mjs" --check
+
 # ── /service, both halves — and check-service-policy was a FOURTH unrun gate ──
 #
 # 🔴 The block above says this defect was "found while wiring the four above".
@@ -282,6 +288,15 @@ if [[ "$CHANNEL" == "dev" ]]; then
       cp "dashie-ha/$item" "dashie-ha-dev/$item"
     fi
   done
+  # 🔴 config.yaml is NOT in MIRRORED_ITEMS (dev owns its name/slug/description and
+  # its dev-only lease_ttl_seconds) — but its options/schema surface is NOT
+  # channel-specific, so leaving the whole file dev-owned meant every canonical
+  # config change landed prod-only, silently, and both gates were blind to it by
+  # construction. 0.9.19 shipped a dev Configuration tab with 16 options where
+  # canonical had 10, including three fields removed weeks earlier. Composed now.
+  echo "==> [dev] Composing dashie-ha-dev/config.yaml options/schema from canonical"
+  node "$ADDON_ROOT/scripts/compose-dev-config.mjs"
+
   echo "==> [dev] Vendoring Dashie Voice integration main → dashie-ha-dev/integration"
   INTEGRATION_SHA="$("$ADDON_ROOT/scripts/sync-integration.sh" main "" "$DIR/integration")"
 
