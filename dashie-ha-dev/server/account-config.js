@@ -113,9 +113,23 @@ async function getAccountVoiceConfig() {
         const usableEngine = (e) => e && e.kind === 'llm' && str(e.url) && str(e.model);
         const selectedId = typeof model === 'string' && model.startsWith('engine:')
           ? model.slice('engine:'.length) : null;
+        // 🔴 …but ONLY when a local model is what the user actually chose. The last leg
+        // below ("any usable stored LLM engine") is a convenience for an account that
+        // means to run on its own box but never named which engine. For an account on a
+        // CLOUD model it invents a local endpoint out of a leftover engine row — which is
+        // how a BYOK Gemini household had every turn sent to its own TERMINATED GPU box
+        // (2026-08-22, T cont.27). `ai.model` is the user's answer; a stale engine row is
+        // not a second opinion, and scraping one is how the resolver started disagreeing
+        // with the selection it exists to resolve.
+        //
+        // Defensible only for: a named engine (`engine:<id>`), the generic `local`, or an
+        // account that has chosen nothing yet. NOT for 'hermes' (its own endpoint) and
+        // NOT for any cloud model.
+        const localSelection = selectedId !== null || model === 'local' || !model;
         const llmEngine =
           (selectedId && engines.find((e) => usableEngine(e) && e.id === selectedId)) ||
-          engines.find(usableEngine) || null;
+          (localSelection ? engines.find(usableEngine) : null) ||
+          null;
         value = {
           model,
           localLlmUrl: str(settings?.voice?.localLlmUrl) || str(llmEngine?.url),
