@@ -8,9 +8,9 @@
 //   - /api/internal/voice-config → the route the integration should take (M7)
 //
 // The "is this account on a local model?" decision lives here: ai.model === 'local' (the generic
-// "My own AI" endpoint row) or 'hermes' (the dedicated Hermes Agent row, WS-I) → route 'local';
-// anything else → 'cloud'. Both are local-family sentinels: the model runs on the user's own
-// hardware and the cloud edge fn can't reach it.
+// "My own AI" endpoint row) → route 'local'; anything else → 'cloud'. It is a local-family
+// sentinel: the model runs on the user's own hardware and the cloud edge fn can't reach it.
+// ('hermes' was the second such sentinel until 2026-08-23, when Hermes was stripped as a brain.)
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +23,7 @@ let _cache = null; // { at, value }
 
 // ── Last-known-good config, persisted to the box ────────────────────────────────
 // WHY (2026-07-14): every ingredient of a fully-local voice turn already lives on this
-// box — the brain bundle (vendored), the BYO keys (/data/api-keys.json), Hermes/Ollama,
+// box — the brain bundle (vendored), the BYO keys (/data/api-keys.json), Ollama,
 // Piper/Whisper. The ONLY cloud-resident piece was this config. So a Supabase outage used
 // to hand back SAFE_DEFAULT (route:'cloud') and the add-on would dutifully route voice to
 // a cloud edge fn it couldn't reach — bricking a household whose entire stack was local
@@ -66,7 +66,7 @@ function _readCachedConfig() {
 // user_settings read failure would write customizePipeline=false + alwaysOpenDialog=false
 // onto every kiosk in the house. Null → /voice-config omits `pipeline` → the integration
 // forwards nothing → the applier leaves the kiosk alone. (Audit 2026-07-13, #4.)
-const SAFE_DEFAULT = { model: null, route: 'cloud', localLlmUrl: '', localLlmModel: '', localLlmKey: '', hermesUrl: '', retainTranscripts: false, agentMode: '', retrievePictures: null, webSearchEnabled: null, zipCode: '', defaultPersonalityId: '', defaultVoiceKey: '', defaultWakeWord: '', householdSharing: false, pipeline: null };
+const SAFE_DEFAULT = { model: null, route: 'cloud', localLlmUrl: '', localLlmModel: '', localLlmKey: '', retainTranscripts: false, agentMode: '', retrievePictures: null, webSearchEnabled: null, zipCode: '', defaultPersonalityId: '', defaultVoiceKey: '', defaultWakeWord: '', householdSharing: false, pipeline: null };
 
 /** Coerce a settings value to a string, '' when absent/non-string. */
 function str(v) { return typeof v === 'string' ? v : ''; }
@@ -123,8 +123,7 @@ async function getAccountVoiceConfig() {
         // with the selection it exists to resolve.
         //
         // Defensible only for: a named engine (`engine:<id>`), the generic `local`, or an
-        // account that has chosen nothing yet. NOT for 'hermes' (its own endpoint) and
-        // NOT for any cloud model.
+        // account that has chosen nothing yet. NOT for any cloud model.
         const localSelection = selectedId !== null || model === 'local' || !model;
         const llmEngine =
           (selectedId && engines.find((e) => usableEngine(e) && e.id === selectedId)) ||
@@ -138,9 +137,6 @@ async function getAccountVoiceConfig() {
           // endpoint. Console-only key (user_settings.voice.localLlmKey); passed to
           // node-io.js. Blank for keyless local Ollama/llama.cpp.
           localLlmKey: str(settings?.voice?.localLlmKey) || str(llmEngine?.key),
-          // Hermes Agent endpoint (dedicated row, ai.model='hermes'). Its API key is
-          // NOT in user_settings — it lives in the on-box key store ('hermes' provider).
-          hermesUrl: settings?.voice?.hermesUrl || '',
           retainTranscripts: row.retain_transcripts === true,
           // Household conversation agent mode (live|dialog|single) — the console's Voice & AI
           // page writes user_settings.voice.agentMode (ACCOUNT_VOICE_KEYS). Carried to

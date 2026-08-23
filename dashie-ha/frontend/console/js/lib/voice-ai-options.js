@@ -128,45 +128,11 @@ const VoiceAiOptions = {
      *  local-LLM route. Cost prefers the live margined rate card (applyLiveRates)
      *  — what the user actually pays — falling back to the bundled raw catalog
      *  (AiModelCatalog.pricingFor) when the card hasn't loaded. */
-    // Hermes add-on install/store deep-link (into the user's OWN HA — repository_url
-    // makes it resolve even before the Dashie repo is added). Slug hash =
-    // sha1('https://github.com/jwlerch78/dashie-ha-app')[:8] (supervisor store/utils.py).
-    _HERMES_ADDON_URL: 'https://my.home-assistant.io/redirect/supervisor_addon/?addon=01f10a62_dashie_hermes&repository_url=https%3A%2F%2Fgithub.com%2Fjwlerch78%2Fdashie-ha-app',
-    _HERMES_DOCS_URL: 'https://hermes-agent.nousresearch.com/docs/getting-started/quickstart',
-
-    /** State-driven extras for the Hermes row (WS-I.3). `detection.hermes` comes from
-     *  GET /api/voice/engines ({ installed, running, reachable, authed, url }); null in
-     *  the website console (no add-on to probe). Returns { installGuide?, note? } that
-     *  models() spreads onto the row so the badge + selected-row note track reality:
-     *    not installed  → Install badge (add-on link for HA users, docs otherwise)
-     *    installed/off  → "Open add-on ↗" (start it there) + note
-     *    running/unreach→ "starting…" note (Re-scan)
-     *    reachable/401  → "add API key" note (the bearer lives on the API Keys page)
-     *    authed         → "✓ Ready" note (+ detected url). */
-    _hermesRowExtras(detection) {
-        const h = detection?.hermes;
-        if (h?.installed) {
-            if (!h.running) {
-                return {
-                    installGuide: { url: this._HERMES_ADDON_URL, label: 'Open add-on ↗' },
-                    note: 'Add-on installed — open it, press Start, then add your Hermes API key under API Keys.',
-                };
-            }
-            if (!h.reachable) return { note: 'Add-on starting… give it a moment, then Re-scan.' };
-            if (!h.authed)   return { note: 'Add-on running — add your Hermes API key under API Keys to connect.' };
-            return { note: `✓ Detected and ready${h.url ? ` at ${h.url}` : ''}.` };
-        }
-        // Not installed (add-on mode, detection ran) OR website console (no detection):
-        // HA contexts get the add-on deep-link, everyone else the upstream install docs.
-        // (isHaContext = the one holder; this site used to hand-write the same OR.)
-        if (DashieAuth?.isHaContext) {
-            return { installGuide: { url: this._HERMES_ADDON_URL, label: 'Install add-on ↗' } };
-        }
-        return { installGuide: { url: this._HERMES_DOCS_URL } };
-    },
-
-    /** @param {object} [detection] GET /api/voice/engines result — drives the Hermes
-     *  row's install/setup state (add-on mode). Absent on the website console.
+    /** @param {object} [detection] GET /api/voice/engines result. ⚠️ No longer read by
+     *  this function — it drove the Hermes row's install/setup state, and that row was
+     *  stripped 2026-08-23. Kept in the signature because callers still pass it and the
+     *  STT/TTS option builders below take the same shape; removing the parameter is a
+     *  wider change than this strip.
      *  @param {string} [currentId] the stage's STORED `ai.model`, so the generic own-AI
      *  row can render as a residual when saved engines have replaced it — see the block
      *  at the end of this function. */
@@ -228,26 +194,11 @@ const VoiceAiOptions = {
             cost: 'Free',
             haOnly: true,
         }];
-        /* ── Hermes Agent row — SOFT-REMOVED 2026-07-17 ──────────────────────────────
-         * Hermes is no longer offered as an AI ENGINE (we may revisit it for its MEMORY, not
-         * as a brain). Hiding the picker row is the only user-facing change; the plumbing is
-         * left DORMANT and intact: the ai.model='hermes' sentinels in voice-ai.js, the
-         * voice.hermesUrl setting, _hermesRowExtras / _HERMES_ADDON_URL / _HERMES_DOCS_URL below,
-         * and the account-config brain routing all remain. To RESTORE, push this object back
-         * into `out` above.
-        {
-            id: 'hermes',
-            label: 'Hermes Agent (self-hosted)',
-            group: 'Local',
-            description: `Nous Research’s open-source personal agent behind ${BRAND.productName}’s brain — persistent memory and self-built skills, running on your own hardware. Add its API key under API Keys.`,
-            locality: 'local',
-            cost: 'Free',
-            ...this._hermesRowExtras(detection),
-            configFields: [
-                { key: 'voice.hermesUrl', label: 'Hermes endpoint URL', placeholder: 'http://homeassistant.local:8642', required: true },
-            ],
-        },
-        ──────────────────────────────────────────────────────────────────────────── */
+        // 🗑️ The Hermes Agent row lived here, soft-removed 2026-07-17 and fully STRIPPED
+        // 2026-08-23 (John's ruling): Hermes is not a brain. The comment that stood here
+        // said the plumbing "all remains" and gave RESTORE instructions — both untrue now,
+        // and a restore is not what a future Hermes would be anyway: memory-sync would be a
+        // NEW surface, not this row brought back. So the instructions retire with the code.
         // Saved own-AI engines replace the generic "My own AI" inline-URL row.
         const inlineOwnAiRow = out.find(o => o && o.id === 'local') || null;
         const withEngines = this.withSavedEngines('llm', out, 'local');

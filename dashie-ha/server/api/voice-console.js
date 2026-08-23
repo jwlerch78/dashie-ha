@@ -34,7 +34,7 @@ router.get('/engines', async (req, res) => {
     } catch (e) {
         console.error('[voice-console] engine detection failed:', (e && e.stack) || e);
         // Best-effort — never 500 the picker; the Console falls back to URL rows.
-        res.json({ available: false, tts: [], stt: [], kokoro: { installed: false, reason: 'error' }, hermes: { installed: false, reason: 'error' }, error: (e && e.message) || String(e) });
+        res.json({ available: false, tts: [], stt: [], kokoro: { installed: false, reason: 'error' }, error: (e && e.message) || String(e) });
     }
 });
 

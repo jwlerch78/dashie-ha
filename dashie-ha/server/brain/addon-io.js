@@ -332,7 +332,7 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         // this the core resolves retrieve_pictures to FALSE and the model hallucinates
         // "Here's a picture of Oslo" with no way to show one. `model` stays null: on this
         // runtime the model is already resolved by the caller (ai.model here can be a routing
-        // sentinel like 'local'/'hermes', which must not leak into a turn).
+        // sentinel like 'local', which must not leak into a turn).
         readAccountAiConfig: async () => {
             try {
                 const a = await require('../account-config').getAccountVoiceConfig();

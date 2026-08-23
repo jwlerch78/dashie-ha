@@ -3,13 +3,14 @@
 // **which endpoint actually receives the inference call.**
 //
 // WHY THIS EXISTS (2026-08-22 live defect, T cont.27 / A cont.6). `resolveBrainRoute`
-// returns `route:'local'` for THREE different targets — the account's own box
-// (`reason:'local_model'`), the household's BYOK provider key (`'byok'`), and Hermes
-// (`'hermes'`). `route` answers WHERE ORCHESTRATION RUNS; it does NOT answer which
-// endpoint gets the call. `converse.js` gated Tier 1 on `route === 'local'`, read the
-// where-flag as a which-endpoint flag, and so claimed all three. A BYOK Gemini household
-// with one leftover engine row had every turn sent to its own TERMINATED GPU box and died
-// in ~10 s — while `resolveByokTarget`, two screens further down, would have answered it.
+// returns `route:'local'` for MORE THAN ONE target — the account's own box
+// (`reason:'local_model'`) and the household's BYOK provider key (`'byok'`); there was a
+// third, `'hermes'`, until it was stripped on 2026-08-23. `route` answers WHERE
+// ORCHESTRATION RUNS; it does NOT answer which endpoint gets the call. `converse.js` gated
+// Tier 1 on `route === 'local'`, read the where-flag as a which-endpoint flag, and so
+// claimed them all. A BYOK Gemini household with one leftover engine row had every turn
+// sent to its own TERMINATED GPU box and died in ~10 s — while `resolveByokTarget`, two
+// screens further down, would have answered it.
 //
 // That category error is invisible to every other gate here, because every component
 // involved was individually correct. So this file asserts the OUTCOME: for a given
@@ -37,6 +38,7 @@ const require_ = createRequire(path.join(SERVER, 'x.js'));
 const state = {};
 let captured = null;      // the shell handed to createAddonIO — the probe
 let warnings = [];
+let cloudCalled = false;  // did the turn reach the metered Dashie Cloud brain?
 
 const stub = (rel, exports) => {
   const p = require_.resolve(rel);
@@ -64,8 +66,11 @@ stub('./brain/voice-brain.bundle.js', {
 });
 
 // The account row, served to the REAL account-config through the REAL fetch call site.
+// Also records a hit on the Dashie Cloud brain, so "this turn went to the metered cloud"
+// is OBSERVED rather than inferred from the absence of a route tag.
 const REAL_FETCH = globalThis.fetch;
-globalThis.fetch = async () => ({
+globalThis.fetch = async (url) => ({
+  ...(String(url).includes('/functions/v1/voice-conversation') ? (cloudCalled = true, {}) : {}),
   ok: true,
   json: async () => [{ settings: state.settings || {}, retain_transcripts: false }],
 });
@@ -84,6 +89,7 @@ const scenario = (s) => {
   Object.assign(state, { signedIn: true, keys: {}, options: {}, settings: {}, localBlob: {} }, s);
   captured = null;
   warnings = [];
+  cloudCalled = false;
   accountConfig.invalidate();          // 30 s TTL — must not leak between scenarios
 };
 
@@ -96,7 +102,7 @@ const turn = async () => {
   try {
     const r = await converse({ text: 'what time is it' });
     return {
-      route: r.routeTag || (r.body && r.body.error) || 'cloud-or-refused',
+      route: r.routeTag || (cloudCalled ? 'cloud' : (r.body && r.body.error) || 'refused'),
       target: captured ? (captured.endpoint || captured.chatUrl || null) : null,
       model: captured ? captured.model : null,
     };
@@ -139,18 +145,29 @@ scenario({
 check('⚖️ signed-OUT box with the panel blob → local:box, unchanged',
   await turn(), { route: 'local:box', target: 'http://panel-box:11434', model: 'llama3' });
 
-console.log('\n── 🔴 THE THIRD VICTIM: hermes also answers route:local ────────────');
-// `converse.js` has never had a Hermes tier. Before the gate was corrected, a hermes
-// household with a leftover engine was claimed by Tier 1 and sent to that engine.
+console.log('\n── 🗑️ hermes: was the third victim, now just an unknown model ──────');
+// `hermes` was a third `route:'local'` reason with no tier, so Tier 1 claimed it and sent
+// those turns to whatever engine the account had lying around. It was STRIPPED from the
+// vocabulary on 2026-08-23 (John: Hermes is not a brain), so a leftover `ai.model='hermes'`
+// is now an ordinary unrecognised model → the cloud brain. The assertion that still earns
+// its place is that it CANNOT reach the stale engine.
 scenario({
-  settings: { ai: { model: 'hermes' }, voice: { householdSharing: true, hermesUrl: 'http://hermes:8000', localEngines: [STALE_ENGINE] } },
+  settings: { ai: { model: 'hermes' }, voice: { householdSharing: true, localEngines: [STALE_ENGINE] } },
 });
 const hermes = await turn();
-check('hermes + a stale engine row → NOT sent to the engine', hermes.target, null);
-// 🔴 It falls through to the metered cloud brain, which is ALSO wrong — so it must be
-// LOUD. A Hermes tier is owed; a silent wrong answer is the thing this repo forbids.
-check('  …and the fall-through is a loud DROP, not a silent spend',
-  warnings.some((w) => w.startsWith('DROP:') && w.includes('reason=hermes')), true);
+check('a leftover ai.model=hermes → NOT sent to a local engine', hermes.target, null);
+check('  …it is simply an unknown model now, routed to cloud', hermes.route, 'cloud');
+
+console.log('\n── ⚖️ the no-shell DROP still fires where it is REACHABLE ──────────');
+// The rule-2 guard that caught hermes must not have been retired with it. Its live case:
+// an account that says `local` but stores no usable endpoint — tier 1's url/model guard
+// fails, nothing else claims the turn, and it would otherwise land on the metered cloud
+// brain looking exactly like a normal turn on the bill.
+scenario({ settings: { ai: { model: 'local' }, voice: { householdSharing: true } } });
+const noEndpoint = await turn();
+check('ai.model=local with NO endpoint → loud DROP before the cloud fall-through',
+  warnings.some((w) => w.startsWith('DROP:') && w.includes('reason=local_model')), true);
+check('  …and it does go to cloud (the DROP explains a real spend)', noEndpoint.route, 'cloud');
 
 console.log('\n── ⚖️ the resolver itself: no invented endpoint for a cloud account ─');
 // Fix 2, asserted at its own layer rather than only through converse: a cloud-model

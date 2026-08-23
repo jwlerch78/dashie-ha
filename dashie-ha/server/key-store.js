@@ -9,8 +9,8 @@
 // at-rest encryption is a later hardening pass).
 //
 // Provider shapes:
-//   gemini / claude / openai / hermes → { key }
-//   bedrock                           → { accessKeyId, secretAccessKey, region }
+//   gemini / claude / openai → { key }
+//   bedrock                  → { accessKeyId, secretAccessKey, region }
 
 const fs = require('fs');
 const path = require('path');
@@ -30,7 +30,6 @@ const PROVIDERS = {
     claude:  ['key'],
     openai:  ['key'],
     bedrock: ['accessKeyId', 'secretAccessKey', 'region'],
-    hermes:  ['key'],
 
     // ── Tool providers ────────────────────────────────────────────────────────
     // Capabilities the brain calls out to, rather than brains themselves. The
@@ -62,11 +61,33 @@ function isKnownProvider(provider) {
     return Object.prototype.hasOwnProperty.call(PROVIDERS, provider);
 }
 
+// Providers this store used to hold and no longer does. A credential for one of these
+// is INERT — nothing routes it — but it is still sitting on the box's /data volume, and
+// it has dropped off every UI that could remove it (the API-keys page only renders rows
+// the manifest still declares). That is exactly the silent state standing rule 2 exists
+// to forbid, so say it once, loudly, with the file path.
+const STRIPPED_PROVIDERS = { hermes: 'Hermes was retired as an AI model on 2026-08-23' };
+let _strippedWarned = false;
+
+function warnAboutStrippedKeys(store) {
+    if (_strippedWarned) return;
+    const found = Object.keys(STRIPPED_PROVIDERS).filter((p) => store && store[p]);
+    if (!found.length) return;
+    _strippedWarned = true;
+    for (const p of found) {
+        console.warn(`DROP: an inert '${p}' credential is still stored in ${KEYS_FILE} — ` +
+            `${STRIPPED_PROVIDERS[p]}, so nothing reads it and no UI can remove it. ` +
+            `Delete the "${p}" object from that file to clear it.`);
+    }
+}
+
 /** Read all stored keys (full values — server-internal only). Never throws. */
 function readKeys() {
     try {
         if (!fs.existsSync(KEYS_FILE)) return {};
-        return JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')) || {};
+        const store = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')) || {};
+        warnAboutStrippedKeys(store);
+        return store;
     } catch (e) {
         console.error('[key-store] Failed to read keys:', e.message);
         return {};
