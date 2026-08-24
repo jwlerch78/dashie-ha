@@ -273,13 +273,19 @@ const VoiceAiOptions = {
           description: "Your Home Assistant voice pipeline's speech-to-text." },
         // "On-Device" family (grouped in the picker). Provenance labels, not quality
         // labels (naming ruling 2026-08-20, Kotlin VoiceAiOptions.kt is the source):
-        // (System) = the OS SpeechRecognizer (Google-services devices only, plays a
+        // (Built-in) = the OS SpeechRecognizer (Google-services devices only, plays a
         // chime); (Open Source) = bundled sherpa-onnx Moonshine, fully offline, no
         // chime, works on Amazon Fire / Echo / de-Googled devices too.
+        // ⚠️ "(System)" until 2026-08-24 — John: "System seems a bit broad in this
+        // context", and it was: it named a SLOT, not an engine. S s20 measured the slot
+        // resolving to Google/SODA on a Samsung and to Amazon Alexa on a Fire. "(Built-in)"
+        // names the MECHANISM, which is true on every OEM. "(Native)" was asked for first
+        // and rejected again for the 08-20 reason — BOTH rows are native, so it implies a
+        // contrast that does not exist.
         // `sherpa_moonshine_tiny` is RETIRED from the offering (same ruling) — the id
         // stays a valid persisted wire value on devices that stored it, but no picker
         // offers it and no reseed selects it.
-        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+        { id: 'android_voice', label: 'On-Device (Built-in)', locality: 'local', cost: 'Free',
           description: "Your device's built-in speech recognizer (usually Google's)." },
         { id: 'sherpa_moonshine_base', label: 'On-Device (Open Source)', locality: 'local', cost: 'Free',
           description: 'Open-source Moonshine model, runs inside Dashie. Fully offline, works on any device.' },
@@ -309,7 +315,7 @@ const VoiceAiOptions = {
           description: "Your Home Assistant voice pipeline's text-to-speech." },
         // "(System)" tracks the STT row deliberately: same id, same device capability,
         // same provenance question — one id must not read two ways one section apart.
-        { id: 'android_voice', label: 'On-Device (System)', locality: 'local', cost: 'Free',
+        { id: 'android_voice', label: 'On-Device (Built-in)', locality: 'local', cost: 'Free',
           description: "Your device's built-in text-to-speech (usually Google's)." },
     ],
 
