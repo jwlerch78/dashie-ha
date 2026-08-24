@@ -27,7 +27,8 @@ if (fs.existsSync(sharedCss)) {
 
 // Provenance build stamp (runtime-provenance P0): a header line Kotlin's ProvenanceReporter
 // reads straight from the APK asset, answering "is the bundle on this device the one I just
-// built?" without any WebView eval. Also exposed as window.__DASHIE_KIOSK_BUILD for JS.
+// built?" without any WebView eval. Also exposed to JS, per bundle, in the accumulating
+// `window.__DASHIE_KIOSK_BUILDS` map — see build-banner.js for why it is keyed and not a scalar.
 const { execSync } = require('child_process');
 let gitSha = 'unknown';
 try { gitSha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim(); } catch {}
@@ -50,16 +51,34 @@ const buildStamp = `${gitSha} ${new Date().toISOString()}`;
 // change. The stamp's meaning narrows from "the last time anyone ran a build" to "the build
 // that last changed this bundle" — which is what the provenance question actually wants.
 //
-// The banner FORMAT is unchanged, so ProvenanceReporter.bundleStamp()'s
-// `DASHIE-BUNDLE-BUILD\s+(\S+\s+\S+)` regex keeps matching. No Kotlin change, no contract row.
+// ⚠️ CORRECTED 2026-08-22. This paragraph used to end: "The banner FORMAT is unchanged, so
+// ProvenanceReporter's regex keeps matching. No Kotlin change, no contract row." The first
+// sentence is still true and the conclusion was wrong — the format being unchanged is exactly
+// what makes it a CONTRACT (JS writes it, Kotlin parses it, no shared build), and an unregistered
+// one is invisible to every gate. It is now row #77 with `lint:bundle-banner` behind it.
+//
+// The Kotlin side DID need a change, for a different reason: it read ONE hard-coded bundle and
+// reported that as "the" kiosk build, which after this content-stable change cannot be right —
+// each bundle carries the stamp of the build that last changed IT. The Fire reported an Aug-2
+// stamp for an APK whose shell was rebuilt Aug-22.
 
-/** Strip the two-line provenance banner so two builds can be compared on code alone.
- *  Tolerates its absence — bundles predating the banner still compare correctly. */
-function stripBanner(text) {
-  return text
-    .replace(/^\/\/ DASHIE-BUNDLE-BUILD [^\n]*\n/, '')
-    .replace(/^window\.__DASHIE_KIOSK_BUILD='[^\n]*';\n/, '');
-}
+// ── 🔴 ONE GLOBAL, N WRITERS — fixed 2026-08-22 (T s43 cont.26) ──────────────────────────────
+//
+// The JS half of the banner used to assign the SAME `window.__DASHIE_KIOSK_BUILD` scalar from
+// EVERY bundle. Three bundles load into one page, so its value was decided by LOAD ORDER, and it
+// was wrong for at least two of them. It could not be right in principle either: after the
+// content-stable change above, each bundle carries the stamp of the build that last changed IT,
+// so no single scalar could honestly hold all three.
+//
+// The format now lives in ONE module, `build-banner.js`, because neither of its invariants can be
+// checked by running this build (running it rebuilds bundles and dirties two repos):
+//   • `stripBanner` must remove exactly what the banner emits, or every rebuild rewrites every
+//     bundle and the content-stable behaviour above silently reverts;
+//   • the `// DASHIE-BUNDLE-BUILD` comment line is parsed by Kotlin's ProvenanceReporter —
+//     JS_KOTLIN_CONTRACTS #77.
+// `scripts/check-bundle-banner.mjs` (npm run lint:bundle-banner) asserts both against that
+// module, so the gate tests the real rule rather than a second copy of it.
+const { bannerFor, stripBanner } = require('./build-banner');
 
 // Shared build options
 const sharedOptions = {
@@ -73,7 +92,9 @@ const sharedOptions = {
   // esbuild hands back the bytes instead of writing them; the write decision is ours,
   // in the .then() below. Without this, esbuild writes before we can compare.
   write: false,
-  banner: { js: `// DASHIE-BUNDLE-BUILD ${buildStamp}\nwindow.__DASHIE_KIOSK_BUILD='${buildStamp}';` },
+  // NOTE: no `banner` here — it is PER-ENTRY now (see bannerFor / the build loop). A shared
+  // banner is what made every bundle write the same global; keeping the key correct requires
+  // knowing the outfile, which only the entry does.
 };
 
 // Build entries
@@ -140,7 +161,7 @@ const entries = [
 // Build all entries in parallel
 Promise.all(
   entries.map(entry =>
-    esbuild.build({ ...sharedOptions, ...entry })
+    esbuild.build({ ...sharedOptions, ...entry, banner: { js: bannerFor(entry.outfile, buildStamp) } })
   )
 ).then(results => {
   let wrote = 0, kept = 0;

@@ -215,10 +215,20 @@ const BRANDS = {
      * `/privacy-policy.html`, `/terms-of-service` and `/terms-of-service.html` here, so an older
      * hardcoded variant still lands — but these are the ones to use.
      */
-    legal: {
-      privacyUrl: 'https://getchickadee.org/privacy',
-      termsUrl: 'https://getchickadee.org/terms',
-    },
+    /*
+     * Back to `null`, 2026-08-22: the chickadee domain registration is being dropped, so these
+     * URLs are about to 404, and the paragraph above already prescribes the answer for exactly
+     * this state — omit the links rather than render dead ones.
+     *
+     * 🔴 It must be `legal: null`, NOT `legal: { privacyUrl: null, … }`. Both render sites gate on
+     * the WHOLE OBJECT being falsy (`brand.legal ? … : ''` at onboarding-renderer.js:303 and :813),
+     * never on the individual fields. Nulling only the fields leaves `brand.legal` truthy, so the
+     * footer renders `href="null"` — a broken link, which is worse than the 404 this avoids.
+     * (Caught while making that exact mistake.)
+     *
+     * Restore an object here if the brand ever un-freezes with a live domain.
+     */
+    legal: null,
   },
 };
 
