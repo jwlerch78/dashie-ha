@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 31205e806b25ff4aace46de03053b610d1edc4b6
+   Source git SHA: 8cf1d97f72bb25dbc68607dee426e96f3357dc48
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -3302,7 +3302,7 @@ local voice engines that run on your own hardware (see "Can I use local, private
     "status": "beta",
     "page": null,
     "action": null,
-    "body": "Newer behavior \u2014 may not be on your plan yet. Deleting your account is recoverable for a grace\nperiod (about 15 days): during that window you can change your mind and keep the account before\nanything is permanently removed. Account deletion is managed from your phone or the web console,\nnot from a shared family tablet."
+    "body": "Newer behavior \u2014 may not be on your plan yet. Deleting your account is recoverable for a grace\nperiod (about 90 days): during that window you can change your mind and keep the account before\nanything is permanently removed. Account deletion is managed from your phone or the web console,\nnot from a shared family tablet."
   },
   {
     "id": "faq:what-s-the-difference-between-the-screensaver-photos-and-the",
@@ -5450,4 +5450,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "31205e806b25ff4aace46de03053b610d1edc4b6";
+module.exports.BRAIN_SOURCE_SHA = "8cf1d97f72bb25dbc68607dee426e96f3357dc48";
