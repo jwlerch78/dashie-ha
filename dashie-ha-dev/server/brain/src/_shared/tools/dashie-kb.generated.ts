@@ -107,7 +107,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "beta",
     "page": null,
     "action": null,
-    "body": "Newer behavior — may not be on your plan yet. Deleting your account is recoverable for a grace\nperiod (about 15 days): during that window you can change your mind and keep the account before\nanything is permanently removed. Account deletion is managed from your phone or the web console,\nnot from a shared family tablet."
+    "body": "Newer behavior — may not be on your plan yet. Deleting your account is recoverable for a grace\nperiod (about 90 days): during that window you can change your mind and keep the account before\nanything is permanently removed. Account deletion is managed from your phone or the web console,\nnot from a shared family tablet."
   },
   {
     "id": "faq:what-s-the-difference-between-the-screensaver-photos-and-the",

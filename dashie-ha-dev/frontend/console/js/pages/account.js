@@ -9,6 +9,29 @@
    ship without it and every delegate below renders ''.
    ============================================================ */
 
+/**
+ * The account-deletion grace window, in days, for the copy shown BEFORE the
+ * user commits. 90 since 2026-08-24 (was 15).
+ *
+ * 🔴 This is a DISPLAY MIRROR, not the source of truth. The window is decided
+ * by the backend (`database-operations` → `handlers/account.ts`), and it is
+ * NOT readable before the request: the only response carrying `grace_days` is
+ * `delete_account`'s, which arrives after the user has already committed. So
+ * the pre-action copy has to state a number it cannot ask for.
+ *
+ * Everything AFTER the request is derived and self-correcting — the pending
+ * banner (`App._deletionBannerHtml`) formats the returned
+ * `deletion_scheduled_at`, so it cannot drift. Only the four strings below can,
+ * which is why they now read one constant instead of four literals: this fix
+ * exists because the backend moved 15 → 90 and four hand-written copies stayed
+ * behind, telling users a deadline that was two and a half months wrong.
+ *
+ * If the backend window changes again, change it here too — or make
+ * `check-subscription` publish the constant and read it from `this._data`,
+ * which is the real cure.
+ */
+const DELETION_GRACE_DAYS = 90;
+
 const AccountPage = {
     _data: null,
     _loading: false,
@@ -173,7 +196,7 @@ const AccountPage = {
                             Your account is already scheduled for deletion — use the banner at the top of this page to keep it.
                         </div>` : `
                         <div style="color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.5; margin-bottom: 16px;">
-                            Schedules your ${BRAND.productName} account for deletion in 15 days. Billing stops now; your data (calendars, photos, chores, rewards, family members, OAuth tokens, voice profiles, devices) is removed when the 15 days are up. You can cancel any time before then with “Keep account.”
+                            Schedules your ${BRAND.productName} account for deletion in ${DELETION_GRACE_DAYS} days. Billing stops now; your data (calendars, photos, chores, rewards, family members, OAuth tokens, voice profiles, devices) is removed when the ${DELETION_GRACE_DAYS} days are up. You can cancel any time before then with “Keep account.”
                         </div>
                         <button class="btn btn-danger" id="delete-account-btn" onclick="AccountPage.handleDeleteAccount()">Delete Account</button>`}
                     </div>
@@ -202,9 +225,10 @@ const AccountPage = {
     },
 
     /**
-     * Schedule account deletion (soft delete, 15-day grace). Backend
+     * Schedule account deletion (soft delete — see DELETION_GRACE_DAYS at the
+     * top of this file for the window and why it is mirrored here). Backend
      * (`delete_account` op → handleRequestAccountDeletion) sets
-     * deletion_scheduled_at = now()+15d and stops billing (cancel-at-period-end)
+     * deletion_scheduled_at = now() + the grace and stops billing (cancel-at-period-end)
      * WITHOUT touching data; the purge cron hard-deletes after the grace. The
      * account stays usable during the window and the user can undo via "Keep
      * account" (cancel_account_deletion) — see App._deletionBannerHtml/keepAccount.
@@ -223,14 +247,14 @@ const AccountPage = {
         const confirmed = await ConfirmModal.confirm({
             title: 'Schedule account deletion?',
             message: [
-                'Your account will be permanently deleted in 15 days. Until then:',
+                `Your account will be permanently deleted in ${DELETION_GRACE_DAYS} days. Until then:`,
                 '  • Billing stops now — no further charges',
                 '  • Your data stays intact and you can cancel any time',
                 '',
-                'After 15 days this removes everything — calendars, photos, chores,',
+                `After ${DELETION_GRACE_DAYS} days this removes everything — calendars, photos, chores,`,
                 'rewards, family members, OAuth tokens, voice profiles, and devices.',
                 '',
-                'You can undo this with “Keep account” before the 15 days are up.',
+                `You can undo this with “Keep account” before the ${DELETION_GRACE_DAYS} days are up.`,
             ].join('\n'),
             confirmLabel: 'Schedule deletion',
             cancelLabel: 'Keep My Account',
