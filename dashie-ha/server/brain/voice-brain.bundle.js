@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 8cf1d97f72bb25dbc68607dee426e96f3357dc48
+   Source git SHA: fe05edb39c25883899936967695fbbdf34378c76
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -2462,6 +2462,48 @@ function repairTruncatedJson(s) {
   prefix = prefix.replace(/,(\s*)$/, "$1");
   const closers = stack.map((c) => c === "{" ? "}" : "]").reverse().join("");
   return prefix + closers;
+}
+
+// supabase/functions/voice-conversation/salvage.ts
+var SALVAGE_VOICE_WORD_BUDGET = 20;
+var ABBREVIATIONS = /(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|approx|no|inc|ltd|co|dept|est|fig|al)|\b[a-z](?:\.[a-z])+)\.$/i;
+function splitSentences(prose) {
+  const out = [];
+  for (const para of prose.split(/\n\s*\n/)) {
+    const block = para.trim();
+    if (!block) continue;
+    let start = 0;
+    const re = /[.!?]+["'”’)\]]*\s+(?=["'“‘(\[]*[A-Z0-9])/g;
+    let m;
+    while ((m = re.exec(block)) !== null) {
+      const candidate = block.slice(start, m.index + m[0].length).trim();
+      if (ABBREVIATIONS.test(candidate)) continue;
+      out.push(candidate);
+      start = re.lastIndex;
+    }
+    const tail = block.slice(start).trim();
+    if (tail) out.push(tail);
+  }
+  return out.length ? out : prose.trim() ? [prose.trim()] : [];
+}
+function wordCount(s) {
+  const t = s.trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+function splitSalvage(raw, budget = SALVAGE_VOICE_WORD_BUDGET) {
+  const prose = String(raw ?? "").trim();
+  if (!prose) return { voice: "", text: null };
+  const sentences = splitSentences(prose);
+  if (sentences.length <= 1) return { voice: sanitizeVoice(prose), text: null };
+  let taken = 0;
+  let words = 0;
+  while (taken < sentences.length && words < budget) {
+    words += wordCount(sentences[taken]);
+    taken++;
+  }
+  const spoken = sentences.slice(0, taken).join(" ").trim();
+  const rest = sentences.slice(taken).join(" ").trim();
+  return { voice: sanitizeVoice(spoken), text: rest || null };
 }
 
 // supabase/functions/voice-conversation/dialog-policy.ts
@@ -5221,12 +5263,17 @@ function finalize({ t0, parsed, raw, stages, usage, latency, unsupported_tool, r
   const type = parsed?.type || "response";
   const callerRetain = !!retain?.callerRetain && !unsupported_tool && (type === "response" || type === "action");
   const isToolCall = type === "info_request" || type === "multi";
-  const salvage = parsed ? "" : raw.content;
+  const salvaged = parsed ? null : splitSalvage(raw.content || "");
+  if (salvaged) {
+    console.warn(
+      `\u26A0\uFE0F DROP: response-json-unparsed \u2014 salvaging prose as ${salvaged.text ? "voice+text" : "voice"} (model=${raw.model || "?"} provider=${raw.provider || "?"} route=${route || "?"} chars=${(raw.content || "").length} voice_words=${salvaged.voice.trim() ? salvaged.voice.trim().split(/\s+/).length : 0} text_words=${salvaged.text ? salvaged.text.trim().split(/\s+/).length : 0}) \u2014 LOST: image/display_events/show_weather_overlay/cards (Tier 2 recovers these)`
+    );
+  }
   return {
     ok: true,
     type,
-    voice: parsed?.voice || (isToolCall ? "" : salvage) || "",
-    text: parsed?.text ?? null,
+    voice: parsed?.voice || (isToolCall ? "" : salvaged?.voice) || "",
+    text: parsed?.text ?? salvaged?.text ?? null,
     action: parsed?.action ?? null,
     parsed_ok: !!parsed,
     raw_content: raw.content,
@@ -5450,4 +5497,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "8cf1d97f72bb25dbc68607dee426e96f3357dc48";
+module.exports.BRAIN_SOURCE_SHA = "fe05edb39c25883899936967695fbbdf34378c76";

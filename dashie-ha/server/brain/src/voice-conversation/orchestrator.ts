@@ -38,6 +38,7 @@ const KNOWN_DEVICE_TOOL_DECLINES: Record<string, string> = {
 };
 import { redactToolArgs } from './redact-args.ts';
 import { parseContent, isLikelyNoise } from './parse.ts';
+import { splitSalvage } from './salvage.ts';
 import { isEndIntent, classifyMiss, NOISE_REPLY } from './dialog-policy.ts';
 import { providerForModel } from './models.ts';
 import { modelLabel } from '../_shared/model-labels.ts';
@@ -1597,12 +1598,29 @@ function finalize(
   // a personality switch spoke its own {"type":"action","command":"set_personality",…} out loud,
   // and the fenced variant tripped the pass-2 clarify instead. Salvage only when parsing FAILED,
   // which is the case the salvage was actually for (raw.content is genuine prose there).
-  const salvage = parsed ? '' : raw.content;
+  //
+  // Tier 1 (2026-08-25 ruling): when we DO salvage, split it — lead sentences to `voice`, the
+  // remainder to `text` — instead of speaking the whole blob and leaving the screen dark.
+  // Measured on staging (30d): display_text was empty on 77 of 77 parse failures, and the worst
+  // salvage ran 118 words against a 20-word contract cap. See salvage.ts for the boundary rule.
+  const salvaged = parsed ? null : splitSalvage(raw.content || '');
+  if (salvaged) {
+    // No silent drops (standing rule 2): a ~43% grounded parse-failure rate was invisible in the
+    // field because the turn still spoke. This is the marker that makes it countable — and it
+    // names what is still LOST here, which Tier 1 cannot restore (image/cards/display flags).
+    console.warn(
+      `⚠️ DROP: response-json-unparsed — salvaging prose as ${salvaged.text ? 'voice+text' : 'voice'} ` +
+      `(model=${raw.model || '?'} provider=${raw.provider || '?'} route=${route || '?'} ` +
+      `chars=${(raw.content || '').length} voice_words=${salvaged.voice.trim() ? salvaged.voice.trim().split(/\s+/).length : 0} ` +
+      `text_words=${salvaged.text ? salvaged.text.trim().split(/\s+/).length : 0}) — ` +
+      `LOST: image/display_events/show_weather_overlay/cards (Tier 2 recovers these)`,
+    );
+  }
   return {
     ok: true,
     type,
-    voice: parsed?.voice || (isToolCall ? '' : salvage) || '',
-    text: parsed?.text ?? null,
+    voice: parsed?.voice || (isToolCall ? '' : salvaged?.voice) || '',
+    text: parsed?.text ?? salvaged?.text ?? null,
     action: parsed?.action ?? null,
     parsed_ok: !!parsed,
     raw_content: raw.content,

@@ -1303,6 +1303,63 @@ Deno.test('salvage: UNPARSED prose still salvages (the case the salvage is FOR)'
   assertEquals(turn.voice, 'Sure — all done!');
 });
 
+// ── Tier 1: the salvage SPLIT (2026-08-25 grounded-JSON ruling) ─────────────────────────────
+// A failed parse used to speak the entire prose blob and leave the screen dark — measured on
+// staging over 30 days: display_text empty on 77 of 77 parse failures, worst case 118 spoken
+// words against a 20-word contract cap. finalize() now splits it (see salvage.ts).
+//
+// The FIRST test below is the regression pin the ruling asked for: whatever the splitter does,
+// a turn that PARSED must be untouched. The splitter runs only on the `parsed === null` branch,
+// and these lock that in at the orchestrator level, not just the unit level.
+
+Deno.test('salvage split: a PARSED turn is never touched by the splitter (regression pin)', async () => {
+  // Long, multi-sentence, and well past the budget — if the splitter were reachable on a parsed
+  // turn, `voice` would get truncated and `text` overwritten. Both must survive verbatim.
+  const voice = 'One two three four five. Six seven eight nine ten. Eleven twelve thirteen fourteen fifteen. Sixteen seventeen eighteen nineteen twenty. Twenty-one twenty-two twenty-three.';
+  const { io } = makeIO([
+    JSON.stringify({ type: 'response', voice, text: 'the model’s own screen copy' }),
+  ]);
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.parsed_ok, true);
+  assertEquals(turn.voice, voice);                         // spoken line untouched
+  assertEquals(turn.text, 'the model’s own screen copy');  // model's text never overwritten
+});
+
+Deno.test('salvage split: a PARSED turn with text:null keeps text null (no salvage leakage)', async () => {
+  const { io } = makeIO(['{"type":"response","voice":"Short answer.","text":null}']);
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.parsed_ok, true);
+  assertEquals(turn.voice, 'Short answer.');
+  assertEquals(turn.text, null);
+});
+
+Deno.test('salvage split: an UNPARSED long blob speaks the lead and PAINTS the remainder', async () => {
+  // Verbatim from staging ai_interactions (parsed_ok=false, 2026-08-23 21:12) — John's case.
+  const blob = [
+    'For Avengers: Doomsday, you have a couple of options for how to catch up! You could watch all the Marvel Cinematic Universe movies in release order, which is how fans originally experienced them. This includes movies like Iron Man, The Avengers, and Captain America: Civil War.',
+    'Alternatively, you could watch them in chronological order of events within the MCU, starting with Captain America: The First Avenger. This order helps you see the story unfold sequentially.',
+    'Most MCU movies are available to stream on Disney+.',
+  ].join('\n\n');
+  const { io } = makeIO([blob]);
+  const turn = await runOrchestration(deps(), io);
+
+  assertEquals(turn.parsed_ok, false);
+  assertEquals(turn.type, 'response');
+  const spokenWords = turn.voice.trim().split(/\s+/).length;
+  assert(spokenWords <= 40, `spoken line should be cut to the budget, got ${spokenWords} words`);
+  assert(turn.text !== null, 'the remainder must reach the screen (it was null on 77/77 in the field)');
+  assert(turn.text!.includes('Disney+'), 'the tail must survive into text');
+  assert(!turn.voice.includes('Disney+'), 'the tail must NOT also be spoken');
+});
+
+Deno.test('salvage split: an UNPARSED SHORT blob is unchanged — spoken whole, text still null', async () => {
+  const { io } = makeIO(['The New York Giants played the Miami Dolphins this weekend in a preseason matchup.']);
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.parsed_ok, false);
+  assertEquals(turn.voice, 'The New York Giants played the Miami Dolphins this weekend in a preseason matchup.');
+  assertEquals(turn.text, null);
+});
+
 Deno.test('personalities: set_personality action is enriched with the catalog row voice fields (deterministic, not model-echoed)', async () => {
   const { io } = makeIO([
     '{"type":"info_request","tool":"personalities","query":{}}',
