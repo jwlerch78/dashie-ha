@@ -302,6 +302,9 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
 // retired vocabulary). John's reconfigure landed on the retired engine BECAUSE
 // the console still offered it under the old label and voice-ai.js actively
 // preferred it when reseeding hybrid.
+// Product decision 2026-08-24: "(System)" renamed to "(Built-in)" on both
+// surfaces (Kotlin shipped it in vc185, device-verified; console followed in
+// ff5f539). The provenance rule is unchanged — only the OS-engine word moved.
 {
     setLocalMode(false);
     const stt = O.sttOptions(null, 'android_voice');
@@ -312,12 +315,12 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         `stt=${JSON.stringify(sttIds)}`,
         'the model is retired (2026-08-20) — offering it re-lands users on an engine the product has withdrawn, which is exactly how John\'s reconfigure picked it');
     const label = (rows, id) => rows.find(o => o.id === id)?.label;
-    check('leg 8b — On-Device labels use the ruled provenance vocabulary (Open Source / System), both stages',
+    check('leg 8b — On-Device labels use the ruled provenance vocabulary (Open Source / Built-in), both stages',
         label(stt, 'sherpa_moonshine_base') === 'On-Device (Open Source)' &&
-        label(stt, 'android_voice') === 'On-Device (System)' &&
-        label(tts, 'android_voice') === 'On-Device (System)',
+        label(stt, 'android_voice') === 'On-Device (Built-in)' &&
+        label(tts, 'android_voice') === 'On-Device (Built-in)',
         `stt base=${JSON.stringify(label(stt, 'sherpa_moonshine_base'))} stt android=${JSON.stringify(label(stt, 'android_voice'))} tts android=${JSON.stringify(label(tts, 'android_voice'))}`,
-        'one id must not read two ways across surfaces — Kotlin already says "(Open Source)"/"(System)"; a console still saying "(Fast)"/"(Accurate)"/"(Native)" is the JS↔Kotlin label drift the naming ruling closed');
+        'one id must not read two ways across surfaces — Kotlin says "(Open Source)"/"(Built-in)" since vc185; a console diverging is the JS↔Kotlin label drift the naming ruling closed');
     check('leg 8c — voice-ai.js no longer references the retired id (the hybrid reseed preferred it)',
         !/sherpa_moonshine_tiny/.test(readFileSync(FILES.page, 'utf8')),
         'voice-ai.js still contains "sherpa_moonshine_tiny"',
