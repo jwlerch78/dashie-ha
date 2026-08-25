@@ -128,6 +128,21 @@ const DevicesDetailModals = {
      *  Voice section's Wake Word row swaps from "—" to the real value. */
     ensureAccountSettings() {
         if (this._accountSettings || this._accountLoading) return;
+        // 🔴 Feature-detect, because this is now called from a RENDER path.
+        // `loadUserSettings` does not exist on every DashieAuth: the ACCOUNT-LESS
+        // add-on console runs a local shim with no user_settings to load at all.
+        // Before 2026-08-25 this function had ZERO callers, so the gap was
+        // invisible; the first render-path caller turned it into a throw that
+        // takes out the whole Devices detail page on the published HA edition.
+        // Caught by `lint:devices-surface` leg 3, which renders the page for real.
+        //
+        // Absent → cache an empty object, exactly like the .catch() below. An
+        // account-less box HAS no account defaults, so "{}" is the true answer
+        // there, not a degraded one.
+        if (typeof DashieAuth?.loadUserSettings !== 'function') {
+            this._accountSettings = {};
+            return;
+        }
         this._accountLoading = true;
         DashieAuth.loadUserSettings().then(s => {
             this._accountSettings = s || {};
@@ -151,6 +166,77 @@ const DevicesDetailModals = {
     getAccountWakeWord() {
         return this._accountSettings?.ai?.defaultWakeWord || '';
     },
+
+    // ── Per-device voice pipeline (mixed-fleet, John ruled 2026-08-25) ───────
+    //
+    // The five LEAF keys a device may override. D2 as ruled: leaves only —
+    // pipelinePreset / controlMethod / agentMode / conversationModel are NOT
+    // per-device, because a stored per-device preset re-opens the
+    // stale-controlMethod flip-flop class with more copies.
+    //
+    // 🔴 CROSS-REPO MIRROR of `OVERRIDE_SPECS.voice` in the staging webapp
+    // (js/data/settings/override-resolution.js). The two repos cannot share a
+    // module, so this list is gated instead: staging's `lint:overrides` reads
+    // THIS array and fails when the two disagree. Registered as CONTRACTS #78.
+    // If you add a key here, add it there — the gate will tell you if you don't.
+    VOICE_LEAF_KEYS: ['sttProvider', 'ttsProvider', 'haSttEngineId', 'haTtsEngineId', 'haTtsVoiceId'],
+
+    /**
+     * What voice setup is THIS device actually running?
+     *
+     * ⭐ Derived by COMPARISON, never by inverting the preset→leaves table.
+     * `selectPreset()` owns the forward map (preset ⇒ leaf values) and is one of
+     * the three copies contract #43 governs; hand-writing the inverse here would
+     * make a fourth copy that can silently disagree with all of them. Instead:
+     *   · no leaf overridden, or every override equals the account's value
+     *       → this device runs the household setup → show the account's preset
+     *   · any override differing from the account
+     *       → "Custom", which is the honest answer and needs no mapping at all
+     *
+     * That is also the question a mixed-fleet owner is actually asking — "is this
+     * one following the house, or is it special?" — rather than a preset name we
+     * would have to reverse-engineer.
+     *
+     * @returns {{label: string, custom: boolean, overriddenKeys: string[]}}
+     */
+    voiceSetupSummary(device) {
+        this.ensureAccountSettings();
+        const acct = this._accountSettings?.voice || {};
+        const dev = device?.settings?.voice || {};
+
+        // '' is the INHERIT sentinel, not a value — an inheriting device may carry
+        // the empty string rather than an absent key, and treating it as an
+        // override would render every reset device as "Custom".
+        const overriddenKeys = this.VOICE_LEAF_KEYS.filter(
+            (k) => typeof dev[k] === 'string' && dev[k] !== '' && dev[k] !== (acct[k] || '')
+        );
+
+        if (overriddenKeys.length > 0) {
+            return { label: 'Custom', custom: true, overriddenKeys };
+        }
+        const presetId = acct.pipelinePreset || '';
+        const preset = (window.VoiceAiOptions?.PRESETS || []).find((p) => p.id === presetId);
+        // No account preset yet (a household that has never opened Voice & AI) →
+        // '—', matching how the Wake Word row renders an unsynced device. Do NOT
+        // invent a default here: guessing "Cloud" would state a household setting
+        // that does not exist.
+        return { label: preset ? preset.label : (presetId || '—'), custom: false, overriddenKeys: [] };
+    },
+
+    // ⏳ NOT YET WRITTEN, deliberately: the §4.4 capability predicate
+    // (`hasVoiceCapabilities`) and the one-selection edit modal land TOGETHER,
+    // in the change that has A's publisher to read. Writing the predicate now
+    // would ship a function that returns false for every device in the estate
+    // and is called by nothing — the authored-but-unreached shape this thread
+    // has five recorded instances of.
+    //
+    // 🔴 The rule it will implement, so it is not re-derived: a device that
+    // publishes NO capabilities gets its override affordance HIDDEN, not
+    // rendered-and-hoped. A wrong STT choice does not degrade — it SILENCES the
+    // device — so offering an override we cannot validate fails in the expensive
+    // direction, while hiding it fails toward the account default, which is
+    // exactly today's working behaviour. (John's ruling, 2026-08-25; the shape
+    // is in CONTRACTS #78 and the mixed-fleet design doc §4.4.)
 
     // ── Section body ──────────────────────────────────────────
 

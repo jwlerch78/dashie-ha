@@ -692,8 +692,22 @@ const DevicesDetail = {
             ? `${DevicesDetailModals.voiceName(effP.voice)} (locked)`
             : (voiceKey ? DevicesDetailModals.voiceName(voiceKey) : 'Account default');
 
+        // Voice setup (mixed-fleet, John ruled 2026-08-25, D2b): ONE selection leads,
+        // engine pickers sit behind it. Today it is READ-ONLY for every device —
+        // §4.4 hides the override affordance until a device publishes what it can
+        // actually run, and that publisher is Thread A's half. Shown regardless
+        // because "is this device following the house, or is it special?" is the
+        // question a mixed fleet actually raises, and it is answerable now.
+        // ⏳ READ-ONLY, deliberately and completely, in this change. The edit
+        // affordance and its §4.4 capability gate land TOGETHER with A's publisher
+        // — not before. A clickable row wired to a handler that does not exist yet,
+        // or a picker offering engines we cannot confirm the device can run, are
+        // both worse than a row that simply tells the truth today.
+        const voiceSetup = DevicesDetailModals.voiceSetupSummary(device);
+
         const rows = [
             DevicesDetailModals._toggleRow(device, 'voice', 'enabled', 'Enable Voice', voiceEnabled),
+            DevicesDetailModals._readonlyRow('Voice setup', voiceSetup.label),
             DevicesDetailModals._summaryRow('Wake Word', wakeWordLabel,
                 `DevicesDetailModals.openWakeWord('${idAttr}')`),
             DevicesDetailModals._summaryRow('Personality', personalityLabel,
