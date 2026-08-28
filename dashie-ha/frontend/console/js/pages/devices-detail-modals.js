@@ -223,20 +223,212 @@ const DevicesDetailModals = {
         return { label: preset ? preset.label : (presetId || '—'), custom: false, overriddenKeys: [] };
     },
 
-    // ⏳ NOT YET WRITTEN, deliberately: the §4.4 capability predicate
-    // (`hasVoiceCapabilities`) and the one-selection edit modal land TOGETHER,
-    // in the change that has A's publisher to read. Writing the predicate now
-    // would ship a function that returns false for every device in the estate
-    // and is called by nothing — the authored-but-unreached shape this thread
-    // has five recorded instances of.
+    // ── §4.4 capability gate (built 2026-08-28, now that a writer exists) ────
     //
-    // 🔴 The rule it will implement, so it is not re-derived: a device that
-    // publishes NO capabilities gets its override affordance HIDDEN, not
-    // rendered-and-hoped. A wrong STT choice does not degrade — it SILENCES the
-    // device — so offering an override we cannot validate fails in the expensive
-    // direction, while hiding it fails toward the account default, which is
-    // exactly today's working behaviour. (John's ruling, 2026-08-25; the shape
-    // is in CONTRACTS #78 and the mixed-fleet design doc §4.4.)
+    // The rule, John's ruling 2026-08-25: a device that publishes NO capabilities
+    // gets its override affordance HIDDEN, not rendered-and-hoped. A wrong STT
+    // choice does not degrade — it SILENCES the device — so offering an override
+    // we cannot validate fails in the expensive direction, while hiding it fails
+    // toward the account default, which is exactly today's working behaviour.
+    //
+    // 🔴 THIS RETURNS A STATE, NOT A BOOLEAN, AND THAT IS THE POINT. There are
+    // three different ways a device can have nothing to offer, they mean
+    // different things to the person reading the card, and collapsing them into
+    // one `false` is the same mistake the device-side uploader exists to avoid:
+    //
+    //   'ok'          → a live stack with something to choose from. Editable.
+    //   'no-record'   → nothing published. An APK too old to have the accessor,
+    //                   or a device that has not checked in since. "Update this
+    //                   device…" is actionable; "voice is off" would be a guess.
+    //   'stack-down'  → `stackUp:false` — a REAL record from a device whose voice
+    //                   stack has not started. NOT the same as no-record, and the
+    //                   device-side publisher goes to some trouble to keep them
+    //                   apart; throwing that away here would waste it.
+    //   'nothing-registered' → the stack is up and this hardware registered nothing.
+    //                   The honest terminal answer.
+    //   'unofferable' → it registered something, but nothing this console OFFERS —
+    //                   a device still running the RETIRED sherpa_moonshine_tiny
+    //                   through the retirement bridge. Split out from the line above
+    //                   because "no engines it can run" would be FALSE of it, and a
+    //                   card that says a false thing about the user's own device is
+    //                   worse than one that says a vaguer true thing.
+    voiceCapabilityState(device) {
+        const rec = device?.settings?.aiVoice?.voiceCapabilities;
+        // The device-side publisher never uploads the "" sentinel, so a non-object
+        // here is a foreign/legacy write rather than "ask again" — same outcome
+        // (no record), but do not read it as one.
+        if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return { state: 'no-record', record: null, offerable: [] };
+        if (rec.stackUp !== true) return { state: 'stack-down', record: rec, offerable: [] };
+
+        // 🔴 RUNS and IS-OFFERED are different questions, and the picker answers the
+        // second. The device's vocabulary is a SUPERSET of what this console offers:
+        // `sherpa_moonshine_tiny` is RETIRED — "no picker offers it and no reseed
+        // selects it" — yet a device with tiny installed and base not still RUNS it
+        // through the retirement bridge and correctly reports it. Offering it here
+        // would re-introduce a retired engine through the back door; refusing to NAME
+        // it would blank the running line on exactly the devices the bridge protects.
+        // So: offer registered ∩ offered-vocabulary, and label `running` from the
+        // superset (see _sttLabel).
+        const offeredIds = new Set((window.VoiceAiOptions?.STT || []).map((o) => o.id));
+        const registered = Array.isArray(rec.stt?.registered) ? rec.stt.registered : [];
+        const offerable = registered.filter((id) => offeredIds.has(id));
+
+        // Empty covers two cases and BOTH must hide the affordance: hardware that
+        // registered nothing offerable, and a console whose option list failed to
+        // load. The second is a config failure, not a device fact — but the ruling's
+        // asymmetry points the same way (never offer an override we cannot validate),
+        // so it fails toward the account default rather than toward a guess.
+        if (offerable.length === 0) {
+            // Two different empties, and the note has to be TRUE for both. A device
+            // whose only registered engine is one this console no longer offers IS
+            // running something — telling it "no engines it can run" would be a
+            // false statement about the user's own device, which is how a card
+            // teaches people to distrust it.
+            const state = registered.length > 0 ? 'unofferable' : 'nothing-registered';
+            return { state, record: rec, offerable: [] };
+        }
+        return { state: 'ok', record: rec, offerable };
+    },
+
+    /** The one-line explanation shown under a card whose override is hidden. */
+    voiceCapabilityNote(state) {
+        switch (state) {
+            case 'no-record':   return 'Update this device to set its own voice engines.';
+            case 'stack-down':  return "This device hasn't started its voice stack yet — its engines will appear after it runs voice once.";
+            case 'nothing-registered': return 'This device has no speech engines it can run, so it follows the account setup.';
+            case 'unofferable': return 'This device runs a speech engine this console no longer offers, so it follows the account setup.';
+            default: return '';
+        }
+    },
+
+    /**
+     * Human label for an STT id, from the console's OWN option list.
+     *
+     * ⚠️ Falls back to the raw id rather than to "Unknown", and that is A's
+     * documented discrepancy rather than sloppiness: the DEVICE's vocabulary is a
+     * SUPERSET of what this picker offers. `sherpa_moonshine_tiny` is retired and
+     * offered nowhere, but a device that has tiny installed and base not still RUNS
+     * it through the retirement bridge — so a card that could not name it would
+     * show a blank on precisely the devices the bridge exists to protect. Runs and
+     * is-offered are different questions.
+     */
+    _sttLabel(id) {
+        const opt = (window.VoiceAiOptions?.STT || []).find((o) => o.id === id);
+        return opt ? opt.label : String(id);
+    },
+
+    // ── Per-device voice setup modal (D2b: one selection leads) ──────────────
+
+    _voiceSetupOpen: false,
+    _voiceSetupDeviceId: null,
+    _voiceSetupPending: null,
+    _voiceSetupSaving: false,
+
+    openVoiceSetup(deviceId) {
+        this._voiceSetupOpen = true;
+        this._voiceSetupDeviceId = deviceId;
+        this._voiceSetupPending = null;
+        App.renderPage();
+    },
+
+    closeVoiceSetup() {
+        this._voiceSetupOpen = false;
+        this._voiceSetupDeviceId = null;
+        this._voiceSetupPending = null;
+        App.renderPage();
+    },
+
+    _setVoiceSetupPending(value) { this._voiceSetupPending = value; },
+
+    async submitVoiceSetup() {
+        if (this._voiceSetupSaving) return;
+        const deviceId = this._voiceSetupDeviceId;
+        const value = this._voiceSetupPending;
+        // null = the user opened and saved without touching the select. '' IS a
+        // value here (the inherit sentinel), so test for null explicitly — a falsy
+        // test would silently turn "follow the account" into "no change".
+        if (!deviceId || value === null) { this.closeVoiceSetup(); return; }
+        this._voiceSetupSaving = true;
+        App.renderPage();
+        try {
+            // Per-device override at user_devices.voice.sttProvider. '' is the
+            // INHERIT sentinel the patch writers use because they cannot delete
+            // keys — the device clears its mirror and follows the account again.
+            await DevicesPage._onSettingChange(deviceId, 'voice', 'sttProvider', value);
+            Toast.success(value === '' ? 'This device now follows the account setup' : 'Voice engine saved for this device');
+            this.closeVoiceSetup();
+        } catch (e) {
+            Toast.error(`Save failed: ${e?.message || e}`);
+        } finally {
+            this._voiceSetupSaving = false;
+            App.renderPage();
+        }
+    },
+
+    /**
+     * §4.5's filter-vs-gray rule, applied:
+     *   · REGISTERED but not available → rendered DISABLED with a reason. The user
+     *     can do something about it (download the model, configure the HA engine),
+     *     and the greyed row plus a reason is what teaches them the action.
+     *   · not registered at all → not rendered. This hardware can never run it;
+     *     a permanently-greyed impossible row is noise on every card forever.
+     *   · registered but NOT OFFERED by this console (a retired id a device still
+     *     runs through the retirement bridge) → not rendered either, for a different
+     *     reason: it is not a choice anyone may make, though it is still NAMED in the
+     *     running line so the card does not go blank on those devices.
+     */
+    renderVoiceSetupModal() {
+        if (!this._voiceSetupOpen) return '';
+        const device = DevicesPage._findDevice(this._voiceSetupDeviceId);
+        const { state, record } = this.voiceCapabilityState(device);
+        if (state !== 'ok') {
+            // The card should not have offered the affordance; if the device's
+            // record changed under an open modal, say so rather than render a
+            // picker with nothing safe in it.
+            return this._modal('Voice setup', `
+                <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
+                    ${this._escape(this.voiceCapabilityNote(state))}
+                </div>
+                <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+                    <button class="btn btn-secondary" onclick="DevicesDetailModals.closeVoiceSetup()">Close</button>
+                </div>
+            `, 'DevicesDetailModals.closeVoiceSetup()');
+        }
+
+        const { offerable } = this.voiceCapabilityState(device);
+        const available = new Set(Array.isArray(record.stt?.available) ? record.stt.available : []);
+        const current = this._voiceSetupPending != null
+            ? this._voiceSetupPending
+            : (typeof device?.settings?.voice?.sttProvider === 'string' ? device.settings.voice.sttProvider : '');
+
+        const rows = offerable.map((id) => {
+            const usable = available.has(id);
+            const label = this._sttLabel(id);
+            return `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''} ${usable ? '' : 'disabled'}>` +
+                `${this._escape(label)}${usable ? '' : ' — not ready on this device'}</option>`;
+        }).join('');
+
+        const running = record.stt?.running;
+        const body = `
+            <div class="form-group">
+                <label class="form-label">Speech-to-text on this device</label>
+                <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending(this.value)">
+                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    ${rows}
+                </select>
+            </div>
+            <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
+                Only engines this device has actually registered are listed.
+                ${running ? `It is running <strong>${this._escape(this._sttLabel(running))}</strong> right now.` : ''}
+                Choosing <strong>Account default</strong> puts this device back on the household setup.
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
+                <button class="btn btn-secondary" onclick="DevicesDetailModals.closeVoiceSetup()" ${this._voiceSetupSaving ? 'disabled' : ''}>Cancel</button>
+                <button class="btn btn-primary" onclick="DevicesDetailModals.submitVoiceSetup()" ${this._voiceSetupSaving ? 'disabled' : ''}>${this._voiceSetupSaving ? 'Saving…' : 'Save'}</button>
+            </div>
+        `;
+        return this._modal('Voice setup', body, 'DevicesDetailModals.closeVoiceSetup()');
+    },
 
     // ── Section body ──────────────────────────────────────────
 

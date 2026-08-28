@@ -132,6 +132,7 @@ const DevicesDetail = {
             ${DevicesDetailModals.renderVoicePersonalityModal()}
             ${DevicesDetailModals.renderVoiceVoiceModal()}
             ${DevicesDetailModals.renderWakeWordModal()}
+            ${DevicesDetailModals.renderVoiceSetupModal()}
             ${DevicesDetailModals.renderPinModal()}
         `;
     },
@@ -693,21 +694,27 @@ const DevicesDetail = {
             : (voiceKey ? DevicesDetailModals.voiceName(voiceKey) : 'Account default');
 
         // Voice setup (mixed-fleet, John ruled 2026-08-25, D2b): ONE selection leads,
-        // engine pickers sit behind it. Today it is READ-ONLY for every device —
-        // §4.4 hides the override affordance until a device publishes what it can
-        // actually run, and that publisher is Thread A's half. Shown regardless
-        // because "is this device following the house, or is it special?" is the
-        // question a mixed fleet actually raises, and it is answerable now.
-        // ⏳ READ-ONLY, deliberately and completely, in this change. The edit
-        // affordance and its §4.4 capability gate land TOGETHER with A's publisher
-        // — not before. A clickable row wired to a handler that does not exist yet,
-        // or a picker offering engines we cannot confirm the device can run, are
-        // both worse than a row that simply tells the truth today.
+        // engine pickers sit behind it. Shown for every device because "is this one
+        // following the house, or is it special?" is the question a mixed fleet
+        // actually raises — but EDITABLE only where §4.4's gate says yes.
+        //
+        // 🔴 The row stays READ-ONLY, with a reason, on a device that has published
+        // no usable capability record (John's ruling): a wrong STT choice does not
+        // degrade, it SILENCES the device, so an override we cannot validate fails
+        // in the expensive direction while read-only falls back to the account
+        // default — today's working behaviour. The three non-editable states are
+        // kept distinct rather than collapsed to "unavailable"; see
+        // voiceCapabilityState.
         const voiceSetup = DevicesDetailModals.voiceSetupSummary(device);
+        const voiceCap = DevicesDetailModals.voiceCapabilityState(device);
+        const voiceSetupRow = voiceCap.state === 'ok'
+            ? DevicesDetailModals._summaryRow('Voice setup', voiceSetup.label,
+                `DevicesDetailModals.openVoiceSetup('${idAttr}')`)
+            : DevicesDetailModals._readonlyRow('Voice setup', voiceSetup.label);
 
         const rows = [
             DevicesDetailModals._toggleRow(device, 'voice', 'enabled', 'Enable Voice', voiceEnabled),
-            DevicesDetailModals._readonlyRow('Voice setup', voiceSetup.label),
+            voiceSetupRow,
             DevicesDetailModals._summaryRow('Wake Word', wakeWordLabel,
                 `DevicesDetailModals.openWakeWord('${idAttr}')`),
             DevicesDetailModals._summaryRow('Personality', personalityLabel,
@@ -719,6 +726,7 @@ const DevicesDetail = {
         return this._section('voice-ai', 'Voice & AI', `
             <div class="card"><div class="card-body" style="padding: 0;">${rows}</div></div>
             <div style="margin-top: 8px; font-size: var(--font-size-sm); color: var(--text-muted);">
+                ${voiceCap.state === 'ok' ? '' : DevicesPage._escape(DevicesDetailModals.voiceCapabilityNote(voiceCap.state)) + '<br>'}
                 Wake word changes apply after the device restarts.
                 AI model lives on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice & AI</a> page.
             </div>
