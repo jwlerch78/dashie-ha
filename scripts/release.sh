@@ -181,6 +181,20 @@ node "$ADDON_ROOT/scripts/check-turn-log.mjs"
 echo "==> Checking model availability (null = cannot verify · disabled rows actually refuse)"
 node "$ADDON_ROOT/scripts/check-model-availability.mjs"
 
+# CONTRACTS #79: the voice-capability wire shape. The generated field list in this tree
+# must still match the Kotlin type that PRODUCES the record — this console reads it field
+# by field, and before the codegen a rename left every layer green while every device
+# silently lost its override affordance. Skipped (loudly) when the sibling repos are not
+# checked out, because a release machine without them cannot answer the question and a
+# silent pass would be worse than saying so.
+if [ -f "$ADDON_ROOT/../dashieapp_staging/scripts/gen-capability-shape.mjs" ]; then
+    echo "==> Checking the voice-capability wire shape (generated vs the Kotlin producer)"
+    (cd "$ADDON_ROOT/../dashieapp_staging" && node scripts/gen-capability-shape.mjs --check)
+else
+    echo "⚠️  Capability-shape check SKIPPED — dashieapp_staging not checked out beside this repo."
+    echo "    The generated field list in this tree is therefore UNVERIFIED against its producer."
+fi
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"

@@ -253,12 +253,22 @@ const DevicesDetailModals = {
     //                   card that says a false thing about the user's own device is
     //                   worse than one that says a vaguer true thing.
     voiceCapabilityState(device) {
+        // 🔴 Field names come from CAPABILITY_FIELDS (generated from the Kotlin
+        // producer, CONTRACTS #79) — not from literals here. Before that, a Kotlin
+        // rename left this file reading `undefined`, resolving every device to
+        // `nothing-registered`, and silently removing the override affordance
+        // fleet-wide with no error anywhere.
+        const F = (typeof CAPABILITY_FIELDS !== 'undefined') ? CAPABILITY_FIELDS : null;
+        // No generated shape loaded = we cannot know what to read. Report
+        // no-record rather than guess at field names: the failure direction is
+        // "affordance hidden", which is the account default, not a wrong offer.
+        if (!F) return { state: 'no-record', record: null, offerable: [] };
         const rec = device?.settings?.aiVoice?.voiceCapabilities;
         // The device-side publisher never uploads the "" sentinel, so a non-object
         // here is a foreign/legacy write rather than "ask again" — same outcome
         // (no record), but do not read it as one.
         if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return { state: 'no-record', record: null, offerable: [] };
-        if (rec.stackUp !== true) return { state: 'stack-down', record: rec, offerable: [] };
+        if (rec[F.stackUp] !== true) return { state: 'stack-down', record: rec, offerable: [] };
 
         // 🔴 RUNS and IS-OFFERED are different questions, and the picker answers the
         // second. The device's vocabulary is a SUPERSET of what this console offers:
@@ -270,7 +280,8 @@ const DevicesDetailModals = {
         // So: offer registered ∩ offered-vocabulary, and label `running` from the
         // superset (see _sttLabel).
         const offeredIds = new Set((window.VoiceAiOptions?.STT || []).map((o) => o.id));
-        const registered = Array.isArray(rec.stt?.registered) ? rec.stt.registered : [];
+        const sttBlock = rec[F.stt._self] || {};
+        const registered = Array.isArray(sttBlock[F.stt.registered]) ? sttBlock[F.stt.registered] : [];
         const offerable = registered.filter((id) => offeredIds.has(id));
 
         // Empty covers two cases and BOTH must hide the affordance: hardware that
@@ -395,8 +406,10 @@ const DevicesDetailModals = {
             `, 'DevicesDetailModals.closeVoiceSetup()');
         }
 
+        const F = CAPABILITY_FIELDS;
         const { offerable } = this.voiceCapabilityState(device);
-        const available = new Set(Array.isArray(record.stt?.available) ? record.stt.available : []);
+        const sttBlock = record[F.stt._self] || {};
+        const available = new Set(Array.isArray(sttBlock[F.stt.available]) ? sttBlock[F.stt.available] : []);
         const current = this._voiceSetupPending != null
             ? this._voiceSetupPending
             : (typeof device?.settings?.voice?.sttProvider === 'string' ? device.settings.voice.sttProvider : '');
@@ -408,7 +421,7 @@ const DevicesDetailModals = {
                 `${this._escape(label)}${usable ? '' : ' — not ready on this device'}</option>`;
         }).join('');
 
-        const running = record.stt?.running;
+        const running = sttBlock[F.stt.running];
         const body = `
             <div class="form-group">
                 <label class="form-label">Speech-to-text on this device</label>
