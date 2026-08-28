@@ -178,6 +178,14 @@ node "$ADDON_ROOT/scripts/check-turn-log.mjs"
 # one of them greys out every model for OpenRouter and Bedrock — providers whose keys are
 # fine and whose probes simply cannot enumerate. Disabling a working setup is the
 # expensive direction, so this gate guards the null.
+# The per-consumer-CLASS tier (row: engines.js, scheduled 2026-08-28). Its entire
+# content is the CLASS test, and that test is one `if` away from becoming a URL test —
+# which would route satellites at whatever localSttUrl happens to be saved, including on
+# a household that chose on-device and left a stale URL in the form. That looks like
+# convergence and behaves like a stale value.
+echo "==> Checking the satellite engine tier (class test, not URL test · one resolver for all three lanes)"
+node "$ADDON_ROOT/scripts/check-satellite-tier.mjs"
+
 echo "==> Checking model availability (null = cannot verify · disabled rows actually refuse)"
 node "$ADDON_ROOT/scripts/check-model-availability.mjs"
 
