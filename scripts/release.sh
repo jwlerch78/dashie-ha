@@ -173,6 +173,14 @@ node "$ADDON_ROOT/scripts/check-usage-surface.mjs"
 echo "==> Checking the per-turn history (backup-excluded · scoped delete · confirm-then-delete)"
 node "$ADDON_ROOT/scripts/check-turn-log.mjs"
 
+# Row 79's client half. The three-state is the whole safety property and it is cheap to
+# lose in the consumer: `!entry.models` and `!entry.models.length` read identically, and
+# one of them greys out every model for OpenRouter and Bedrock — providers whose keys are
+# fine and whose probes simply cannot enumerate. Disabling a working setup is the
+# expensive direction, so this gate guards the null.
+echo "==> Checking model availability (null = cannot verify · disabled rows actually refuse)"
+node "$ADDON_ROOT/scripts/check-model-availability.mjs"
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"
