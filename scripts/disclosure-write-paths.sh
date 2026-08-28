@@ -39,6 +39,16 @@ WRITE_SITES=(
   "dashie-ha/server/account-config.js|renameSync|1|/data|"
   "dashie-ha/server/usage-store.js|writeFileSync|1|/data|"
   "dashie-ha/server/usage-store.js|renameSync|1|/data|"
+  # turn-log is the PER-TURN history (row 80). It is /data like its siblings, so it is
+  # exempt from the docs table for the same reason they are — but do NOT fold these rows
+  # into the group above without reading config.yaml: turns.jsonl is the one /data file
+  # that is backup_exclude-d, because a timestamped sequence of voice interactions is a
+  # presence record and /data otherwise rides into whatever backup target the household
+  # points at. The exemption here is about the DOCS table, not about the file being dull.
+  "dashie-ha/server/turn-log.js|appendFileSync|1|/data/turns.jsonl|"
+  "dashie-ha/server/turn-log.js|writeFileSync|1|/data/turns.jsonl|"
+  "dashie-ha/server/turn-log.js|renameSync|1|/data/turns.jsonl|"
+  "dashie-ha/server/turn-log.js|unlinkSync|1|/data/turns.jsonl|"
 
   # --- add-on server: OUTSIDE /data (must be disclosed) --------------------
   # bridge-auth writes the master secret to /data AND provisions fallback
