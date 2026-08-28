@@ -38,6 +38,16 @@ discovery:
 backup_exclude:
   - api-keys.json
   - account-config.cache.json
+  # turns.jsonl is the PER-TURN history (row 80). Excluded in the SAME commit that
+  # creates it, deliberately. The sibling usage.json is NOT excluded and its own
+  # header argues why — "no text, no ids and no keys" — but that argument was made
+  # on the premise that per-turn data does not exist, and this file is that premise
+  # being removed. A timestamped sequence of voice interactions is a presence
+  # record: when the house is awake, when it is empty. /data rides into HA add-on
+  # backups, including ones uploaded to cloud backup targets, so shipping this
+  # without the line below would put a household's occupancy log wherever that
+  # household points its backups.
+  - turns.jsonl
 
 # Ingress panel: the Dashie sign-in/status page (open-console seed), served
 # by the same server on 8099. HA proxies frontend traffic in; nothing is

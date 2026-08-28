@@ -63,6 +63,8 @@
 
 const keyStore = require('./key-store');
 const { recordLocalUsage } = require('./usage-store');
+// B2b (row 80): the per-turn history. Gated inside turn-log — this lane just reports.
+const turnLog = require('./turn-log');
 
 const TTS_TIMEOUT_MS = 60000;
 const MAX_CHARS = 5000;
@@ -186,6 +188,10 @@ async function synthesize({ text, voice, model }) {
     recordLocalUsage({
         lane: 'tts', provider, model: useModel, billing: 'byok',
         success: true, units: { characters: clean.length },
+    });
+    turnLog.recordTurnIfEnabled({
+        lane: 'tts', provider, model: useModel, billing: 'byok',
+        success: true, latency_ms: null, units: { characters: clean.length },
     });
 
     const audio = Buffer.from(await resp.arrayBuffer());

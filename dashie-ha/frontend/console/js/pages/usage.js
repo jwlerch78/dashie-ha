@@ -29,6 +29,12 @@ const UsagePage = {
     _retentionDays: 0,
     _daysServed: 0,
     _range: 30,
+    // B2b: the per-turn history — a different artifact from the counters above.
+    _recordHistory: null,     // true | false | null ("following the account, or off")
+    _turns: null,
+    _turnRetention: 0,
+    _confirmOff: false,       // the toggle-off confirmation dialog
+    _busy: false,
 
     topBarTitle() { return 'Usage'; },
     topBarSubtitle() { return 'Recorded on this box'; },
@@ -51,6 +57,85 @@ const UsagePage = {
         this._error = r.error;
         this._loading = false;
         App.renderPage();
+        // The history half loads independently: it is a different store behind a
+        // different route, and a failure in one must not blank the other.
+        this._fetchHistory();
+    },
+
+    async _fetchHistory() {
+        const [enabled, t] = await Promise.all([
+            UsageSource.fetchRecordHistory(),
+            UsageSource.fetchTurns(500),
+        ]);
+        this._recordHistory = enabled;
+        this._turns = t.turns;
+        this._turnRetention = t.retentionDays;
+        App.renderPage();
+    },
+
+    /**
+     * The toggle. Turning it ON is a plain write. Turning it OFF is NOT — John
+     * ruled that toggling off deletes the history, after a confirmation prompt,
+     * so the OFF path opens the dialog and nothing changes until it is confirmed.
+     */
+    toggleRecordHistory(enabled) {
+        if (enabled) { this._setRecordHistory(true); return; }
+        this._confirmOff = true;
+        App.renderPage();
+    },
+
+    cancelRecordHistoryOff() {
+        // Cancel means NOTHING happened: the toggle stays on and nothing is
+        // deleted. Re-render from state rather than trusting the checkbox's own
+        // visual, which the click already flipped.
+        this._confirmOff = false;
+        App.renderPage();
+    },
+
+    async confirmRecordHistoryOff() {
+        if (this._busy) return;
+        this._busy = true;
+        App.renderPage();
+        try {
+            // 🔴 Order matters: stop recording FIRST, then delete. The reverse
+            // races a turn landing between the delete and the toggle write, which
+            // would leave a row behind after a confirmed "delete my history" —
+            // the one outcome this flow must never produce.
+            await UsageSource.setRecordHistory(false);
+            const cleared = await UsageSource.clearTurns();
+            this._confirmOff = false;
+            this._recordHistory = false;
+            this._turns = [];
+            Toast.success(cleared > 0
+                ? `History off — ${cleared} recorded turn${cleared === 1 ? '' : 's'} deleted`
+                : 'History off — there was nothing recorded to delete');
+        } catch (e) {
+            // Leave the dialog open on failure: closing it would look like the
+            // delete succeeded, and this is the one action where "did that work?"
+            // must not be ambiguous.
+            Toast.error(`Could not turn history off: ${e?.message || e}`);
+        } finally {
+            this._busy = false;
+            App.renderPage();
+            this._fetchHistory();
+        }
+    },
+
+    async _setRecordHistory(enabled) {
+        if (this._busy) return;
+        this._busy = true;
+        App.renderPage();
+        try {
+            await UsageSource.setRecordHistory(enabled);
+            this._recordHistory = enabled;
+            Toast.success(enabled ? 'Recording turn history on this box' : 'History off');
+        } catch (e) {
+            Toast.error(`Save failed: ${e?.message || e}`);
+        } finally {
+            this._busy = false;
+            App.renderPage();
+            this._fetchHistory();
+        }
     },
 
     setRange(days) {
@@ -69,6 +154,8 @@ const UsagePage = {
                 ${this._renderScopeNote()}
                 ${this._renderRangeSelector()}
                 ${this._renderBody()}
+                ${this._renderHistorySection()}
+                ${this._renderConfirmOff()}
             </div>`;
     },
 
@@ -167,6 +254,89 @@ const UsagePage = {
                 </div>
                 ${days}
             </div></div>`;
+    },
+
+    // ── B2b: the per-turn history section ───────────────────────────────────
+
+    _renderHistorySection() {
+        const on = this._recordHistory === true;
+        // null = no local key: the box follows the account (or is off without one).
+        // Shown as its own state rather than folded into "off", because "off" and
+        // "following the account" answer different questions for the reader.
+        const following = this._recordHistory === null;
+        const rows = this._turns || [];
+        const list = on && rows.length
+            ? rows.slice(0, 100).map((t) => this._renderTurn(t)).join('')
+            : '';
+        return `
+            <div class="card" style="margin-top: 24px;"><div class="card-body">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+                    <div>
+                        <div style="font-weight: 600;">Record turn history</div>
+                        <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 4px;">
+                            Keeps a timestamped list of each speech and AI call on this box, for
+                            ${this._turnRetention || 30} days. It stays on the box${following ? ' — currently following your account setting' : ''}.
+                            The totals above are kept separately and are not affected.
+                        </div>
+                    </div>
+                    <label style="display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+                        <input type="checkbox" ${on ? 'checked' : ''} ${this._busy ? 'disabled' : ''}
+                               onchange="UsagePage.toggleRecordHistory(this.checked)">
+                        <span>${on ? 'On' : 'Off'}</span>
+                    </label>
+                </div>
+                ${on && !rows.length ? `
+                    <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 12px;">
+                        No turns recorded yet.
+                    </div>` : ''}
+                ${list ? `<div style="margin-top: 12px; border-top: 1px solid var(--border-color, #e5e5e5);">${list}</div>` : ''}
+            </div></div>`;
+    },
+
+    _renderTurn(t) {
+        const units = Object.entries(t.units || {})
+            .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`).join(' · ');
+        const when = String(t.at || '').replace('T', ' ').replace(/\..*$/, '');
+        const name = t.model ? `${t.provider} · ${t.model}` : t.provider;
+        return `
+            <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
+                <span><span style="color: var(--text-muted);">${DevicesPage._escape(when)}</span>
+                    ${DevicesPage._escape(t.lane)} · ${DevicesPage._escape(name)}</span>
+                <span style="color: var(--text-muted); text-align: right;">
+                    ${t.success ? '' : 'failed · '}${units}${t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}
+                </span>
+            </div>`;
+    },
+
+    /**
+     * The confirmation John's amendment requires. It must SAY WHAT IS DELETED —
+     * the per-turn history, not the totals — because the two live on the same
+     * page and a reader has no way to know the deletion is scoped unless told.
+     */
+    _renderConfirmOff() {
+        if (!this._confirmOff) return '';
+        const n = (this._turns || []).length;
+        return `
+            <div class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                <div class="card" style="max-width: 460px; margin: 16px;"><div class="card-body">
+                    <div style="font-weight: 600; margin-bottom: 8px;">Turn off history and delete it?</div>
+                    <div style="font-size: var(--font-size-sm); color: var(--text-muted); margin-bottom: 8px;">
+                        This box will stop recording turns, and the
+                        ${n ? `<strong>${n} turn${n === 1 ? '' : 's'}</strong> already recorded will be` : 'recorded turn history will be'}
+                        deleted from this box. This cannot be undone.
+                    </div>
+                    <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
+                        Your usage totals above are <strong>not</strong> deleted — they are kept separately
+                        and will keep counting.
+                    </div>
+                    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+                        <button class="btn btn-secondary" ${this._busy ? 'disabled' : ''}
+                                onclick="UsagePage.cancelRecordHistoryOff()">Cancel</button>
+                        <button class="btn btn-primary" ${this._busy ? 'disabled' : ''}
+                                onclick="UsagePage.confirmRecordHistoryOff()">${this._busy ? 'Deleting…' : 'Turn off and delete'}</button>
+                    </div>
+                </div></div>
+            </div>`;
     },
 
     _renderRow(r) {

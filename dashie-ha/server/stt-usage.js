@@ -42,6 +42,8 @@
 'use strict';
 
 const { recordLocalUsage } = require('./usage-store');
+// B2b (row 80): the per-turn history. Gated inside turn-log — this lane just reports.
+const turnLog = require('./turn-log');
 
 /** Canonical PCM WAV layout, per D's §8c.2. */
 const OFF = { channels: 22, sampleRate: 24, bitsPerSample: 34, dataTag: 36, dataBytes: 40 };
@@ -148,6 +150,10 @@ function recordSttCall(audio, opts, route) {
                 lane: 'stt', provider: 'dashie_cloud', model: null,
                 billing: 'metered', success: true, units,
             });
+            turnLog.recordTurnIfEnabled({
+                lane: 'stt', provider: 'dashie_cloud', model: '',
+                billing: 'metered', success: true, latency_ms: null, units,
+            });
             return;
         }
 
@@ -155,6 +161,7 @@ function recordSttCall(audio, opts, route) {
         const model = String(opts?.stt_model || 'whisper-1');
         const billing = String(opts?.stt_api_key || '').trim() ? 'byok' : 'free';
         recordLocalUsage({ lane: 'stt', provider, model, billing, success: true, units });
+        turnLog.recordTurnIfEnabled({ lane: 'stt', provider, model, billing, success: true, latency_ms: null, units });
     } catch (e) {
         console.warn(`DROP: stt-usage record threw — ${e?.message || e}`);
     }

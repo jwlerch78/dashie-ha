@@ -49,6 +49,10 @@ const tools = require('./tool-gate');
 // the STT and TTS lanes have had theirs since D's contract; this one was the gap the
 // local Usage page had to disclose in prose until now.
 const { recordLocalUsage } = require('../usage-store');
+// B2b (row 80): the per-turn history, gated on an ON-BOX toggle. Separate store
+// from the aggregate above — see turn-log.js's header for why the two do not share
+// a file, a retention, or a backup posture.
+const turnLog = require('../turn-log');
 
 // Sampling temperature by call INTENT (see Dashie 20260714_LOCAL_MODEL_BENCHMARK_RESULTS
 // "DECIDE-vs-NARRATE"): routing/action emission is a classification — sample
@@ -285,6 +289,30 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                     },
                 });
             } catch { /* an observer never breaks a turn */ }
+
+            // ── B2b: the per-turn row, only when this box records history ──
+            // Same placement rule and same narrow-object rule as the aggregate
+            // above: unconditional with respect to `signedIn`, fields named and
+            // never spread. `latency_ms` is real here — the core measures it —
+            // whereas the speech lanes pass null rather than invent one.
+            //
+            // One call: turn-log resolves the gate, defers the write and stamps the
+            // timestamp itself, so no lane re-derives any of that. `latency_ms` is
+            // real here because the core measures it; the speech lanes pass null
+            // rather than invent one.
+            turnLog.recordTurnIfEnabled({
+                lane: 'brain',
+                provider: 'brain',
+                model: data?.model || '',
+                billing: 'byok',
+                success: data?.success !== false,
+                latency_ms: data?.total_latency_ms,
+                units: {
+                    input_tokens: data?.input_tokens,
+                    output_tokens: data?.output_tokens,
+                    total_tokens: data?.total_tokens,
+                },
+            });
 
             // byok:true = recorded, NEVER debited. Required for cataloged model ids (a BYO
             // Gemini key running gemini-*-flash would otherwise bill Dashie credits); renders

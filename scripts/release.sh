@@ -165,6 +165,14 @@ node "$ADDON_ROOT/scripts/check-stt-usage.mjs"
 echo "==> Checking the Usage surface (reachable · no invented money · calendar window)"
 node "$ADDON_ROOT/scripts/check-usage-surface.mjs"
 
+# The per-turn history (B2b). Every property here is invisible at runtime — the code
+# runs, turns record, the page renders — and what differs is what lands on disk, who
+# can read it, and what a delete actually removes. Leg 1 is the condition B2b was
+# approved on: turns.jsonl backup-excluded in BOTH channels, or a household's
+# occupancy log rides into every HA backup.
+echo "==> Checking the per-turn history (backup-excluded · scoped delete · confirm-then-delete)"
+node "$ADDON_ROOT/scripts/check-turn-log.mjs"
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"
