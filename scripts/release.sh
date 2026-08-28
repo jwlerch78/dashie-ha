@@ -157,6 +157,14 @@ node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 echo "==> Checking STT usage capture (derived seconds · no zero rows · lanes apart)"
 node "$ADDON_ROOT/scripts/check-stt-usage.mjs"
 
+# The READ half of the same record. Until 2026-08-28 `readUsage()` was exported and
+# called by nothing — the box accumulated usage nobody could see. This gate asserts
+# the whole reachability CHAIN (whitelist → registry → nav → script tag), because
+# every previous failure here had three of the four links correct, and asserts the
+# page invents no cost/balance the box-local record cannot have.
+echo "==> Checking the Usage surface (reachable · no invented money · calendar window)"
+node "$ADDON_ROOT/scripts/check-usage-surface.mjs"
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"

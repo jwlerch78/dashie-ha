@@ -31,6 +31,8 @@ const App = {
         credits:       { page: CreditsPage },
         'api-keys':    { page: ApiKeysPage },
         'local-engines': { page: LocalEnginesPage },
+        // Local-mode only (FeatureGate.LOCAL_ONLY_PAGES) — the box-local usage record.
+        usage:         { page: typeof UsagePage !== 'undefined' ? UsagePage : null },
     },
 
     async init() {
