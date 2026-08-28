@@ -46,6 +46,7 @@ const UsageSource = {
      * @param {number} days how many day-buckets to ask for
      * @returns {Promise<{rows: Array, local: boolean, daysAvailable: number, retentionDays: number, error: string|null}>}
      *   `rows`: `{ day, provider, model, billing, calls, errors, units }`, newest day first.
+     *   `daysServed` is the window the route actually served (retention-capped).
      *   `units` is whatever the store recorded for that key — the shape differs by
      *   lane (characters for TTS, seconds for STT), so it is passed through rather
      *   than flattened into a single fake "amount" column.
@@ -60,6 +61,13 @@ const UsageSource = {
                 local: true,
                 daysAvailable: Number(data.days_available) || 0,
                 retentionDays: Number(data.retention_days) || 0,
+                // 🔴 What the route ACTUALLY served, which is not always what we asked
+                // for: it caps the window at the store's retention. Ask for 90 against a
+                // 60-day retention and you get 60 — so a page that labels its window from
+                // its own request states something false. Caught when row 80 moved the
+                // default from 400 to 60 and the existing 90-day button silently began
+                // lying. The caller must label from THIS, never from its own range.
+                daysServed: Number(data.days_requested) || 0,
                 error: null,
             };
         } catch (e) {
@@ -68,7 +76,7 @@ const UsageSource = {
             // "could not read the record" is a fact about the console. Collapsing
             // them would show a brand-new box the same screen as a broken one.
             console.warn('[UsageSource] local read failed:', e?.message || e);
-            return { rows: [], local: true, daysAvailable: 0, retentionDays: 0, error: e?.message || String(e) };
+            return { rows: [], local: true, daysAvailable: 0, retentionDays: 0, daysServed: 0, error: e?.message || String(e) };
         }
     },
 

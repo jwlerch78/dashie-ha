@@ -53,6 +53,8 @@ const page    = read('frontend/console/js/pages/usage.js');
 const source  = read('frontend/console/js/pages/usage-source.js');
 const route   = read('server/api/usage.js');
 const index   = read('server/index.js');
+const brainIo = read('server/brain/addon-io.js');
+const store   = read('server/usage-store.js');
 
 // ── Leg 1: the REACHABILITY CHAIN, all four links ───────────────────────────
 // ⚠️ Each link is matched INSIDE its own construct, not by a windowed search.
@@ -109,17 +111,31 @@ if (moneyHits.length === 0) {
     );
 }
 
-// ── Leg 4: the page states what the record does NOT cover ───────────────────
-// Only STT and TTS have capture points; the LLM leg of a local turn is recorded
-// in Supabase or nowhere. A page silently showing two lanes reads as "everything".
-if (/AI-model leg[\s\S]{0,120}not recorded/.test(page)) {
-    ok('4: the page names the lane it does NOT cover (the on-box LLM leg)');
-} else {
-    fail(
-        `[4] The Usage page does not say that the AI-model leg is uncounted. Only the STT and TTS ` +
-        `lanes have on-box capture points, so a page that lists them without qualification reads ` +
-        `as a complete record of the turn. Closing that gap is B2; saying so is B1.`
-    );
+// ── Leg 4: the page states its scope TRUTHFULLY, in whichever direction ─────
+// Until B2a the page had to disclose that the AI-model leg was uncounted. B2a added
+// that capture point, so the caveat became FALSE — and a stale caveat understates the
+// record, which is a lie in the direction a reader is least likely to check. This leg
+// tracks the code rather than one wording: the disclosure must match the lanes that
+// actually have capture points.
+{
+    const brainCaptured = /lane: 'brain'/.test(brainIo);
+    const claimsUncounted = /AI-model leg[\s\S]{0,120}not (recorded|counted)/.test(page);
+    const claimsAllThree = /all three legs of a turn/.test(page);
+    if (brainCaptured && claimsUncounted) {
+        fail(
+            `[4] The Usage page still says the AI-model leg is not recorded, but addon-io.js DOES ` +
+            `record the brain lane. The caveat is now false and understates the record.`
+        );
+    } else if (!brainCaptured && claimsAllThree) {
+        fail(
+            `[4] The Usage page claims it covers all three legs, but no brain-lane capture point ` +
+            `exists in addon-io.js. That overstates the record.`
+        );
+    } else if (brainCaptured ? claimsAllThree : claimsUncounted) {
+        ok(`4: the page's scope disclosure matches the lanes that actually record`);
+    } else {
+        fail(`[4] The Usage page makes no scope disclosure at all. A list of lanes with no statement of coverage reads as "this is everything".`);
+    }
 }
 
 // ── Leg 5: the range means CALENDAR days, not bucket count ──────────────────
@@ -171,6 +187,67 @@ if (/cost/i.test(source) && !/cost\s*:\s*(?!null)[^,\n]/.test(source)) {
     );
 } else {
     fail(`[8] UsageSource appears to assign a non-null cost. The box-local record has no cost field.`);
+}
+
+// ── Leg 9: the brain lane records ABOVE the signedIn early return (B2a) ─────
+// D's contract §2: record REGARDLESS of an account token. The cloud logger returns
+// early on !token; inheriting that condition means a box that later LINKS an account
+// silently stops keeping its own record, and the local Usage view gains a gap exactly
+// at the transition — invisibly, because both halves still appear to work. Below the
+// return, this is correct on every box we would test on and wrong on the rest.
+{
+    const rec = brainIo.indexOf("lane: 'brain'");
+    const gate = brainIo.indexOf('if (signedIn) return postDbOp');
+    if (rec === -1) {
+        fail(`[9] No brain-lane recordLocalUsage call in addon-io.js — the LLM leg is uncounted and the Usage page's caveat is load-bearing.`);
+    } else if (gate === -1) {
+        fail(`[9] Could not find the signedIn early return in addon-io.js — the ordering this leg exists to assert cannot be checked.`);
+    } else if (rec < gate) {
+        ok('9: the brain lane records above the signedIn early return (unconditional)');
+    } else {
+        fail(
+            `[9] The brain-lane recordLocalUsage call sits BELOW the signedIn early return. ` +
+            `A box that later links an account then silently stops keeping its own record — ` +
+            `correct on the account-less box we test on, wrong on every other. D's contract §2.`
+        );
+    }
+}
+
+// ── Leg 10: no spread of the brain's payload into the usage store ──────────
+// That object carries session_id / endpoint_id / request_length. The store's entire
+// claim is that it holds no ids, and recordLocalUsage takes a NARROW object precisely
+// so they cannot arrive by accident. A spread passes every other gate: the entry key
+// is provider|model|billing and the extra fields ride along inside the entry.
+{
+    const call = brainIo.match(/recordLocalUsage\(\{[\s\S]*?\n\s*\}\)/);
+    if (!call) {
+        fail(`[10] Could not locate the recordLocalUsage call in addon-io.js to check its shape.`);
+    } else if (/\.\.\.\s*data/.test(call[0])) {
+        fail(
+            `[10] The brain-lane usage call SPREADS the brain payload. That object carries ` +
+            `session_id, endpoint_id and request_length — this store's whole claim is that it ` +
+            `holds no ids, and its sink takes a narrow object so they cannot arrive by accident. ` +
+            `Name every field explicitly.`
+        );
+    } else if (/session_id|endpoint_id|request_length/.test(call[0])) {
+        fail(`[10] The brain-lane usage call names an identifying field (session_id / endpoint_id / request_length). The store holds no ids.`);
+    } else {
+        ok('10: the brain-lane usage call names its fields explicitly and carries no ids');
+    }
+}
+
+// ── Leg 11: the page labels the window the route SERVED, not the one it asked ─
+// The route caps at retention. Ask for 90 against a 60-day retention and you get 60,
+// so a page labelling from its own range states something false — which is exactly what
+// row 80's 400→60 change did to the existing 90-day button.
+if (/daysServed/.test(source) && /this\._daysServed \|\| this\._range/.test(page)) {
+    ok('11: the Usage page labels its window from what the route served (retention-capped)');
+} else {
+    fail(
+        `[11] The Usage page labels its window from its own requested range. The route caps the ` +
+        `window at the store's retention, so the two diverge the moment a range button exceeds ` +
+        `it — the page then states a period it was not given data for.`
+    );
 }
 
 if (errors.length) {

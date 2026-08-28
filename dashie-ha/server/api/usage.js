@@ -4,7 +4,7 @@
 // ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────
 //
 // `usage-store.js` has been writing `/data/usage.json` since the BYOK usage
-// contract landed — day-bucketed, schema-versioned, 400-day retention, and
+// contract landed — day-bucketed, schema-versioned, retention pruned on write, and
 // deliberately metadata-only. `readUsage()` was exported and **called by nothing
 // outside its own file**: no route, no page, no consumer. So the box has been
 // accumulating a record nobody could see, which is the component-not-outcome

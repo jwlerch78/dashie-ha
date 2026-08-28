@@ -45,6 +45,10 @@
 'use strict';
 
 const tools = require('./tool-gate');
+// B2a (row 80): the box-local usage record. The brain lane's ONLY capture point —
+// the STT and TTS lanes have had theirs since D's contract; this one was the gap the
+// local Usage page had to disclose in prose until now.
+const { recordLocalUsage } = require('../usage-store');
 
 // Sampling temperature by call INTENT (see Dashie 20260714_LOCAL_MODEL_BENCHMARK_RESULTS
 // "DECIDE-vs-NARRATE"): routing/action emission is a classification — sample
@@ -249,6 +253,39 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         // add-on's stdout is the only turn-level diagnostic an HA user has.
         logInteraction: (token, data) => {
             try { log(`[brain] turn: type=${data?.response_type || '?'} model=${data?.model || '?'}`); } catch { /* never breaks a turn */ }
+
+            // ── B2a: the box-local record for the BRAIN lane (row 80, John 2026-08-28) ──
+            //
+            // 🔴 ABOVE the `signedIn` return, and unconditionally. D's contract §2 says to
+            // record REGARDLESS of whether an account token exists, because the cloud logger
+            // returns early on `!token` and inheriting that condition means a box that later
+            // LINKS an account silently stops keeping its own record — the local Usage view
+            // gains a gap exactly at the transition, invisibly, because both halves still
+            // appear to work. Written below the return this would be correct on every box we
+            // would test on (the account-less one) and wrong on the ones we would not.
+            //
+            // ⚠️ Fields named EXPLICITLY — never `...data`. That object also carries
+            // `session_id`, `endpoint_id` and `request_length`, and this store's whole claim
+            // is that it holds no ids. `recordLocalUsage` takes a narrow object precisely so
+            // such fields cannot arrive by accident (its own KDoc), and this is the first call
+            // site where the ambient object is wide enough for that to matter. A spread would
+            // pass every existing gate: the entry key is built from provider|model|billing and
+            // the extra fields would simply ride along inside the entry.
+            try {
+                recordLocalUsage({
+                    lane: 'brain',
+                    provider: 'brain',
+                    model: data?.model || '',
+                    billing: 'byok',          // matches io.billing — AI tokens run on the user's own key/model
+                    success: data?.success !== false,
+                    units: {
+                        input_tokens: data?.input_tokens,
+                        output_tokens: data?.output_tokens,
+                        total_tokens: data?.total_tokens,
+                    },
+                });
+            } catch { /* an observer never breaks a turn */ }
+
             // byok:true = recorded, NEVER debited. Required for cataloged model ids (a BYO
             // Gemini key running gemini-*-flash would otherwise bill Dashie credits); renders
             // as "model (API key)" in the usage views instead of a charge.

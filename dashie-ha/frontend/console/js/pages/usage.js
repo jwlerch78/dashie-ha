@@ -27,6 +27,7 @@ const UsagePage = {
     _error: null,
     _daysAvailable: 0,
     _retentionDays: 0,
+    _daysServed: 0,
     _range: 30,
 
     topBarTitle() { return 'Usage'; },
@@ -44,6 +45,9 @@ const UsagePage = {
         this._rows = r.rows;
         this._daysAvailable = r.daysAvailable;
         this._retentionDays = r.retentionDays;
+        // Label from what the route SERVED, not from what we asked for — it caps at
+        // retention, so the two diverge the moment a range button exceeds it.
+        this._daysServed = r.daysServed;
         this._error = r.error;
         this._loading = false;
         App.renderPage();
@@ -71,9 +75,14 @@ const UsagePage = {
     /**
      * 🔴 The honesty note, and it is not decoration — it is the reason this page
      * can be trusted at all. Two things a reader would otherwise assume wrongly:
-     * that these numbers reached Dashie (they did not, and cannot), and that they
-     * cover the whole turn (they cover STT and TTS; the AI-model leg of a turn is
-     * not recorded on the box today).
+     * that these numbers reached Dashie (they did not, and cannot), and what they
+     * cover.
+     *
+     * ⚠️ 2026-08-28: this block used to disclose that the AI-model leg was UNCOUNTED.
+     * B2a (row 80) added the brain lane's capture point, so that sentence became false
+     * and was replaced rather than left standing. A stale caveat is not a harmless
+     * leftover — it understates the record, which is a lie in the direction a reader
+     * is least likely to check.
      */
     _renderScopeNote() {
         return `
@@ -85,16 +94,21 @@ const UsagePage = {
                         here has been sent anywhere, and there is nothing to turn off.
                     </div>
                     <div>
-                        It covers <strong>speech-to-text and text-to-speech</strong> calls. The
-                        AI-model leg of a turn is not recorded on the box, so it is not counted below.
-                        No prompt or response text, and no device or user identifiers, are ever stored.
+                        It covers all three legs of a turn — <strong>speech-to-text, the AI model,
+                        and text-to-speech</strong>. No prompt or response text, and no device or
+                        user identifiers, are ever stored.
                     </div>
                 </div>
             </div>`;
     },
 
     _renderRangeSelector() {
-        const opts = [7, 30, 90];
+        // Never offer a window longer than the store keeps: the route caps at retention,
+        // so a 90-day button against a 60-day store silently serves 60. Filtered rather
+        // than hardcoded, because retention is the SERVER's constant — row 80 moved it
+        // 400→60 and a hardcoded list here would have gone stale in the same commit.
+        const cap = this._retentionDays || Infinity;
+        const opts = [7, 30, 90, 400].filter((d, i, a) => d <= cap || a[i - 1] === undefined || a[i - 1] < cap);
         const btns = opts.map((d) => `
             <button class="btn ${d === this._range ? 'btn-primary' : 'btn-secondary'}"
                     onclick="UsagePage.setRange(${d})">${d} days</button>`).join('');
@@ -149,7 +163,7 @@ const UsagePage = {
                 <div style="padding: 12px 16px;">
                     <strong>${t.calls}</strong> call${t.calls === 1 ? '' : 's'}
                     ${t.errors > 0 ? ` · <span style="color: var(--status-error, #c00);">${t.errors} failed</span>` : ''}
-                    <span style="color: var(--text-muted);"> in the last ${this._range} days</span>
+                    <span style="color: var(--text-muted);"> in the last ${this._daysServed || this._range} days</span>
                 </div>
                 ${days}
             </div></div>`;
