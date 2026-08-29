@@ -194,6 +194,7 @@
         // Current (2026-06)
         'gemini-3.5-flash': { input: 1.50, output: 9.00 },
         'gemini-3.1-flash-lite': { input: 0.25, output: 1.50 },
+        'gemini-3.7-flash': { input: 0.75, output: 3.75 },   // rate from ai.google.dev, 2026-08-28
     
         // ── Gemini Live (realtime "conversation mode", per 1M tokens) ──────────
         // Live billing splits by MODALITY. Because the credit ledger has one
