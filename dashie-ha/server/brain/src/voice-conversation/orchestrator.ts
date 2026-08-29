@@ -22,6 +22,7 @@
 // here and provided at call time via OrchestratorIO. Deno wires them in default-io.ts; the Node
 // add-on wires its own. Keep it this way — see README "Dual-runtime sync contract" + §13.16.
 import { buildPrompt, offeredToolNames } from './prompt.ts';
+import { resolveBenchPromptPrefix, logBenchOverride, readEnvSafe } from './bench-override.ts';
 
 // Spoken decline per KNOWN tool a caller wasn't offered (see the clarify-path refinement in
 // runOrchestration). Only tools a device can legitimately lack belong here — server tools are
@@ -422,6 +423,18 @@ interface OrchestrateCtx {
 
 async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx: OrchestrateCtx): Promise<Turn> {
   const { req, userId, token, supabase } = deps;
+  // BENCH PROMPT OVERRIDE (staging-only, allowlisted callers). All policy lives in
+  // bench-override.ts; this call site deliberately holds none of its own.
+  // The resolver is PURE and is re-derived at the pass-2 site from the same (req, userId, env),
+  // rather than threaded through secondPass's nine call sites as a tenth positional argument.
+  // That is the safer shape here: the two passes agree BY CONSTRUCTION, and no call site can
+  // forget to pass it. Logged once, here, so a run emits one marker rather than one per pass.
+  const benchOverride = resolveBenchPromptPrefix(
+    (req as { bench_prompt_prefix?: unknown }).bench_prompt_prefix,
+    userId,
+    { allowlist: readEnvSafe('BENCH_PROMPT_OVERRIDE_USER_IDS'), supabaseUrl: readEnvSafe('SUPABASE_URL') },
+  );
+  logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
 
   // False-activation guard: a pure-noise transcript (no letters in any script)
@@ -615,6 +628,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     grounding: geminiGrounds,
     multi: multiEnabled,
     tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
+    // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
+    // caller; omitted entirely on real turns so the common row shape is unchanged.
+    ...(benchOverride.active ? { bench_prompt_override: true } : {}),
   };
   const context = {
     customPersonalityConfig: personality,
@@ -661,7 +677,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // digests it directly (single AND multi-event, member-attributed). The device holds the
   // matching card; the brain only flags that the direct path was taken.
   const providedCalendar = req.provided_context?.calendar;
-  const p1Prompt = buildPrompt({
+  const p1PromptBase = buildPrompt({
     userRequest: req.text, inquiryType: null,
     context: {
       ...context,
@@ -669,6 +685,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ...(providedCalendar ? { providedCalendar } : {}),
     },
   });
+  // Prefixed, not substituted — the same layering prompt-probe/household-probe use, so a deployed
+  // measurement stays comparable with the provider-direct ones. `prefix` is '' on every real turn.
+  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}\n\n${p1PromptBase}` : p1PromptBase;
   const forcedContent = forced
     ? JSON.stringify({
       type: 'info_request', tool: 'web_search', query: req.text,
@@ -696,6 +715,31 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // thinking (it's not the latency hotspot and warmth may benefit). The HA pass-2 resolution
     // (kind:'decide') is left on dynamic too — its thinking-off was not benched (large entity lists).
     : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: 'decide', temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
+  // ── Grounded-turn COGS visibility (2026-08-27; John+O green-light) ──────────────────────────
+  // A grounded pass attaches `tools:[{google_search:{}}]` and IS a billable web search, but it
+  // never travels the explicit `web_search` tool path, so until now NOTHING logged or costed it —
+  // grounded turns were recorded as plain completions. This puts them in `web_search_logs`
+  // alongside Brave/Tavily so the spend is visible in one place.
+  //
+  // `result_count` carries the searches the model ACTUALLY ran (`grounding_queries`), which is the
+  // field that separates "grounding offered" from "grounding used" — measured 2026-08-27,
+  // `groundingMetadata` is present even on turns that ran no search, so it cannot serve.
+  // ⚠️ VISIBILITY ONLY, NEVER A USER CHARGE: `searchCost('gemini_grounding')` is 0 by design (the
+  // catalog row deliberately has no `perQuery`; see _shared/grounding-cost.test.ts), so the
+  // debit branch in handlers/logging.ts cannot fire. Do not "complete" that row without John's
+  // pricing word — it is parked with the deferred credit-margin decision.
+  if (geminiGrounds && pass1.ok && pass1.raw) {
+    await io.logWebSearch(token, {
+      session_id: sessionId,
+      provider: 'gemini_grounding',
+      query_length: (req.text || '').length,
+      requested_count: 0,
+      result_count: pass1.raw.grounding_queries ?? 0,
+      latency_ms: pass1.latency_ms,
+      success: true,
+    });
+  }
+
   if (!pass1.ok || !pass1.raw) {
     return errorTurn(t0, pass1, [stageErr('pass1', pass1)]);
   }
@@ -1391,7 +1435,16 @@ async function secondPass(
   // slot over the image hint when present.
   card: unknown = undefined,
 ): Promise<Turn> {
-  const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context: context as never });
+  const promptBase = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context: context as never });
+  // Same pure resolver as pass 1 (see runOrchestration) — re-derived, not threaded, so the two
+  // passes cannot disagree about which prompt is in force. No logging here: the decision was
+  // already logged once at orchestration entry.
+  const benchOverride2 = resolveBenchPromptPrefix(
+    (deps.req as { bench_prompt_prefix?: unknown }).bench_prompt_prefix,
+    deps.userId,
+    { allowlist: readEnvSafe('BENCH_PROMPT_OVERRIDE_USER_IDS'), supabaseUrl: readEnvSafe('SUPABASE_URL') },
+  );
+  const prompt = benchOverride2.active ? `${benchOverride2.prefix}\n\n${promptBase}` : promptBase;
   // Live progress: tool fetch done, synthesis pass starting. Reads as the 3rd act of
   // the progression the client shows — "Thinking…" (pass-1) → tool status
   // ("Searching the web…") → "Finalizing…" (this synthesis pass) → the answer.

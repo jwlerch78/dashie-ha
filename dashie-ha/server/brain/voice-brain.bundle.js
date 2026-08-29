@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: fe05edb39c25883899936967695fbbdf34378c76
+   Source git SHA: 6501a067a30f71c7aeb32e9c8fe3386ffb065bfc
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -2169,6 +2169,41 @@ IMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are sh
   return prompt;
 }
 
+// supabase/functions/voice-conversation/bench-override.ts
+var STAGING_PROJECT_REF = "cwglbtosingboqepsmjk";
+var MAX_PREFIX_BYTES = 8192;
+function readEnvSafe(name) {
+  try {
+    return Deno.env.get(name);
+  } catch {
+    return void 0;
+  }
+}
+var REFUSE = (reason) => ({ prefix: "", active: false, reason });
+function resolveBenchPromptPrefix(candidate, userId, env = {}) {
+  if (candidate === void 0 || candidate === null || candidate === "") {
+    return { prefix: "", active: false, reason: "not-requested" };
+  }
+  const allowlistRaw = (env.allowlist ?? "").trim();
+  if (!allowlistRaw) return REFUSE("override-not-enabled-in-this-environment");
+  if (!(env.supabaseUrl ?? "").includes(STAGING_PROJECT_REF)) {
+    return REFUSE("not-staging");
+  }
+  const allowed = allowlistRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!userId || !allowed.includes(userId)) return REFUSE("caller-not-allowlisted");
+  if (typeof candidate !== "string") return REFUSE("not-a-string");
+  if (new TextEncoder().encode(candidate).length > MAX_PREFIX_BYTES) return REFUSE("too-large");
+  return { prefix: candidate, active: true, reason: "accepted" };
+}
+function logBenchOverride(d, userId) {
+  if (d.reason === "not-requested") return;
+  if (d.active) {
+    console.warn(`BENCH-PROMPT-OVERRIDE ACTIVE: a foreign system prompt is layered on this turn \u2014 user=${userId} bytes=${d.prefix.length}`);
+  } else {
+    console.warn(`DROP: bench-prompt-override refused (${d.reason}) user=${userId}`);
+  }
+}
+
 // supabase/functions/voice-conversation/redact-args.ts
 var PASS_KEYS = /* @__PURE__ */ new Set([
   "time_range",
@@ -2366,7 +2401,8 @@ function normalizeParsedShape(parsed) {
     "get_current_time",
     "dashie_help",
     "music",
-    "schedule_action"
+    "schedule_action",
+    "personalities"
   ]);
   const TERMINAL_TYPES = /* @__PURE__ */ new Set(["response", "action", "info_request", "multi"]);
   const tool = parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== "info_request" ? parsed.type : typeof parsed.tool === "string" && KNOWN_TOOLS.has(parsed.tool) && !TERMINAL_TYPES.has(parsed.type) ? parsed.tool : null;
@@ -4438,6 +4474,12 @@ async function runOrchestration(deps, io) {
 }
 async function orchestrate(deps, io, voiceCtx) {
   const { req, userId, token, supabase } = deps;
+  const benchOverride = resolveBenchPromptPrefix(
+    req.bench_prompt_prefix,
+    userId,
+    { allowlist: readEnvSafe("BENCH_PROMPT_OVERRIDE_USER_IDS"), supabaseUrl: readEnvSafe("SUPABASE_URL") }
+  );
+  logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
   if (isLikelyNoise(req.text)) {
     io.logInteraction(token, {
@@ -4512,7 +4554,10 @@ async function orchestrate(deps, io, voiceCtx) {
     retrieve_pictures: retrievePictures,
     grounding: geminiGrounds,
     multi: multiEnabled,
-    tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites })
+    tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
+    // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
+    // caller; omitted entirely on real turns so the common row shape is unchanged.
+    ...benchOverride.active ? { bench_prompt_override: true } : {}
   };
   const context = {
     customPersonalityConfig: personality,
@@ -4546,7 +4591,7 @@ async function orchestrate(deps, io, voiceCtx) {
   const forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
   const providedSports = req.provided_context?.sports;
   const providedCalendar = req.provided_context?.calendar;
-  const p1Prompt = buildPrompt({
+  const p1PromptBase = buildPrompt({
     userRequest: req.text,
     inquiryType: null,
     context: {
@@ -4555,6 +4600,9 @@ async function orchestrate(deps, io, voiceCtx) {
       ...providedCalendar ? { providedCalendar } : {}
     }
   });
+  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}
+
+${p1PromptBase}` : p1PromptBase;
   const forcedContent = forced ? JSON.stringify({
     type: "info_request",
     tool: "web_search",
@@ -4563,6 +4611,17 @@ async function orchestrate(deps, io, voiceCtx) {
     processing_message: "Looking that up"
   }) : null;
   const pass1 = forcedContent ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } } : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: "decide", temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
+  if (geminiGrounds && pass1.ok && pass1.raw) {
+    await io.logWebSearch(token, {
+      session_id: sessionId,
+      provider: "gemini_grounding",
+      query_length: (req.text || "").length,
+      requested_count: 0,
+      result_count: pass1.raw.grounding_queries ?? 0,
+      latency_ms: pass1.latency_ms,
+      success: true
+    });
+  }
   if (!pass1.ok || !pass1.raw) {
     return errorTurn(t0, pass1, [stageErr("pass1", pass1)]);
   }
@@ -5176,7 +5235,15 @@ function routeOf(parsed) {
   return "direct";
 }
 async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false, card2 = void 0) {
-  const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
+  const promptBase = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
+  const benchOverride2 = resolveBenchPromptPrefix(
+    deps.req.bench_prompt_prefix,
+    deps.userId,
+    { allowlist: readEnvSafe("BENCH_PROMPT_OVERRIDE_USER_IDS"), supabaseUrl: readEnvSafe("SUPABASE_URL") }
+  );
+  const prompt = benchOverride2.active ? `${benchOverride2.prefix}
+
+${promptBase}` : promptBase;
   deps.onStage?.({ stage: "synthesizing", status: "Finalizing", elapsed_ms: Date.now() - t0 });
   const kind = inquiryType === "home-assistant" ? "decide" : "narrate";
   const pass2 = await io.callGateway({ provider, prompt, modelId, grounding, kind });
@@ -5497,4 +5564,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "fe05edb39c25883899936967695fbbdf34378c76";
+module.exports.BRAIN_SOURCE_SHA = "6501a067a30f71c7aeb32e9c8fe3386ffb065bfc";
