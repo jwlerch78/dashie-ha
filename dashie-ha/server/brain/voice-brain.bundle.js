@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: a6cb3f5bab1044337756fb598716606596078f15
+   Source git SHA: dd1c3453b9be7c7d0f6e50a46b900f48ae1a93a0
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -1970,6 +1970,14 @@ function selectWebGuidance(text, webSearchOffered, groundingEnabled) {
   }
   return keep ? out.replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, "g"), "") : out;
 }
+function trimPass2Tools(rendered) {
+  const start = rendered.indexOf("\nTools:");
+  const end = rendered.indexOf("## 3. ACTION");
+  if (start < 0 || end < 0 || start > end) {
+    throw new Error("trimPass2Tools: anchors moved (Tools: / ## 3. ACTION) \u2014 re-verify the template before trusting the trim");
+  }
+  return rendered.slice(0, start) + "\n(The routing decision was already made on the previous pass; no tool list is needed here.)\n\n" + rendered.slice(end);
+}
 function toolsListFor(context) {
   const drop = [];
   if (context.webSearchEnabled === false) drop.push("- web_search:");
@@ -2148,7 +2156,9 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
       const inquiryValues = buildInquiryValues(inquiryType, retrievedData, baseValues);
       prompt += "\n\n" + fillTemplate(inquiryTemplate, inquiryValues);
     }
-    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_FULL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
+    let p2 = fillTemplate(RESPONSE_FORMAT_FULL, baseValues);
+    if (inquiryType === "home-assistant") p2 = trimPass2Tools(p2);
+    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled);
   } else {
     prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
     if (context.multiEnabled) {
@@ -5564,4 +5574,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "a6cb3f5bab1044337756fb598716606596078f15";
+module.exports.BRAIN_SOURCE_SHA = "dd1c3453b9be7c7d0f6e50a46b900f48ae1a93a0";

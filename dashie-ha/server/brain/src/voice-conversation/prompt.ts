@@ -208,6 +208,27 @@ export function selectWebGuidance(
   return keep ? out.replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, 'g'), '') : out;
 }
 
+/** Removes the tool catalogue from a rendered home-assistant SECOND-pass response format.
+ *
+ *  Keeps `## 2. INFO_REQUEST` and its JSON shape (deleting the section leaves a `## 1.` … `## 3.`
+ *  numbering hole, which measurably broke hh-007 5/5 -> 0/5) and removes everything from `Tools:`
+ *  through the closed-list paragraph — the ~3,700 tokens of routing menu, plus the prose that
+ *  describes that menu as the device's total capability. Both must go together: the prose without
+ *  the list tells the model it can do nothing.
+ *
+ *  Throws rather than silently no-opping if the anchors move: a trim that quietly stops trimming
+ *  would show up only as a cost regression nobody is watching for. */
+export function trimPass2Tools(rendered: string): string {
+  const start = rendered.indexOf('\nTools:');
+  const end = rendered.indexOf('## 3. ACTION');
+  if (start < 0 || end < 0 || start > end) {
+    throw new Error('trimPass2Tools: anchors moved (Tools: / ## 3. ACTION) — re-verify the template before trusting the trim');
+  }
+  return rendered.slice(0, start) +
+    '\n(The routing decision was already made on the previous pass; no tool list is needed here.)\n\n' +
+    rendered.slice(end);
+}
+
 function toolsListFor(context: ToolsContext): string {
   const drop: string[] = [];
   if (context.webSearchEnabled === false) drop.push('- web_search:');
@@ -457,7 +478,34 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
       prompt += '\n\n' + fillTemplate(inquiryTemplate, inquiryValues);
     }
     // With retrieved data, use the full response format (all display flags).
-    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_FULL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
+    //
+    // PASS-2 TOOL-LIST TRIM (2026-08-30, measured; John's word for staging field testing).
+    // The identical 19-tool catalogue was being rendered on BOTH passes — ~3,700 tokens of routing
+    // menu arriving AFTER routing was already decided on pass 1. On a home-assistant second pass
+    // the job is to resolve a command hint against the supplied entity list and emit an ACTION, so
+    // the catalogue is dead weight. Measured on suite/ha-household.json, 23 cases x 5 = 115 graded
+    // calls per arm: 113/115 trimmed vs 114/115 as shipped (the single delta is hh-001, which is
+    // ~50% coin-flip on a byte-identical prompt), for -3,684 tokens/call — -32% of pass 2.
+    //
+    // ⛔ SCOPED TO home-assistant ON PURPOSE. `secondPass` also serves web-search synthesis,
+    // sports, calendar, dashie_help and personalities; NONE of those were measured, and some may
+    // legitimately need the list. Widening this without measuring them would repeat the mistake
+    // the experiment itself caught (see below).
+    //
+    // 🔴 KEEP THE SECTION, DROP ONLY THE LIST. An earlier arm DELETED the whole `## 2.
+    // INFO_REQUEST` section and broke hh-007 5/5 -> 0/5 — but that was the numbering hole it left
+    // (`## 1.` … `## 3.`), not the missing tools. Preserving the section and its JSON shape
+    // restores hh-007 to 5/5. The stub below is what keeps the document well-formed.
+    // 🔴 EXCISE THE WHOLE `Tools:` BLOCK, not just the list placeholder. First implementation
+    // substituted only {{AVAILABLE_TOOLS_LIST}} and LEFT the closed-list prose that follows it —
+    // "The tool list above is CLOSED and DEVICE-SPECIFIC … it is everything THIS device can do …
+    // do NOT substitute a different tool". Pointed at a one-line stub, that reads as "you can do
+    // nothing", and measurably made the model conservative: hh-007 fell to 1/3 and hh-017 to 2/3.
+    // The arm that was actually MEASURED (113/115) removed the block through the end of that
+    // paragraph. Implement what was measured.
+    let p2 = fillTemplate(RESPONSE_FORMAT_FULL, baseValues);
+    if (inquiryType === 'home-assistant') p2 = trimPass2Tools(p2);
+    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled);
   } else {
     // Initial request — slim format focused on tool selection.
     prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
