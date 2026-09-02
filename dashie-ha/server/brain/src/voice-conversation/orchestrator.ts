@@ -1920,9 +1920,27 @@ function normalizeUsage(u?: { input_tokens?: number; output_tokens?: number; tot
   };
 }
 
+/** Renders the tail of the conversation the DEVICE sent.
+ *
+ *  🔴 The window must match what the client sends (`conversation-loop.js:69`, `slice(-8)`).
+ *  It did not, from Jun 15 to 2026-08-30: this read `slice(-4)` while the client sent 8, so
+ *  HALF the context the device deliberately assembled and paid to transmit was discarded with
+ *  no log and no marker. Measured consequence, deterministic at n=6/6 per arm: an antecedent
+ *  three exchanges back ("the garage light") fell outside the window, and the model emitted
+ *  `command_hint: "turn it off"` — unresolvable — while telling the user "Turning it off for
+ *  you." Widening to 8 emitted "turn off the garage light" instead. Same model, same prompt,
+ *  one number.
+ *
+ *  Provenance was DRIFT, not design: `slice(-4)` arrived in a port (543e23c1b, Jun 15);
+ *  `slice(-8)` arrived with cascade conversation mode (db2edf54e, Jun 28), the feature whose
+ *  whole purpose is multi-turn dialogue. The client half was widened for it and this half
+ *  never was.
+ *
+ *  ⚠️ If you change this number, change it WITH the client's — and measure first: the probe
+ *  takes `--history-window=N` for exactly that. */
 function formatHistory(history?: VoiceRequest['history']): string {
   if (!Array.isArray(history) || history.length === 0) return '';
-  const lines = history.slice(-4).map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text || ''}`);
+  const lines = history.slice(-8).map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text || ''}`);
   return `Recent conversation:\n${lines.join('\n')}\n`;
 }
 

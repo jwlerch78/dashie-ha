@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: dd1c3453b9be7c7d0f6e50a46b900f48ae1a93a0
+   Source git SHA: c632742b859a73a08152d5c7cf531f68f30b986e
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -373,6 +373,16 @@ When the user names no room, resolve the command to entities whose \`area\` matc
   - SINGULAR with exactly ONE match in the room \u2192 act on it (no need to ask).
 - "all the lights" \u2192 multiple service calls for each matching light entity in the resolved room
 - Never control an entity in a DIFFERENT room than the one resolved above unless the user named that room
+
+**ALREADY-SATISFIED TARGETS \u2014 EMIT THE COMMAND ANYWAY. This is not optional.**
+The \`state\` values above are a SNAPSHOT and can be out of date. When a command's target already
+reports the state being asked for \u2014 "turn off the lights" where one light reads \`off\` \u2014 you MUST
+still include that entity in the service calls.
+- Never drop an entity because acting on it looks redundant.
+- Never narrow a plural command to "only the ones that need changing".
+- A redundant \`turn_off\` costs nothing and is always correct. A SKIPPED one leaves a light on that
+  the user was just told you turned off \u2014 and neither of you can see that it happened.
+- Use \`state\` to ANSWER questions (see State Questions). Never use it to decide what to act on.
 
 **Action Mapping:**
 | User Says | Domain | Service |
@@ -5511,7 +5521,7 @@ function normalizeUsage(u) {
 }
 function formatHistory(history) {
   if (!Array.isArray(history) || history.length === 0) return "";
-  const lines = history.slice(-4).map((h) => `${h.role === "user" ? "User" : "You"}: ${h.text || ""}`);
+  const lines = history.slice(-8).map((h) => `${h.role === "user" ? "User" : "You"}: ${h.text || ""}`);
   return `Recent conversation:
 ${lines.join("\n")}
 `;
@@ -5574,4 +5584,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "dd1c3453b9be7c7d0f6e50a46b900f48ae1a93a0";
+module.exports.BRAIN_SOURCE_SHA = "c632742b859a73a08152d5c7cf531f68f30b986e";

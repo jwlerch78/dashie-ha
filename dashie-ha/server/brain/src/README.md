@@ -15,7 +15,13 @@ its own Node I/O layer.
 
 Run them with [Deno](https://deno.land/) (they use `std/assert`):
 
-    deno test --allow-none voice-conversation/
+    deno test --allow-env voice-conversation/
+
+(`--allow-env` is needed by `redact-args.test.ts` alone, which sets and clears
+`ARG_HASH_SALT` to prove the redactor fails closed without one. Nothing here
+reads the network or the filesystem. Verified on Deno 2.9.6 — note that the
+`--allow-none` flag these instructions used to name was removed from Deno and
+now aborts the run.)
 
 13 test files ship here — the ones whose imports this directory fully
 satisfies. They cover the parts where the behaviour is genuinely tricky:
