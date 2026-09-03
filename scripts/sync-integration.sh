@@ -48,6 +48,6 @@ rm -rf "$TARGET"
 mkdir -p "$TARGET"
 git -C "$REPO_PATH" archive "$RESOLVED" custom_components/dashie_voice | tar -x -C "$TARGET"
 
-VERSION="$(python3 -c "import json;print(json.load(open('$TARGET/custom_components/dashie_voice/manifest.json'))['version'])")"
+VERSION="$(cd "$TARGET" && python3 -c "import json;print(json.load(open('custom_components/dashie_voice/manifest.json'))['version'])")"
 echo "==> Vendored integration v$VERSION (dashie-voice-integration @ $SHA)" >&2
 echo "$SHA"
