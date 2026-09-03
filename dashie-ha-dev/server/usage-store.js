@@ -47,20 +47,27 @@ const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const SCHEMA_VERSION = 1;
 
 /**
- * 🔴 Retention: 400 days, pruned on write — and the reason is NOT disk.
+ * 🔴 Retention: pruned on write — and the reason is NOT disk. (The window was 400
+ * days until 2026-08-28; see the ruling beside RETENTION_DAYS below.)
  *
  * D did the arithmetic: ~20 keys/day × ~110 bytes ≈ 2 kB/day ≈ 800 kB/year, so
  * a decade is ~8 MB and a rolling delete would be pure ceremony as a STORAGE
  * decision. The binding constraint is the read-modify-write cost: this whole
  * file is parsed and re-serialised on EVERY recorded call, so an 8 MB JSON is a
- * latency problem on the voice path long before it is a disk problem. 400 days
+ * latency problem on the voice path long before it is a disk problem. The old 400 days
  * (a year plus slack for year-over-year comparison) keeps the hot file ≈1 MB.
  *
  * ⭐ Contrast with the ingest bucket, where the samples ARE the asset and the
  * fix was to bound the INFLOW instead. Same "unbounded growth" symptom, opposite
  * correct treatment — which is why the two were decided together.
  */
-const RETENTION_DAYS = 400;
+// ⚖️ 400 → 60 on 2026-08-28 (row 80, John: "We probably also don't need 400 days here.
+// I think should make that a setting and change the default to 60 days. For now just
+// change default."). Retention-as-a-SETTING is deliberately NOT in this build — that is
+// the "for now" half of the same sentence, and shipping half a setting is worse than
+// shipping none. The latency argument below is UNAFFECTED and if anything strengthened:
+// a shorter window keeps the read-modify-write file smaller.
+const RETENTION_DAYS = 60;
 
 const LANES = new Set(['brain', 'stt', 'tts']);
 const BILLINGS = new Set(['byok', 'metered', 'free']);

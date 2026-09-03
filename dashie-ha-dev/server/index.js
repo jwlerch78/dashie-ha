@@ -31,7 +31,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 let path, fs, express, config, bridgeAuth, converseMod, enginesMod, discovery, brainMeta,
-    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRouter, feedsRouter, transcriptsRouter, haRegistry, haWorker,
+    consoleAuthRouter, voiceConsoleRouter, keysRouter, settingsRouter, internalRouter, haRouter, feedsRouter, transcriptsRouter, usageRouter, turnsRouter, haRegistry, haWorker,
     supervisor, installer, ingressIdentity;
 try {
     path = require('path');
@@ -51,6 +51,8 @@ try {
     haRouter = require('./api/ha');
     feedsRouter = require('./api/feeds');
     transcriptsRouter = require('./api/transcripts');
+    usageRouter = require('./api/usage');
+    turnsRouter = require('./api/turns');
     haRegistry = require('./ha-registry');
     haWorker = require('./ha-worker');
     supervisor = require('./supervisor');
@@ -236,6 +238,12 @@ app.use('/api/ha', haRouter);
 app.use('/api/feeds', feedsRouter);
 // HA-local kiosk voice transcripts (.storage/dashie.voice_transcripts).
 app.use('/api/transcripts', transcriptsRouter);
+// The READ half of the box-local usage record. Ingress-protected, read-only, and
+// the ONLY usage surface an account-less box has (Supabase is unreachable there).
+app.use('/api/usage', usageRouter);
+// The per-turn history: read + CLEAR. Separate from /api/usage so that router can
+// stay read-only by rule — deletion is scoped to the per-turn store, never the counters.
+app.use('/api/turns', turnsRouter);
 app.use('/api/keys', keysRouter);
 app.use('/api/settings', settingsRouter);
 // Bridge-secret gated (LAN-sharing lane for the integration's /api/dashie/voice/* views).

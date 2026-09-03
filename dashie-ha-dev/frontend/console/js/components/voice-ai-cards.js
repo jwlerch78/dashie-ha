@@ -137,17 +137,29 @@ const VoiceAiCards = {
             ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">${this._esc(x.note)}</div>`
             : '';
         const topBorder = isFirst ? '' : 'border-top: 1px solid var(--border, #e5e7eb);';
-        const onclick = (isInstall && mode !== 'expand')
-            ? `window.open('${x.install.url}', '_blank', 'noopener')`   // expanded list: deep-link to add-on store
-            : (isStatic ? ''
-                : (mode === 'expand'
-                    ? `VoiceAiPage.toggleCard('${stageKey}')`           // collapsed: click to open the picker
-                    : `VoiceAiPage.selectOption('${stageKey}', '${this._esc(x.id)}')`));
+        // Row 79: a model the user's own key cannot serve is DISABLED WITH THE
+        // REASON, not hidden. §4.5's rule, and it applies here for the same
+        // motive: the user can do something about it (change key, pick another
+        // model), so the greyed row plus a reason is what teaches the action —
+        // whereas a row that silently vanished would read as "we removed it".
+        //
+        // 🔴 The click handler is dropped, not just the styling. A greyed row that
+        // still selects on click is worse than no greying at all: it looks refused
+        // and behaves accepted, and the user learns which one is true from a dead
+        // turn — exactly the outcome this disclosure exists to prevent.
+        const unavailable = x.unavailable === true;
+        const onclick = unavailable ? ''
+            : ((isInstall && mode !== 'expand')
+                ? `window.open('${x.install.url}', '_blank', 'noopener')`   // expanded list: deep-link to add-on store
+                : (isStatic ? ''
+                    : (mode === 'expand'
+                        ? `VoiceAiPage.toggleCard('${stageKey}')`           // collapsed: click to open the picker
+                        : `VoiceAiPage.selectOption('${stageKey}', '${this._esc(x.id)}')`)));
         const onclickAttr = onclick ? `onclick="${onclick}"` : '';
 
         return `
             <div ${onclickAttr}
-                style="cursor: ${(isStatic && !isInstall) ? 'default' : 'pointer'}; padding: 12px 14px; ${topBorder} background: ${bg}; border-left: 3px solid ${(!isInstall && selected) ? color : 'transparent'};">
+                style="cursor: ${unavailable ? 'not-allowed' : ((isStatic && !isInstall) ? 'default' : 'pointer')}; ${unavailable ? 'opacity: 0.55;' : ''} padding: 12px 14px; ${topBorder} background: ${bg}; border-left: 3px solid ${(!isInstall && selected) ? color : 'transparent'};">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; gap: 10px;">
                     <div style="font-weight: 600; font-size: 14px; display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
                         ${this._esc(x.label)} ${localityTag} ${soon} ${guide}
@@ -160,6 +172,7 @@ const VoiceAiCards = {
                     </div>
                 </div>
                 ${x.description ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">${this._esc(x.description)}</div>` : ''}
+                ${unavailable ? `<div style="font-size: 12px; color: var(--status-error, #c00); margin-top: 3px;">${this._esc(x.unavailableReason || 'Not available with your key')}</div>` : ''}
                 ${config}
                 ${note}
             </div>`;

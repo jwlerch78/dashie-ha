@@ -52,6 +52,11 @@ const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const byokTts = require('./byok-tts');
 const sttUsage = require('./stt-usage');
+// The per-consumer-CLASS tier this file's header called an open design question
+// (2026-08-23), scheduled by John 2026-08-28. Additive: it answers only when the
+// add-on option is unset AND the household's chosen engine is one a satellite can
+// actually reach, so every box that works today is untouched.
+const { resolveSatelliteBase } = require('./satellite-engines');
 
 /** Signed-in JWT or null (never throws — engine handlers decide the fallback). */
 async function cloudJwt() {
@@ -103,9 +108,13 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
  */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
-    // Sole STT source for this lane — see the header block on why this is not a
-    // duplicate of the console's voice.localSttUrl (different consumer).
-    const base = String(opts.stt_url || '').trim().replace(/\/+$/, '');
+    // Resolved through the per-consumer-class tier: the add-on option first (the
+    // operator's direct statement about THIS lane), then the household choice but
+    // ONLY when that engine is server-reachable. An on-device household pick
+    // resolves to null here, which is the state this function already handles.
+    const resolved = await resolveSatelliteBase('stt');
+    const base = resolved?.base || '';
+    if (resolved?.source === 'household') console.log('[engines] stt base resolved from the household config (no stt_url set)');
     let audio;
     try {
         audio = await readRawBody(req);
@@ -237,9 +246,11 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
-    // Sole TTS source for this lane (BYOK speech key below is the only other
-    // account-less path) — see the header block before proposing its removal.
-    const base = String(opts.tts_url || '').trim().replace(/\/+$/, '');
+    // Same tier as handleStt — see satellite-engines.js for the class rule and why
+    // it tests the chosen ENGINE rather than the presence of a URL.
+    const resolved = await resolveSatelliteBase('tts');
+    const base = resolved?.base || '';
+    if (resolved?.source === 'household') console.log('[engines] tts base resolved from the household config (no tts_url set)');
     let payload;
     try {
         payload = JSON.parse((await readRawBody(req, 1024 * 1024)).toString('utf8') || '{}');
@@ -314,9 +325,16 @@ async function handleTts(req, res, sendJson) {
  *  Piper shim's {voice_id,name} both map). Feeds HA's native voice picker via
  *  the integration's tts entity. */
 async function handleVoices(req, res, sendJson) {
-    const opts = readOptions();
-    const base = String(opts.tts_url || '').trim().replace(/\/+$/, '');
+    // Must resolve through the SAME tier as handleTts, or the voice list is fetched
+    // from a different box than the speech is synthesised on — the two would agree
+    // only when `tts_url` is set, which is precisely the case the tier exists to
+    // stop being the only working one.
+    const base = (await resolveSatelliteBase('tts'))?.base || '';
     if (!base) { sendJson(res, 200, { voices: [] }); return; }
+    // Still needed for tts_api_key below: the tier resolves the BASE, never the
+    // credential. An add-on-configured key applies to whichever base answered —
+    // a household-resolved own-box endpoint is on the LAN and normally needs none.
+    const opts = readOptions();
     const url = (/\/audio\/speech$/.test(base) ? base.replace(/\/audio\/speech$/, '/audio/voices') : base + '/v1/audio/voices');
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);

@@ -43,6 +43,41 @@ Deno.test('normalizes tool-name-as-type to info_request', () => {
   assertEquals(p?.tool, 'web_search');
 });
 
+// ── personalities in KNOWN_TOOLS (2026-08-26) ────────────────────────────────────────────
+// The tool shipped self-fulfilled in the orchestrator and was never added to the repair list,
+// so the malformed variants below normalized to nothing, missed the dispatch test
+// (`type === 'info_request' && tool === 'personalities'`) and fell through to a raw 'response'
+// — a silent miss on a shipped tool. These pin the repair AND the blast radius.
+
+Deno.test('personalities: tool-name-as-type is repaired (was a silent miss)', () => {
+  const p = parseContent('{"type":"personalities","query":{}}');
+  assertEquals(p?.type, 'info_request');
+  assertEquals(p?.tool, 'personalities');
+});
+
+Deno.test('personalities: a bare {tool} with no type is repaired', () => {
+  const p = parseContent('{"tool":"personalities","query":{}}');
+  assertEquals(p?.type, 'info_request');
+  assertEquals(p?.tool, 'personalities');
+});
+
+Deno.test('personalities: a WELL-FORMED action carrying the word is NOT rewritten', () => {
+  // The blast-radius guard. `action` is terminal, so the second normalizer branch must not
+  // fire — set_personality is an action turn and must never be turned into a tool call.
+  const p = parseContent(
+    '{"type":"action","voice":"Switching to Princess.","action":{"category":"personality","command":"set_personality","parameters":{"key":"princess"}}}',
+  );
+  assertEquals(p?.type, 'action');
+  assertEquals(p?.action?.command, 'set_personality');
+});
+
+Deno.test('personalities: a well-formed response with a stray tool field stays a response', () => {
+  // `response` is terminal too — a model that answers directly while echoing a stray `tool`
+  // must not be converted into a catalog fetch.
+  const p = parseContent('{"type":"response","voice":"I can be a pirate.","tool":"personalities"}');
+  assertEquals(p?.type, 'response');
+});
+
 Deno.test('garbage returns null', () => {
   assertEquals(parseContent('not json at all'), null);
 });

@@ -67,6 +67,7 @@ const Sidebar = {
                 <div class="sidebar-section-label">Manage</div>
                 ${this._gatedNavItem('account', 'Account', 'icon-account-settings', activePage)}
                 ${this._gatedNavItem('credits', 'Credits', 'icon-credits', activePage)}
+                ${this._gatedNavItem('usage', 'Usage', 'icon-credits', activePage)}
                 ${this._gatedNavItem('api-keys', 'API Keys', 'icon-key', activePage)}
                 ${this._gatedNavItem('local-engines', 'Local Engines', 'icon-server', activePage)}
             </div>

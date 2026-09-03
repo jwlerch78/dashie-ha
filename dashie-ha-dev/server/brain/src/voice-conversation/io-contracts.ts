@@ -36,6 +36,13 @@ export interface GatewayRaw {
   model?: string;
   provider?: string;
   latency?: number;
+  /** Searches the model ACTUALLY ran when grounding was attached (Gemini). Absent when grounding
+   *  was never offered, so "not offered" stays distinguishable from "offered and unused" — a
+   *  distinction that matters for money: 3.x bills per query executed, so a zero-query turn is
+   *  free, while 2.5's "per grounded prompt" is ambiguous for exactly that case.
+   *  ⚠️ Do NOT substitute `groundingMetadata`'s presence for this — measured 2026-08-27, it is
+   *  present on every grounded call including ones that ran no search at all. */
+  grounding_queries?: number;
 }
 
 /** One model call's outcome, as the core sees it. `ok: false` carries `error`

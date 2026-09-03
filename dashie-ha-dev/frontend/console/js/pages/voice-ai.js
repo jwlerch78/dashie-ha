@@ -37,6 +37,7 @@ const VoiceAiPage = {
     _defaults: null,        // {dotted: value}
     _engines: null,         // GET /api/voice/engines result — add-on mode only (detection-gated picker)
     _keyStatus: null,       // GET /api/keys/status providers booleans — add-on mode only (preset gating)
+    _modelAvailability: null, // same call: provider → {models: string[]|null, at} from the last successful key probe
     // (household sharing is now the ACCOUNT setting voice.householdSharing — it rides in
     //  _defaults with the other account defaults; the old per-instance _sharing fetch is gone)
     _templates: null,       // built-in personality rows
@@ -396,13 +397,19 @@ const VoiceAiPage = {
      *  keys). Add-on mode only; null elsewhere / on failure — the preset
      *  gate then rests on credits alone. */
     async _fetchKeyStatus() {
-        if (!DashieAuth.isAddonMode) { this._keyStatus = null; return; }
+        if (!DashieAuth.isAddonMode) { this._keyStatus = null; this._modelAvailability = null; return; }
         try {
             const r = await fetch(DashieAuth._addonUrl('/api/keys/status'), { cache: 'no-store' });
-            this._keyStatus = r.ok ? (await r.json())?.providers || null : null;
+            const payload = r.ok ? await r.json() : null;
+            this._keyStatus = payload?.providers || null;
+            // Row 79: what each key's last successful probe said it can serve.
+            // Absent provider, or `models: null`, means CANNOT VERIFY — see
+            // _markUnavailable. Never coerced to an empty list.
+            this._modelAvailability = payload?.modelAvailability || null;
         } catch (e) {
             console.warn('[VoiceAiPage] key status unavailable:', e?.message || e);
             this._keyStatus = null;
+            this._modelAvailability = null;
         }
     },
 
@@ -1592,7 +1599,7 @@ const VoiceAiPage = {
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${P.renderCustomizeRow(customPipeline, true)}
-            ${card('AI Model', 'model', this._markKeyed(this._applyProbed(this._modelOptions(preset))), this._selectedModelId(agentMode))}
+            ${card('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode))}
             ${D.renderWakeWordCard({
                 currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                 saving: this._savingKey === 'ai.defaultWakeWord',
@@ -2043,6 +2050,49 @@ const VoiceAiPage = {
         // the local row) are unaffected either way.
         const universal = !!ks.openrouter;
         return options.map(o => (o.provider && (ks[o.provider] || universal)) ? { ...o, keyed: true } : o);
+    },
+
+    /**
+     * Row 79 (John ruled option B): mark models the user's OWN KEY cannot serve,
+     * inline in the picker, disabled with the reason — rather than letting them
+     * pick one and learn from a dead turn and a spoken `model_unavailable` line.
+     *
+     * ── 🔴 THREE STATES, AND THE THIRD IS THE WHOLE POINT ───────────────────
+     *
+     *   a list          → a model absent from it is genuinely unavailable → disable
+     *   `models: null`  → CANNOT VERIFY → disable NOTHING
+     *   provider absent → never probed → CANNOT VERIFY → disable NOTHING
+     *
+     * `null` arises for real reasons, not as an error: OpenRouter probes `/key`
+     * (its `/models` is public and would 200 for a garbage key) and Bedrock has
+     * no probe at all. Collapsing null into `[]` would grey out every model for
+     * those providers and send users to fix a key that is fine — disabling a
+     * working setup, which is the expensive direction. Same distinction
+     * `getLocalWakeWordCatalog()` draws, for the same reason.
+     *
+     * ⚠️ Deliberately NOT mirroring `_markKeyed`'s OpenRouter universality. That
+     * rule says one OpenRouter key makes every row "keyed"; the inverse does not
+     * hold for availability, because we have no list from OpenRouter's probe. A
+     * row served through OpenRouter therefore lands in `null` and stays enabled —
+     * correct by construction rather than by a special case.
+     */
+    _markUnavailable(options) {
+        const avail = this._modelAvailability;
+        if (!avail) return options;
+        return options.map((o) => {
+            if (!o.provider) return o;                       // search sources, local rows
+            const entry = avail[o.provider];
+            if (!entry || !Array.isArray(entry.models)) return o;   // cannot verify → untouched
+            // The catalog's id IS the provider's model id for these rows; a row whose
+            // id we cannot match is left alone rather than guessed at.
+            const id = o.modelId || o.id;
+            if (!id || entry.models.includes(id)) return o;
+            return {
+                ...o,
+                unavailable: true,
+                unavailableReason: `Your ${o.provider} key does not offer this model`,
+            };
+        });
     },
 
     /** Detection status + "Re-scan" for the engine-direct HA rows. Add-on mode
