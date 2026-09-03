@@ -82,8 +82,27 @@ const LoginEmail = {
                 window.location.reload();
                 return;
             }
+            if (r.verificationRequired) {
+                // Board row 122. A verified sign-up SUCCEEDED — the account exists and the
+                // confirmation mail is sent — there is simply no JWT yet, so `ok` is false.
+                // Do NOT reload: there is nothing to boot from and the page would come back
+                // to this same screen saying nothing. Show the server's sentence as a
+                // NOTICE, not in the error colour, and stand down the form.
+                errEl.style.color = 'var(--status-success, #2e7d32)';
+                errEl.textContent = r.message || 'Check your email for a confirmation link, then sign in.';
+                const pw = document.getElementById('login-password');
+                if (pw) pw.value = '';
+                // Re-enable before returning. The `r.ok` path above can return with the
+                // button still disabled because the page is reloading out from under it;
+                // this path is NOT reloading, so an early return that skipped the
+                // re-enable at the bottom would leave a dead button and force the user
+                // out through the Sign-in link just to reset the form.
+                btn.disabled = false;
+                return;
+            }
             // Google-provisioned emails get pointed at the right button;
             // everything else shows the server's message verbatim.
+            errEl.style.color = 'var(--status-error, #c00)';
             errEl.textContent = r.error === 'use_google_signin'
                 ? 'This email signs in with Google — use "Sign in with Google" instead.'
                 : (r.message || r.error || 'Sign-in failed.');
