@@ -29,9 +29,15 @@
 //   node scripts/check-brain-route-tiers.mjs
 import { createRequire } from 'node:module';
 import path from 'node:path';
+// WINDOWS (B, 09-02): fileURLToPath, NOT `new URL(...).pathname`. The latter returns a
+// drive-prefixed, url-encoded path (a leading slash, then C:, with %20 for the space in the
+// home directory). path.join then prefixed the drive AGAIN, producing a doubled drive letter,
+// and every require() resolved off it failed with "Cannot find module './auth'". This gate was
+// RED on this machine for that reason alone -- a false red, and release.sh would have aborted.
+import { fileURLToPath } from 'node:url';
 
 const SERVER = path.resolve(
-    process.argv[2] || path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'dashie-ha', 'server'),
+    process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashie-ha', 'server'),
 );
 const require_ = createRequire(path.join(SERVER, 'x.js'));
 

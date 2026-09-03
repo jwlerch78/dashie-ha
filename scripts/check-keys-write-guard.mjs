@@ -125,9 +125,22 @@ try {
   check(stored() === null, '…and DOES clear — the one intent that should destroy');
 } finally {
   console.warn = realWarn;
-  server.close();
+  // AWAIT the close, don't just request it (B, 09-02). `server.close()` is asynchronous, and the
+  // process.exit() below used to fire while the listening handle was still tearing down. On
+  // Windows that trips a libuv assertion —
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+  // — which ABORTS the process with exit 127 AFTER every check has already passed and "✅ the
+  // write guard holds" has been printed. It only reproduced when stdout was redirected (a pipe
+  // changes the stdio handle types), so it is invisible when you run the gate by hand and fatal
+  // when release.sh runs it into a log: the cut aborts on a gate that passed.
+  await new Promise((r) => server.close(r));
   rmSync(dataDir, { recursive: true, force: true });
 }
 
 console.log(failures ? `\n❌ ${failures} violation(s)` : '\n✅ the write guard holds');
-process.exit(failures ? 1 : 0);
+// process.exitCode, NOT process.exit() (B, 09-02). process.exit() tears the process down
+// immediately, while the listening handle closed just above is still finishing. On Windows
+// that trips a libuv assertion (UV_HANDLE_CLOSING, src/win/async.c:94) and ABORTS with 127
+// AFTER every check has passed and the success line has printed. Setting exitCode lets the
+// loop drain and the process exit on its own with the right status.
+process.exitCode = failures ? 1 : 0;

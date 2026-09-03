@@ -17,8 +17,13 @@
 //       (also run by check-console-tree.sh, which release.sh gates on)
 
 import { assert, assertEquals } from 'jsr:@std/assert@1';
+import { fromFileUrl } from 'jsr:@std/path@1';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+// WINDOWS (B, 09-02): fromFileUrl, NOT `.pathname`. The latter returns a drive-prefixed,
+// url-encoded path (leading slash, then C:, %20 for the space in the home directory), so every
+// readTextFileSync off it threw NotFound and all 7 tests failed. check-console-tree.sh runs
+// this suite and release.sh gates on it FIRST, so the cut aborted at gate one on a false red.
+const ROOT = fromFileUrl(new URL('..', import.meta.url));
 // I7_CONSOLE_DIR points this suite at a COPY of the console tree. It exists so the
 // negative cases can be proven — mutate a copy, watch the right test go red — without
 // ever editing the real tree (other threads share this clone). Used to verify these
