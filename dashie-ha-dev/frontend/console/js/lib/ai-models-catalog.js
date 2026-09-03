@@ -194,6 +194,7 @@
         // Current (2026-06)
         'gemini-3.5-flash': { input: 1.50, output: 9.00 },
         'gemini-3.1-flash-lite': { input: 0.25, output: 1.50 },
+        'gemini-3.7-flash': { input: 0.75, output: 3.75 },   // rate from ai.google.dev, 2026-08-28
     
         // ── Gemini Live (realtime "conversation mode", per 1M tokens) ──────────
         // Live billing splits by MODALITY. Because the credit ledger has one
@@ -333,6 +334,38 @@
     
       // Web Search costs - Verified Oct 2025
       search: {
+        // ── Gemini NATIVE GROUNDING (`tools: [{google_search:{}}]`) ─────────────────────────
+        // Added 2026-08-27 (Thread V finding, John+O review). A grounded turn IS a billable web
+        // search: gemini-provider.ts:93/218 attaches the google_search tool, and until this row
+        // existed nothing anywhere costed it — the provider records only usageMetadata, and
+        // searchCost/logWebSearch fire only on the EXPLICIT web_search tool path, which a grounded
+        // turn never takes. So grounded turns were costed as plain completions.
+        //
+        // 🔴 `perQuery` IS DELIBERATELY ABSENT, AND THAT ABSENCE IS LOAD-BEARING.
+        // searchCost() reads ONLY `row.perQuery`, and handlers/logging.ts debits the USER's credit
+        // balance whenever searchCost() > 0 on the legacy path. John parked the pricing decision with
+        // the deferred credit-margin call, so this row is COGS VISIBILITY ONLY and must never move a
+        // user balance. Omitting perQuery makes that structural rather than a flag someone can flip.
+        // ⚠️ If you add perQuery here you START CHARGING USERS. Do not, without John's pricing word.
+        //
+        // Two schemes, because they differ in BILLING UNIT as well as rate:
+        //   2.5 → per PROMPT (one charge however many searches the turn runs)
+        //   3.x → per QUERY (a multi-query turn is charged several times)
+        gemini_grounding: {
+          // Gemini 2.5 family — what we ship today.
+          per1000Prompts: 35.00,     // $35 per 1,000 grounded PROMPTS, after the free tier
+          freePromptsPerDay: 1500,   // resets DAILY; below this the true cost is $0
+          // Gemini 3.x — pre-seeded so a migration does not silently change the cost model.
+          v3: {
+            per1000Queries: 14.00,   // $14 per 1,000 grounded QUERIES — charged PER QUERY,
+            freeQueriesPerMonth: 5000, // shared across the project, resets MONTHLY (not daily)
+          },
+          // Read this before quoting a number: on 2.5 a heavy household sits inside the daily free
+          // allowance (~300 heavy households before the first dollar), so the honest current answer
+          // is "$0 today, with a cliff at 1,500 grounded prompts/day". The row exists to be the
+          // early-warning gauge for crossing that cliff and for any 3.x migration, where the unit
+          // changes from prompt to query and multi-query turns multiply.
+        },
         // Brave Search API - Updated Oct 2025 (was $0.005)
         brave: {
           perQuery: 0.003,          // $3 per 1000 queries = $0.003 per query

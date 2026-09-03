@@ -43,9 +43,36 @@ router.get('/', (req, res) => {
     res.json({ providers: keyStore.maskedKeys(), routable: providers.ROUTABLE_PROVIDERS });
 });
 
-/** GET /api/keys/status → { gemini: bool, claude: bool, ... } */
+/**
+ * Last-probe model availability, per provider — row 79's client half.
+ *
+ * ── WHY A CACHE AND NOT A PROBE PER PAGE LOAD ───────────────────────────────
+ *
+ * The Voice & AI picker wants to say "your key cannot serve this model" BEFORE a
+ * turn dies on it. The list already comes back from `/validate` — but probing
+ * every keyed provider on every render would be a fan-out of outbound requests
+ * on a page the user opens to change a dropdown. So `/validate` deposits what it
+ * learned and the picker reads it from the status call it ALREADY makes.
+ *
+ * 🔴 IN-MEMORY, deliberately, and the failure direction is the argument. This is
+ * a cache of a REMOTE fact: the set of models a key can serve changes upstream
+ * without telling us. A copy on disk would outlive its truth and start disabling
+ * models that work. Process-lifetime means a restart forgets — and forgetting
+ * lands in `null`, which disables NOTHING. Wrong-but-confident is the failure
+ * this whole three-state exists to avoid; stale-and-silent is not an improvement
+ * on it.
+ *
+ * The shape carries `models: null` through verbatim. `null` = CANNOT VERIFY
+ * (openrouter probes `/key`; bedrock has no probe), NOT "no models" — collapsing
+ * it would report every model unavailable for those providers.
+ */
+const _modelAvailability = new Map();   // provider → { models: string[]|null, at: epoch_ms }
+
+/** GET /api/keys/status → { providers: {gemini: bool, …}, modelAvailability: {…} } */
 router.get('/status', (req, res) => {
-    res.json({ providers: keyStore.status() });
+    const modelAvailability = {};
+    for (const [provider, v] of _modelAvailability) modelAvailability[provider] = v;
+    res.json({ providers: keyStore.status(), modelAvailability });
 });
 
 /**
@@ -60,6 +87,16 @@ router.post('/validate', express.json(), async (req, res) => {
     }
     try {
         const result = await providers.validateProvider(provider);
+        // Deposit what the probe learned for the picker. Only on a successful
+        // probe: a rejected or unreachable key tells us nothing about which
+        // models it could serve, and recording `null` there would be
+        // indistinguishable from a provider that has no probe at all.
+        if (result?.ok === true) {
+            _modelAvailability.set(provider, {
+                models: Array.isArray(result.models) ? result.models : null,
+                at: Date.now(),
+            });
+        }
         res.json(result);
     } catch (e) {
         console.error('[keys] validate failed:', e.message);

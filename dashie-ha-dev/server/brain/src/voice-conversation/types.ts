@@ -28,6 +28,12 @@ export interface VoiceRequest {
   // silently swallowed the USER's own scheduling requests). Old clients omit it →
   // undefined → unchanged behavior.
   announcement?: boolean;
+  // BENCH ONLY — a foreign system prompt to layer ahead of Dashie's own, for the unit-① prompt
+  // head-to-head's end-to-end leg. Honored ONLY on staging, ONLY for allowlisted bench accounts,
+  // and refused fail-closed everywhere else; every gate is in `bench-override.ts`. This is NOT a
+  // user-facing "bring your own prompt" field: unit ① measured that layering a community prompt
+  // populates the on-screen `text` field 0 of 12 times, i.e. it silently disables the screen.
+  bench_prompt_prefix?: string;
   history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   // Device-fulfilled tools the CALLER can run locally (e.g. ['calendar','weather']).
   // When the brain routes to a device-fulfilled tool NOT in this list, it self-fulfills
@@ -286,6 +292,17 @@ export interface CapsSnapshot {
   grounding: boolean;          // Gemini native grounding fulfills web search on pass-1
   multi?: boolean;             // caller declared the `multi` capability → multi-emission offered
   tools: string[];             // tool names actually offered to pass-1 (post-filter)
+  // 🔴 SET ONLY when a bench prompt override was accepted (staging, allowlisted caller): this turn
+  // was served under a FOREIGN system prompt, not Dashie's. Absent on every real turn.
+  //
+  // This tag is not diagnostics — it is contamination control, and it is REQUIRED. Thread V
+  // published a wrong fleet grounding number (67.5 % vs the true 77.6 %) by measuring its own bench
+  // traffic inside an organic denominator. Override turns are worse than ordinary bench traffic:
+  // their prompt is a stranger's, so they misrepresent the engine, not merely the volume. Any
+  // analysis over ai_interactions MUST be able to exclude them, which means they must be
+  // distinguishable at write time. Rides tool_trace.caps because every terminal row carries it —
+  // no migration, no new column, and no path that can forget to attach it.
+  bench_prompt_override?: boolean;
 }
 
 export interface Personality {

@@ -22,6 +22,7 @@
 // here and provided at call time via OrchestratorIO. Deno wires them in default-io.ts; the Node
 // add-on wires its own. Keep it this way — see README "Dual-runtime sync contract" + §13.16.
 import { buildPrompt, offeredToolNames } from './prompt.ts';
+import { resolveBenchPromptPrefix, logBenchOverride, readEnvSafe } from './bench-override.ts';
 
 // Spoken decline per KNOWN tool a caller wasn't offered (see the clarify-path refinement in
 // runOrchestration). Only tools a device can legitimately lack belong here — server tools are
@@ -38,6 +39,7 @@ const KNOWN_DEVICE_TOOL_DECLINES: Record<string, string> = {
 };
 import { redactToolArgs } from './redact-args.ts';
 import { parseContent, isLikelyNoise } from './parse.ts';
+import { splitSalvage } from './salvage.ts';
 import { isEndIntent, classifyMiss, NOISE_REPLY } from './dialog-policy.ts';
 import { providerForModel } from './models.ts';
 import { modelLabel } from '../_shared/model-labels.ts';
@@ -421,6 +423,18 @@ interface OrchestrateCtx {
 
 async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx: OrchestrateCtx): Promise<Turn> {
   const { req, userId, token, supabase } = deps;
+  // BENCH PROMPT OVERRIDE (staging-only, allowlisted callers). All policy lives in
+  // bench-override.ts; this call site deliberately holds none of its own.
+  // The resolver is PURE and is re-derived at the pass-2 site from the same (req, userId, env),
+  // rather than threaded through secondPass's nine call sites as a tenth positional argument.
+  // That is the safer shape here: the two passes agree BY CONSTRUCTION, and no call site can
+  // forget to pass it. Logged once, here, so a run emits one marker rather than one per pass.
+  const benchOverride = resolveBenchPromptPrefix(
+    (req as { bench_prompt_prefix?: unknown }).bench_prompt_prefix,
+    userId,
+    { allowlist: readEnvSafe('BENCH_PROMPT_OVERRIDE_USER_IDS'), supabaseUrl: readEnvSafe('SUPABASE_URL') },
+  );
+  logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
 
   // False-activation guard: a pure-noise transcript (no letters in any script)
@@ -614,6 +628,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     grounding: geminiGrounds,
     multi: multiEnabled,
     tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
+    // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
+    // caller; omitted entirely on real turns so the common row shape is unchanged.
+    ...(benchOverride.active ? { bench_prompt_override: true } : {}),
   };
   const context = {
     customPersonalityConfig: personality,
@@ -660,7 +677,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // digests it directly (single AND multi-event, member-attributed). The device holds the
   // matching card; the brain only flags that the direct path was taken.
   const providedCalendar = req.provided_context?.calendar;
-  const p1Prompt = buildPrompt({
+  const p1PromptBase = buildPrompt({
     userRequest: req.text, inquiryType: null,
     context: {
       ...context,
@@ -668,6 +685,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ...(providedCalendar ? { providedCalendar } : {}),
     },
   });
+  // Prefixed, not substituted — the same layering prompt-probe/household-probe use, so a deployed
+  // measurement stays comparable with the provider-direct ones. `prefix` is '' on every real turn.
+  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}\n\n${p1PromptBase}` : p1PromptBase;
   const forcedContent = forced
     ? JSON.stringify({
       type: 'info_request', tool: 'web_search', query: req.text,
@@ -695,6 +715,31 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // thinking (it's not the latency hotspot and warmth may benefit). The HA pass-2 resolution
     // (kind:'decide') is left on dynamic too — its thinking-off was not benched (large entity lists).
     : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: 'decide', temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
+  // ── Grounded-turn COGS visibility (2026-08-27; John+O green-light) ──────────────────────────
+  // A grounded pass attaches `tools:[{google_search:{}}]` and IS a billable web search, but it
+  // never travels the explicit `web_search` tool path, so until now NOTHING logged or costed it —
+  // grounded turns were recorded as plain completions. This puts them in `web_search_logs`
+  // alongside Brave/Tavily so the spend is visible in one place.
+  //
+  // `result_count` carries the searches the model ACTUALLY ran (`grounding_queries`), which is the
+  // field that separates "grounding offered" from "grounding used" — measured 2026-08-27,
+  // `groundingMetadata` is present even on turns that ran no search, so it cannot serve.
+  // ⚠️ VISIBILITY ONLY, NEVER A USER CHARGE: `searchCost('gemini_grounding')` is 0 by design (the
+  // catalog row deliberately has no `perQuery`; see _shared/grounding-cost.test.ts), so the
+  // debit branch in handlers/logging.ts cannot fire. Do not "complete" that row without John's
+  // pricing word — it is parked with the deferred credit-margin decision.
+  if (geminiGrounds && pass1.ok && pass1.raw) {
+    await io.logWebSearch(token, {
+      session_id: sessionId,
+      provider: 'gemini_grounding',
+      query_length: (req.text || '').length,
+      requested_count: 0,
+      result_count: pass1.raw.grounding_queries ?? 0,
+      latency_ms: pass1.latency_ms,
+      success: true,
+    });
+  }
+
   if (!pass1.ok || !pass1.raw) {
     return errorTurn(t0, pass1, [stageErr('pass1', pass1)]);
   }
@@ -1390,7 +1435,16 @@ async function secondPass(
   // slot over the image hint when present.
   card: unknown = undefined,
 ): Promise<Turn> {
-  const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context: context as never });
+  const promptBase = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context: context as never });
+  // Same pure resolver as pass 1 (see runOrchestration) — re-derived, not threaded, so the two
+  // passes cannot disagree about which prompt is in force. No logging here: the decision was
+  // already logged once at orchestration entry.
+  const benchOverride2 = resolveBenchPromptPrefix(
+    (deps.req as { bench_prompt_prefix?: unknown }).bench_prompt_prefix,
+    deps.userId,
+    { allowlist: readEnvSafe('BENCH_PROMPT_OVERRIDE_USER_IDS'), supabaseUrl: readEnvSafe('SUPABASE_URL') },
+  );
+  const prompt = benchOverride2.active ? `${benchOverride2.prefix}\n\n${promptBase}` : promptBase;
   // Live progress: tool fetch done, synthesis pass starting. Reads as the 3rd act of
   // the progression the client shows — "Thinking…" (pass-1) → tool status
   // ("Searching the web…") → "Finalizing…" (this synthesis pass) → the answer.
@@ -1597,12 +1651,29 @@ function finalize(
   // a personality switch spoke its own {"type":"action","command":"set_personality",…} out loud,
   // and the fenced variant tripped the pass-2 clarify instead. Salvage only when parsing FAILED,
   // which is the case the salvage was actually for (raw.content is genuine prose there).
-  const salvage = parsed ? '' : raw.content;
+  //
+  // Tier 1 (2026-08-25 ruling): when we DO salvage, split it — lead sentences to `voice`, the
+  // remainder to `text` — instead of speaking the whole blob and leaving the screen dark.
+  // Measured on staging (30d): display_text was empty on 77 of 77 parse failures, and the worst
+  // salvage ran 118 words against a 20-word contract cap. See salvage.ts for the boundary rule.
+  const salvaged = parsed ? null : splitSalvage(raw.content || '');
+  if (salvaged) {
+    // No silent drops (standing rule 2): a ~43% grounded parse-failure rate was invisible in the
+    // field because the turn still spoke. This is the marker that makes it countable — and it
+    // names what is still LOST here, which Tier 1 cannot restore (image/cards/display flags).
+    console.warn(
+      `⚠️ DROP: response-json-unparsed — salvaging prose as ${salvaged.text ? 'voice+text' : 'voice'} ` +
+      `(model=${raw.model || '?'} provider=${raw.provider || '?'} route=${route || '?'} ` +
+      `chars=${(raw.content || '').length} voice_words=${salvaged.voice.trim() ? salvaged.voice.trim().split(/\s+/).length : 0} ` +
+      `text_words=${salvaged.text ? salvaged.text.trim().split(/\s+/).length : 0}) — ` +
+      `LOST: image/display_events/show_weather_overlay/cards (Tier 2 recovers these)`,
+    );
+  }
   return {
     ok: true,
     type,
-    voice: parsed?.voice || (isToolCall ? '' : salvage) || '',
-    text: parsed?.text ?? null,
+    voice: parsed?.voice || (isToolCall ? '' : salvaged?.voice) || '',
+    text: parsed?.text ?? salvaged?.text ?? null,
     action: parsed?.action ?? null,
     parsed_ok: !!parsed,
     raw_content: raw.content,
@@ -1849,9 +1920,27 @@ function normalizeUsage(u?: { input_tokens?: number; output_tokens?: number; tot
   };
 }
 
+/** Renders the tail of the conversation the DEVICE sent.
+ *
+ *  🔴 The window must match what the client sends (`conversation-loop.js:69`, `slice(-8)`).
+ *  It did not, from Jun 15 to 2026-08-30: this read `slice(-4)` while the client sent 8, so
+ *  HALF the context the device deliberately assembled and paid to transmit was discarded with
+ *  no log and no marker. Measured consequence, deterministic at n=6/6 per arm: an antecedent
+ *  three exchanges back ("the garage light") fell outside the window, and the model emitted
+ *  `command_hint: "turn it off"` — unresolvable — while telling the user "Turning it off for
+ *  you." Widening to 8 emitted "turn off the garage light" instead. Same model, same prompt,
+ *  one number.
+ *
+ *  Provenance was DRIFT, not design: `slice(-4)` arrived in a port (543e23c1b, Jun 15);
+ *  `slice(-8)` arrived with cascade conversation mode (db2edf54e, Jun 28), the feature whose
+ *  whole purpose is multi-turn dialogue. The client half was widened for it and this half
+ *  never was.
+ *
+ *  ⚠️ If you change this number, change it WITH the client's — and measure first: the probe
+ *  takes `--history-window=N` for exactly that. */
 function formatHistory(history?: VoiceRequest['history']): string {
   if (!Array.isArray(history) || history.length === 0) return '';
-  const lines = history.slice(-4).map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text || ''}`);
+  const lines = history.slice(-8).map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.text || ''}`);
   return `Recent conversation:\n${lines.join('\n')}\n`;
 }
 

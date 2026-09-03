@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 8cf1d97f72bb25dbc68607dee426e96f3357dc48
+   Source git SHA: c632742b859a73a08152d5c7cf531f68f30b986e
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -373,6 +373,16 @@ When the user names no room, resolve the command to entities whose \`area\` matc
   - SINGULAR with exactly ONE match in the room \u2192 act on it (no need to ask).
 - "all the lights" \u2192 multiple service calls for each matching light entity in the resolved room
 - Never control an entity in a DIFFERENT room than the one resolved above unless the user named that room
+
+**ALREADY-SATISFIED TARGETS \u2014 EMIT THE COMMAND ANYWAY. This is not optional.**
+The \`state\` values above are a SNAPSHOT and can be out of date. When a command's target already
+reports the state being asked for \u2014 "turn off the lights" where one light reads \`off\` \u2014 you MUST
+still include that entity in the service calls.
+- Never drop an entity because acting on it looks redundant.
+- Never narrow a plural command to "only the ones that need changing".
+- A redundant \`turn_off\` costs nothing and is always correct. A SKIPPED one leaves a light on that
+  the user was just told you turned off \u2014 and neither of you can see that it happened.
+- Use \`state\` to ANSWER questions (see State Questions). Never use it to decide what to act on.
 
 **Action Mapping:**
 | User Says | Domain | Service |
@@ -1776,7 +1786,7 @@ If it's genuinely unclear whether they're asking or switching, prefer branch A (
 the options). Listing is harmless; switching the household's assistant by mistake is not.
 `;
 var AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "today|tomorrow|this_week|next_week|weekend|next_weekend|next_30_days|next_60_days|next_12_months|date_range|<weekday e.g. wednesday for that specific day>", start_date?: "YYYY-MM-DD", end_date?: "YYYY-MM-DD", member_name?: "name (for a specific person)", query?: "keyword to find ONE specific event e.g. physical therapy (for "what time is X")", tags?: ["soccer"], mode?: "next|list"} - Family calendar events. Set member_name when the question is about one person; use "weekend" for "this weekend" and "next_weekend" for "next weekend"; use mode "next" for a single upcoming event ("when is the next game"), "list" (default) for an overview ("what's on this weekend"). For a NAMED month or explicit period ("in December", "the week of the 20th") use time_range "date_range" WITH start_date + end_date covering it (a named month = its NEXT occurrence). For "when is X" with NO period named ("when is Veeva Break"), use query + mode "next" + time_range "next_12_months" so the search can't miss a far-out event
-- calendar_write: query: {action: "create|update|delete|confirm|cancel", title?: "event title (create) or the NEW title (update)", date?: "YYYY-MM-DD (create, or the NEW day on update)", start_time?: "HH:MM 24h", end_time?: "HH:MM 24h", all_day?: true, location?: "place", description?: "details", calendar_name?: "which calendar \u2014 when the user names one OR answers the which-calendar question", calendar_names?: ["Dad work","Mom"] (when they name MORE THAN ONE calendar \u2014 "add it to Dad and Mom's calendars"), match_query?: "words identifying the EXISTING event (update/delete), e.g. dentist", match_date?: "YYYY-MM-DD the existing event is on, if the user named its day", scope?: "all (ONLY when they say the whole series/all of them; default is just that one)"} - CHANGE the family calendar: action "create" to add ("add/put/schedule X on the calendar", "can you add an event\u2026"), "update" to change an existing event ("move/change/reschedule/rename my dentist appointment"), "delete" to remove one ("cancel/delete/remove my dentist appointment" \u2014 cancelling an APPOINTMENT/EVENT is a delete, not a conversation-cancel). Emit the action IMMEDIATELY with whatever the user actually said \u2014 every field is optional (a bare "add an event to dad's calendar" is a valid create with ONLY calendar_name); the DEVICE walks the user through anything missing (what to add, day and time, which calendar, which event) and ALWAYS asks for confirmation before touching the calendar. NEVER invent a field, NEVER ask your own follow-up questions for this tool \u2014 call it and let the device ask. For update/delete identify the existing event in match_query (+ match_date if they named its day) and put ONLY the changes in the top-level fields ("move the dentist to 4pm" = match_query "dentist" + start_time "16:00"). Dates are ABSOLUTE from the current date in your context ("Friday" = a real YYYY-MM-DD; "Friday at 8am" = date + start_time together). Omit end_time unless stated (defaults to one hour / the event's current length; "two hours" = end_time is start plus that). EXCEPTION \u2014 a SPORTING EVENT (a game, match, or fixture: "add the Argentina game", "put the Chiefs game on the calendar"): set end_time to TWO hours after start_time (e.g. start 15:00 \u2192 end_time 17:00), since games run long \u2014 unless the user gives a duration. When the user answers a device question, re-emit the SAME action carrying the newly answered field(s) (the device remembers the rest); AFTER the device asks its confirmation question, ANY yes ("yes", "yep", "do it", "go ahead", "delete it") = action "confirm" \u2014 NEVER re-send create/update/delete at that point unless the user CHANGED a detail ("make it two hours" = re-emit the action with the corrected field); "no"/"never mind" there = action "cancel". NOT for reading the calendar (calendar_events), NOT for reminders/timers (schedule_action)
+- calendar_write: query: {action: "create|update|delete|confirm|cancel", title?: "event title (create) or the NEW title (update)", date?: "YYYY-MM-DD (create, or the NEW day on update)", start_time?: "HH:MM 24h", end_time?: "HH:MM 24h", all_day?: true, repeat_days?: ["tuesday","thursday"] (monday|tuesday|wednesday|thursday|friday|saturday|sunday \u2014 the days a REPEATING event falls on), repeat_freq?: "daily|weekly|monthly|yearly", repeat_until?: "YYYY-MM-DD the repeat stops", repeat_count?: 6 (how many times), location?: "place", description?: "details", calendar_name?: "which calendar \u2014 when the user names one OR answers the which-calendar question", calendar_names?: ["Dad work","Mom"] (when they name MORE THAN ONE calendar \u2014 "add it to Dad and Mom's calendars"), match_query?: "words identifying the EXISTING event (update/delete), e.g. dentist", match_date?: "YYYY-MM-DD the existing event is on, if the user named its day", scope?: "all (ONLY when they say the whole series/all of them; default is just that one)"} - CHANGE the family calendar: action "create" to add ("add/put/schedule X on the calendar", "can you add an event\u2026"), "update" to change an existing event ("move/change/reschedule/rename my dentist appointment"), "delete" to remove one ("cancel/delete/remove my dentist appointment" \u2014 cancelling an APPOINTMENT/EVENT is a delete, not a conversation-cancel). Emit the action IMMEDIATELY with whatever the user actually said \u2014 every field is optional (a bare "add an event to dad's calendar" is a valid create with ONLY calendar_name); the DEVICE walks the user through anything missing (what to add, day and time, which calendar, which event) and ALWAYS asks for confirmation before touching the calendar. NEVER invent a field, NEVER ask your own follow-up questions for this tool \u2014 call it and let the device ask. For update/delete identify the existing event in match_query (+ match_date if they named its day) and put ONLY the changes in the top-level fields ("move the dentist to 4pm" = match_query "dentist" + start_time "16:00"). Dates are ABSOLUTE from the current date in your context ("Friday" = a real YYYY-MM-DD; "Friday at 8am" = date + start_time together). Omit end_time unless stated (defaults to one hour / the event's current length; "two hours" = end_time is start plus that). EXCEPTION \u2014 a SPORTING EVENT (a game, match, or fixture: "add the Argentina game", "put the Chiefs game on the calendar"): set end_time to TWO hours after start_time (e.g. start 15:00 \u2192 end_time 17:00), since games run long \u2014 unless the user gives a duration. When the user answers a device question, re-emit the SAME action carrying the newly answered field(s) (the device remembers the rest); AFTER the device asks its confirmation question, ANY yes ("yes", "yep", "do it", "go ahead", "delete it") = action "confirm" \u2014 NEVER re-send create/update/delete at that point unless the user CHANGED a detail ("make it two hours" = re-emit the action with the corrected field); "no"/"never mind" there = action "cancel". REPEATING EVENTS \u2014 when the user says it happens more than once ("every Tuesday", "on Tuesdays and Thursdays", "every day until Friday", "weekly for six weeks"), fill the repeat_ fields on the SAME create: repeat_days for the day names they said, repeat_freq for how often, and ONE bound \u2014 repeat_until (an ABSOLUTE YYYY-MM-DD, so "until the end of the year" is December 31 of the current year and "until school starts" is that real date) OR repeat_count when they gave a NUMBER of times instead, NEVER both. NEVER write an RRULE, a FREQ=, or any recurrence syntax \u2014 the device builds it from these fields; emitting one is a malformed field. NOT for reading the calendar (calendar_events), NOT for reminders/timers (schedule_action)
 - family_members: query: {} - Info about family members (age, relationship, etc.)
 - web_search: query: "search string" - Current events, news, external info (IMPORTANT: query is a STRING)
 - personalities: query: {} - Dashie's PERSONALITIES/characters: what's available AND switching to one ("what personalities do you have", "who can you be", "switch to the princess personality", "be a pirate", "talk like a wizard", "go back to normal"). The list lives in the database and changes \u2014 never answer from memory or say you have no personalities
@@ -1970,6 +1980,14 @@ function selectWebGuidance(text, webSearchOffered, groundingEnabled) {
   }
   return keep ? out.replace(new RegExp(`<!--/?WEB:${keep}-->\\n?`, "g"), "") : out;
 }
+function trimPass2Tools(rendered) {
+  const start = rendered.indexOf("\nTools:");
+  const end = rendered.indexOf("## 3. ACTION");
+  if (start < 0 || end < 0 || start > end) {
+    throw new Error("trimPass2Tools: anchors moved (Tools: / ## 3. ACTION) \u2014 re-verify the template before trusting the trim");
+  }
+  return rendered.slice(0, start) + "\n(The routing decision was already made on the previous pass; no tool list is needed here.)\n\n" + rendered.slice(end);
+}
 function toolsListFor(context) {
   const drop = [];
   if (context.webSearchEnabled === false) drop.push("- web_search:");
@@ -2148,7 +2166,9 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
       const inquiryValues = buildInquiryValues(inquiryType, retrievedData, baseValues);
       prompt += "\n\n" + fillTemplate(inquiryTemplate, inquiryValues);
     }
-    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_FULL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
+    let p2 = fillTemplate(RESPONSE_FORMAT_FULL, baseValues);
+    if (inquiryType === "home-assistant") p2 = trimPass2Tools(p2);
+    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled);
   } else {
     prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
     if (context.multiEnabled) {
@@ -2167,6 +2187,41 @@ IMAGE DISPLAY IS UNAVAILABLE: always set "image": null, and never say you are sh
     prompt += personalityConfig.responseSuffix;
   }
   return prompt;
+}
+
+// supabase/functions/voice-conversation/bench-override.ts
+var STAGING_PROJECT_REF = "cwglbtosingboqepsmjk";
+var MAX_PREFIX_BYTES = 8192;
+function readEnvSafe(name) {
+  try {
+    return Deno.env.get(name);
+  } catch {
+    return void 0;
+  }
+}
+var REFUSE = (reason) => ({ prefix: "", active: false, reason });
+function resolveBenchPromptPrefix(candidate, userId, env = {}) {
+  if (candidate === void 0 || candidate === null || candidate === "") {
+    return { prefix: "", active: false, reason: "not-requested" };
+  }
+  const allowlistRaw = (env.allowlist ?? "").trim();
+  if (!allowlistRaw) return REFUSE("override-not-enabled-in-this-environment");
+  if (!(env.supabaseUrl ?? "").includes(STAGING_PROJECT_REF)) {
+    return REFUSE("not-staging");
+  }
+  const allowed = allowlistRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!userId || !allowed.includes(userId)) return REFUSE("caller-not-allowlisted");
+  if (typeof candidate !== "string") return REFUSE("not-a-string");
+  if (new TextEncoder().encode(candidate).length > MAX_PREFIX_BYTES) return REFUSE("too-large");
+  return { prefix: candidate, active: true, reason: "accepted" };
+}
+function logBenchOverride(d, userId) {
+  if (d.reason === "not-requested") return;
+  if (d.active) {
+    console.warn(`BENCH-PROMPT-OVERRIDE ACTIVE: a foreign system prompt is layered on this turn \u2014 user=${userId} bytes=${d.prefix.length}`);
+  } else {
+    console.warn(`DROP: bench-prompt-override refused (${d.reason}) user=${userId}`);
+  }
 }
 
 // supabase/functions/voice-conversation/redact-args.ts
@@ -2366,7 +2421,8 @@ function normalizeParsedShape(parsed) {
     "get_current_time",
     "dashie_help",
     "music",
-    "schedule_action"
+    "schedule_action",
+    "personalities"
   ]);
   const TERMINAL_TYPES = /* @__PURE__ */ new Set(["response", "action", "info_request", "multi"]);
   const tool = parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== "info_request" ? parsed.type : typeof parsed.tool === "string" && KNOWN_TOOLS.has(parsed.tool) && !TERMINAL_TYPES.has(parsed.type) ? parsed.tool : null;
@@ -2462,6 +2518,48 @@ function repairTruncatedJson(s) {
   prefix = prefix.replace(/,(\s*)$/, "$1");
   const closers = stack.map((c) => c === "{" ? "}" : "]").reverse().join("");
   return prefix + closers;
+}
+
+// supabase/functions/voice-conversation/salvage.ts
+var SALVAGE_VOICE_WORD_BUDGET = 20;
+var ABBREVIATIONS = /(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|approx|no|inc|ltd|co|dept|est|fig|al)|\b[a-z](?:\.[a-z])+)\.$/i;
+function splitSentences(prose) {
+  const out = [];
+  for (const para of prose.split(/\n\s*\n/)) {
+    const block = para.trim();
+    if (!block) continue;
+    let start = 0;
+    const re = /[.!?]+["'”’)\]]*\s+(?=["'“‘(\[]*[A-Z0-9])/g;
+    let m;
+    while ((m = re.exec(block)) !== null) {
+      const candidate = block.slice(start, m.index + m[0].length).trim();
+      if (ABBREVIATIONS.test(candidate)) continue;
+      out.push(candidate);
+      start = re.lastIndex;
+    }
+    const tail = block.slice(start).trim();
+    if (tail) out.push(tail);
+  }
+  return out.length ? out : prose.trim() ? [prose.trim()] : [];
+}
+function wordCount(s) {
+  const t = s.trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+function splitSalvage(raw, budget = SALVAGE_VOICE_WORD_BUDGET) {
+  const prose = String(raw ?? "").trim();
+  if (!prose) return { voice: "", text: null };
+  const sentences = splitSentences(prose);
+  if (sentences.length <= 1) return { voice: sanitizeVoice(prose), text: null };
+  let taken = 0;
+  let words = 0;
+  while (taken < sentences.length && words < budget) {
+    words += wordCount(sentences[taken]);
+    taken++;
+  }
+  const spoken = sentences.slice(0, taken).join(" ").trim();
+  const rest = sentences.slice(taken).join(" ").trim();
+  return { voice: sanitizeVoice(spoken), text: rest || null };
 }
 
 // supabase/functions/voice-conversation/dialog-policy.ts
@@ -4396,6 +4494,12 @@ async function runOrchestration(deps, io) {
 }
 async function orchestrate(deps, io, voiceCtx) {
   const { req, userId, token, supabase } = deps;
+  const benchOverride = resolveBenchPromptPrefix(
+    req.bench_prompt_prefix,
+    userId,
+    { allowlist: readEnvSafe("BENCH_PROMPT_OVERRIDE_USER_IDS"), supabaseUrl: readEnvSafe("SUPABASE_URL") }
+  );
+  logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
   if (isLikelyNoise(req.text)) {
     io.logInteraction(token, {
@@ -4470,7 +4574,10 @@ async function orchestrate(deps, io, voiceCtx) {
     retrieve_pictures: retrievePictures,
     grounding: geminiGrounds,
     multi: multiEnabled,
-    tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites })
+    tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
+    // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
+    // caller; omitted entirely on real turns so the common row shape is unchanged.
+    ...benchOverride.active ? { bench_prompt_override: true } : {}
   };
   const context = {
     customPersonalityConfig: personality,
@@ -4504,7 +4611,7 @@ async function orchestrate(deps, io, voiceCtx) {
   const forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
   const providedSports = req.provided_context?.sports;
   const providedCalendar = req.provided_context?.calendar;
-  const p1Prompt = buildPrompt({
+  const p1PromptBase = buildPrompt({
     userRequest: req.text,
     inquiryType: null,
     context: {
@@ -4513,6 +4620,9 @@ async function orchestrate(deps, io, voiceCtx) {
       ...providedCalendar ? { providedCalendar } : {}
     }
   });
+  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}
+
+${p1PromptBase}` : p1PromptBase;
   const forcedContent = forced ? JSON.stringify({
     type: "info_request",
     tool: "web_search",
@@ -4521,6 +4631,17 @@ async function orchestrate(deps, io, voiceCtx) {
     processing_message: "Looking that up"
   }) : null;
   const pass1 = forcedContent ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } } : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: "decide", temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
+  if (geminiGrounds && pass1.ok && pass1.raw) {
+    await io.logWebSearch(token, {
+      session_id: sessionId,
+      provider: "gemini_grounding",
+      query_length: (req.text || "").length,
+      requested_count: 0,
+      result_count: pass1.raw.grounding_queries ?? 0,
+      latency_ms: pass1.latency_ms,
+      success: true
+    });
+  }
   if (!pass1.ok || !pass1.raw) {
     return errorTurn(t0, pass1, [stageErr("pass1", pass1)]);
   }
@@ -5134,7 +5255,15 @@ function routeOf(parsed) {
   return "direct";
 }
 async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false, card2 = void 0) {
-  const prompt = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
+  const promptBase = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
+  const benchOverride2 = resolveBenchPromptPrefix(
+    deps.req.bench_prompt_prefix,
+    deps.userId,
+    { allowlist: readEnvSafe("BENCH_PROMPT_OVERRIDE_USER_IDS"), supabaseUrl: readEnvSafe("SUPABASE_URL") }
+  );
+  const prompt = benchOverride2.active ? `${benchOverride2.prefix}
+
+${promptBase}` : promptBase;
   deps.onStage?.({ stage: "synthesizing", status: "Finalizing", elapsed_ms: Date.now() - t0 });
   const kind = inquiryType === "home-assistant" ? "decide" : "narrate";
   const pass2 = await io.callGateway({ provider, prompt, modelId, grounding, kind });
@@ -5221,12 +5350,17 @@ function finalize({ t0, parsed, raw, stages, usage, latency, unsupported_tool, r
   const type = parsed?.type || "response";
   const callerRetain = !!retain?.callerRetain && !unsupported_tool && (type === "response" || type === "action");
   const isToolCall = type === "info_request" || type === "multi";
-  const salvage = parsed ? "" : raw.content;
+  const salvaged = parsed ? null : splitSalvage(raw.content || "");
+  if (salvaged) {
+    console.warn(
+      `\u26A0\uFE0F DROP: response-json-unparsed \u2014 salvaging prose as ${salvaged.text ? "voice+text" : "voice"} (model=${raw.model || "?"} provider=${raw.provider || "?"} route=${route || "?"} chars=${(raw.content || "").length} voice_words=${salvaged.voice.trim() ? salvaged.voice.trim().split(/\s+/).length : 0} text_words=${salvaged.text ? salvaged.text.trim().split(/\s+/).length : 0}) \u2014 LOST: image/display_events/show_weather_overlay/cards (Tier 2 recovers these)`
+    );
+  }
   return {
     ok: true,
     type,
-    voice: parsed?.voice || (isToolCall ? "" : salvage) || "",
-    text: parsed?.text ?? null,
+    voice: parsed?.voice || (isToolCall ? "" : salvaged?.voice) || "",
+    text: parsed?.text ?? salvaged?.text ?? null,
     action: parsed?.action ?? null,
     parsed_ok: !!parsed,
     raw_content: raw.content,
@@ -5387,7 +5521,7 @@ function normalizeUsage(u) {
 }
 function formatHistory(history) {
   if (!Array.isArray(history) || history.length === 0) return "";
-  const lines = history.slice(-4).map((h) => `${h.role === "user" ? "User" : "You"}: ${h.text || ""}`);
+  const lines = history.slice(-8).map((h) => `${h.role === "user" ? "User" : "You"}: ${h.text || ""}`);
   return `Recent conversation:
 ${lines.join("\n")}
 `;
@@ -5450,4 +5584,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "8cf1d97f72bb25dbc68607dee426e96f3357dc48";
+module.exports.BRAIN_SOURCE_SHA = "c632742b859a73a08152d5c7cf531f68f30b986e";

@@ -128,6 +128,12 @@ const FeatureGate = {
         // three speech-provider keys — is now on the API Keys page, which is
         // mounted.
         'voice-ai', 'local-engines', 'api-keys',
+        // usage (2026-08-28): the box-local usage record, which ONLY an
+        // account-less box has any other way of seeing — Supabase is unreachable
+        // there, so `ai_interactions` gets nothing and /data/usage.json is the
+        // whole record. Paired with LOCAL_ONLY_PAGES below, which keeps it OUT of
+        // a signed-in console where Credits already hosts the (richer) cloud view.
+        'usage',
         // video-feeds (2026-07-31): HA camera feeds belong to the HA user, not to
         // a Dashie account. Every /api/feeds/* route proxies to the integration's
         // feed_registry over the add-on's OWN HA token and touches no account —
@@ -209,6 +215,24 @@ const FeatureGate = {
      * `account-usage` is deliberately absent: it is a sub-page reached from
      * Account, not a nav entry, so locking it would surface nothing.
      */
+    /**
+     * LOCAL-ONLY PAGES — the inverse of ACCOUNT_LOCKED_PAGES.
+     *
+     * ACCOUNT_LOCKED hides/locks a page that needs an account. This hides a page
+     * that needs the ABSENCE of one: `usage` renders the box-local record, which a
+     * signed-in console has no reason to show because Credits already hosts the
+     * cloud usage view with cost and balance the local record cannot have. Two
+     * "Usage" entries in one sidebar, showing different numbers for different
+     * lanes, is a support ticket.
+     *
+     * 🔴 Gated HERE and not in the sidebar, deliberately: this file's own design
+     * note says the whitelist governs the sidebar, `_isRoutable`, navigate() AND
+     * hash routing "from this single point". A sidebar-only branch would leave
+     * `#usage` routable on a signed-in console — visible to nobody, reachable by
+     * anybody who typed it.
+     */
+    LOCAL_ONLY_PAGES: new Set(['usage']),
+
     ACCOUNT_LOCKED_PAGES: new Set([
         'credits', 'scheduled-actions', 'account', 'preferences', 'devices',
     ]),
@@ -544,6 +568,9 @@ const FeatureGate = {
         // build, so the whitelist governs the sidebar, `_isRoutable`, navigate()
         // and hash routing from this single point.
         if (this.requiresAccount(page)) return false;
+        // The inverse gate: a local-only page is unreachable WITH an account.
+        if (this.LOCAL_ONLY_PAGES.has(page) &&
+            !(typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true)) return false;
         if (this.isPublishedBuild()) {
             if (this.CLOSED_DELTA_PAGES.has(page)) return false;
             const key = this.PAGE_FEATURE[page];

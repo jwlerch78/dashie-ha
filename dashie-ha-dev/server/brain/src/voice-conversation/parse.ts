@@ -68,11 +68,30 @@ function normalizeParsedShape(parsed: any): ParsedResponse {
   // (display) field is intentionally left UNTOUCHED so the tablet can still
   // render emphasis/emoji visually. Filter, not prompt.
   if (typeof parsed.voice === 'string') parsed.voice = sanitizeVoice(parsed.voice);
+  // ⚠️ THIS SET IS A REPAIR LIST, NOT A REGISTRY — and the difference is the whole reason
+  // `personalities` was missing from it for months (added 2026-08-26).
+  //
+  // Dispatch does NOT read this set. The orchestrator tests the CANONICAL shape directly
+  // (`type === 'info_request' && tool === '<name>'`), so a tool absent from here still works
+  // whenever the model emits that shape. What a tool loses by being absent is only the REPAIR
+  // of the two malformed variants below — which is invisible until a model emits one.
+  //
+  // That is exactly what happened: `personalities` shipped self-fulfilled in the orchestrator
+  // (~:1277) and nobody added it here, so `{"type":"personalities"}` — a shape this very file
+  // documents Gemini as producing when history primes it — normalized to nothing, kept the bogus
+  // type, missed the dispatch test, and fell through to a raw 'response'. A silent miss on a
+  // shipped tool. Adding it can only repair emissions that are broken today: the second branch
+  // is gated on a NON-terminal type, so a well-formed response/action/info_request/multi carrying
+  // a stray `tool` field is untouched.
+  //
+  // 📌 So the dependency, stated once so the next self-fulfilled tool doesn't inherit the gap:
+  // ADDING A TOOL TO THE ORCHESTRATOR'S DISPATCH MEANS ADDING IT HERE TOO. The dispatch site and
+  // this set are two halves of one contract, and only this half fails quietly.
   const KNOWN_TOOLS = new Set([
     'web_search', 'calendar_events', 'family_members', 'chores', 'rewards',
     'location_events', 'travel_time', 'family_locations', 'weather_data',
     'home_assistant', 'get_current_time', 'dashie_help', 'music',
-    'schedule_action',
+    'schedule_action', 'personalities',
   ]);
   // Canonical tool call is `{type:'info_request', tool:'<known>'}`. Models (esp. Gemini/OpenAI,
   // when history primes them) emit two malformed variants instead — normalize both so the

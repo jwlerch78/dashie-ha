@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 27a10b2ff2c1d171c3530c29cd640a7b7a2b33de
+   Source git SHA: 2c2b1eabe169774d0ce99114b30d9ade1ae3326b
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -1800,6 +1800,8 @@ var AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "today|tomorr
 - home_assistant: query: {command_hint: "transcript"} - Smart home control NOW (lights, thermostat, garage, etc.). If the request has a future time or delay ("turn the porch light off in 5 minutes", "turn on the lights at 9:30"), DO NOT use this \u2014 use schedule_action so it runs later, not now.
 - sports: query: {sport: "soccer|football|basketball|baseball|hockey", league: "nfl|nba|mlb|nhl|college-football|world-cup|premier-league|...", team: "team or country name", date: "YYYY-MM-DD (optional)", type: "score|schedule", list: true (for PLURAL "games")} - Live game SCORES and SCHEDULES, and nothing else. MANDATORY for the score, the result, who won, the kickoff time, "what time is the game", WHICH TEAMS are playing, and upcoming fixtures. NEVER answer THOSE from your own knowledge or a web/Google search, not even one you are sure about: this tool is the ONLY source with the user's correct LOCAL time (a web answer comes back in the wrong timezone) and the ONLY way the scorecard appears on screen. Always emit an info_request for this tool instead of replying directly. **This tool returns ONLY fixtures and scores. It has NO roster, lineup, player, stats, standings, or club-history data.** A question about WHO PLAYS or PLAYED a position ("who's starting at striker for Spain", "who's their quarterback"), a player's stats or injuries, the table/standings, or a club's history is NOT a score/schedule question \u2014 use web_search for those, even when the user names a team or a specific game. Calling this tool for a roster question hands you back the FIXTURE, and reading that out loud answers nothing (it just repeats the schedule at the user). Set list:true for any MULTI-game ask \u2014 "what games are on", "the NEXT games", "upcoming/today's World Cup games" (the plural "games" is the tell); leave it off for one team's score or "the next game" (singular). A FOLLOW-UP asking for MORE about a game already discussed ("tell me more about that game", details, color, highlights, a recap, how a team played) is ALSO not a score/schedule question: use web_search with a SELF-CONTAINED query naming both teams and the date from the conversation (e.g. "Yankees White Sox July 27 2026 recap key plays") \u2014 NEVER answer it from conversation memory alone; the score you already gave is exactly what the user wants to go BEYOND
 - get_current_time: query: {} - The CURRENT local date, time, and day of week. Call for "what time is it", "what's the date", "what day is it", AND to anchor any today/tomorrow/this-week/next reasoning. Authoritative \u2014 use it instead of your own clock, which is UTC and wrong for the user.
+- calculator: query: {expression: "0.15*80"} - Arithmetic, computed exactly. MANDATORY for any sum, product, division, percentage, bill split or recipe scaling \u2014 NEVER do the arithmetic yourself, you get it wrong silently. Write the ask as a plain expression: "15% of 80"\u2192"0.15*80", "split 87 three ways"\u2192"87/3". Supports + - * / % ^ and parentheses. found:false (including divide-by-zero) means say you could not work it out \u2014 never guess a number
+- convert_units: query: {value: 350, from: "fahrenheit", to: "celsius"} - Unit conversion: cooking measures (tsp/tbsp/cup/pint/quart/gallon/ml/l), weight, length, temperature, time, speed, area, energy, power, pressure, data, angle. MANDATORY for any "how many X in a Y" or "what is N X in Y" \u2014 never convert yourself. Pass fractions as decimals (two thirds of a cup \u2192 value 0.667, from "cup"). found:false means the unit is unknown or the two measure different things (cups to miles) \u2014 say you could not convert it, never invent a number
 - music: query: {action: "now_playing|search|play|pause|resume|stop|next|previous|volume_up|volume_down", query?: "song/artist/album text (for search or play)", uri?: "exact uri from a prior search result (for play)", speaker?: "speaker name, ONLY if the user names one"} - Music: what's playing now (action "now_playing" \u2014 "what song is this", "who sings this"), find music ("search" \u2014 returns matches to disambiguate), play it ("play" with the chosen uri, or a query), and transport \u2014 "stop the music"\u2192stop, "pause"\u2192pause, "turn it up/down"\u2192volume_up/volume_down, "next/skip"\u2192next. NEVER use "search" for a transport phrase
 - video_feeds: query: {action: "show|hide|show_all|hide_all|playback", camera?: "the camera name the user said, e.g. \\"pool\\" or \\"front door\\"", time?: "for playback ONLY \u2014 the user's own words for WHEN, e.g. \\"10 minutes ago\\", \\"at 10:30pm\\", \\"last night\\""} - Cameras: show a live feed ("show" + camera), hide it ("hide"), all of them ("show_all"/"hide_all"), or play back RECORDED footage from a past moment ("playback" + camera + time \u2014 "what happened at the front door around 3pm", "show me the pool camera 10 minutes ago"). Pass the user's own words through as "time" \u2014 the device resolves them in its own timezone. Use "show" (live) when no past time is mentioned
 - open_app: query: {app: "the app name the user said, e.g. \\"Netflix\\", \\"YouTube TV\\", \\"Prime Video\\", \\"Spotify\\""} - Open/launch a whole app on this screen: "open Netflix", "put on YouTube TV", "launch Spotify", "go to Prime Video". Pass the app name the user said through as "app"; the device matches it against installed apps. Use ONLY for opening an app \u2014 NOT for playing a specific song (use music) or showing cameras (use video_feeds)
@@ -2422,7 +2424,9 @@ function normalizeParsedShape(parsed) {
     "dashie_help",
     "music",
     "schedule_action",
-    "personalities"
+    "personalities",
+    "calculator",
+    "convert_units"
   ]);
   const TERMINAL_TYPES = /* @__PURE__ */ new Set(["response", "action", "info_request", "multi"]);
   const tool = parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== "info_request" ? parsed.type : typeof parsed.tool === "string" && KNOWN_TOOLS.has(parsed.tool) && !TERMINAL_TYPES.has(parsed.type) ? parsed.tool : null;
@@ -4121,6 +4125,287 @@ var dashieHelpTool = {
   }
 };
 
+// supabase/functions/_shared/tools/calculator.ts
+var TOKEN = /\s*(\d+\.?\d*|[-+*/^%()])/y;
+function tokenize2(src) {
+  const out = [];
+  TOKEN.lastIndex = 0;
+  let i = 0;
+  while (i < src.length) {
+    TOKEN.lastIndex = i;
+    const m = TOKEN.exec(src);
+    if (!m) {
+      if (src.slice(i).trim() === "") break;
+      return null;
+    }
+    out.push(m[1]);
+    i = TOKEN.lastIndex;
+  }
+  return out.length ? out : null;
+}
+function parse(tokens) {
+  let p = 0;
+  const peek = () => tokens[p];
+  const eat = (t) => tokens[p] === t ? (p++, true) : false;
+  function atom() {
+    if (eat("(")) {
+      const v2 = expr();
+      if (v2 === null || !eat(")")) return null;
+      return v2;
+    }
+    const t = peek();
+    if (t === void 0 || !/^\d/.test(t)) return null;
+    p++;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+  function unary() {
+    if (eat("-")) {
+      const v2 = unary();
+      return v2 === null ? null : -v2;
+    }
+    if (eat("+")) return unary();
+    return atom();
+  }
+  function pow() {
+    const base = unary();
+    if (base === null) return null;
+    if (eat("^")) {
+      const e = pow();
+      return e === null ? null : base ** e;
+    }
+    return base;
+  }
+  function term() {
+    let v2 = pow();
+    if (v2 === null) return null;
+    for (; ; ) {
+      if (eat("*")) {
+        const r = pow();
+        if (r === null) return null;
+        v2 *= r;
+      } else if (eat("/")) {
+        const r = pow();
+        if (r === null || r === 0) return null;
+        v2 /= r;
+      } else if (eat("%")) {
+        const r = pow();
+        if (r === null || r === 0) return null;
+        v2 %= r;
+      } else return v2;
+    }
+  }
+  function expr() {
+    let v2 = term();
+    if (v2 === null) return null;
+    for (; ; ) {
+      if (eat("+")) {
+        const r = term();
+        if (r === null) return null;
+        v2 += r;
+      } else if (eat("-")) {
+        const r = term();
+        if (r === null) return null;
+        v2 -= r;
+      } else return v2;
+    }
+  }
+  const v = expr();
+  return v !== null && p === tokens.length && Number.isFinite(v) ? v : null;
+}
+function evaluateExpression(src) {
+  if (typeof src !== "string" || src.length > 200) return null;
+  const tokens = tokenize2(src);
+  return tokens ? parse(tokens) : null;
+}
+function forSpeech(n) {
+  const r = Number(n.toPrecision(12));
+  return Object.is(r, -0) ? 0 : r;
+}
+var calculatorTool = {
+  name: "calculator",
+  description: 'Evaluate an arithmetic expression exactly. Use this for ANY arithmetic the user asks for \u2014 sums, products, division, percentages, splitting a bill, scaling a recipe \u2014 instead of computing it yourself, which is unreliable. Write the question as a plain expression: "15% of 80" \u2192 "0.15*80"; "split 87 three ways" \u2192 "87/3"; "45 plus 67 minus 12" \u2192 "45+67-12". Supports + - * / %, ^ for powers, and parentheses. Returns { found: false } if the expression cannot be evaluated (including division by zero) \u2014 say you could not work it out rather than guessing a number.',
+  parameters: {
+    type: "object",
+    properties: {
+      expression: {
+        type: "string",
+        description: 'The arithmetic expression, digits and operators only, e.g. "0.15*80" or "(45+67)/2".'
+      }
+    },
+    required: ["expression"]
+  },
+  // deno-lint-ignore require-await
+  async execute(args) {
+    const expression = String(args?.expression ?? "");
+    const value = evaluateExpression(expression);
+    if (value === null) return { result: { found: false } };
+    const result = forSpeech(value);
+    return { result: { found: true, expression, result, spoken: String(result) } };
+  }
+};
+
+// supabase/functions/_shared/tools/unit-table.ts
+var UNITS = {
+  // ── length (base: metre) ──
+  millimetre: { dim: "length", factor: 1e-3, aliases: ["mm", "millimeter", "millimetres", "millimeters"] },
+  centimetre: { dim: "length", factor: 0.01, aliases: ["cm", "centimeter", "centimetres", "centimeters"] },
+  metre: { dim: "length", factor: 1, aliases: ["m", "meter", "metres", "meters"] },
+  kilometre: { dim: "length", factor: 1e3, aliases: ["km", "kilometer", "kilometres", "kilometers"] },
+  inch: { dim: "length", factor: 0.0254, aliases: ["in", "inches", '"'] },
+  foot: { dim: "length", factor: 0.3048, aliases: ["ft", "feet", "'"] },
+  yard: { dim: "length", factor: 0.9144, aliases: ["yd", "yards"] },
+  mile: { dim: "length", factor: 1609.344, aliases: ["mi", "miles"] },
+  nautical_mile: { dim: "length", factor: 1852, aliases: ["nmi", "nautical miles"] },
+  // ── mass (base: gram) ──
+  milligram: { dim: "mass", factor: 1e-3, aliases: ["mg", "milligrams"] },
+  gram: { dim: "mass", factor: 1, aliases: ["g", "grams", "gramme", "grammes"] },
+  kilogram: { dim: "mass", factor: 1e3, aliases: ["kg", "kilo", "kilos", "kilograms"] },
+  ounce: { dim: "mass", factor: 28.349523125, aliases: ["oz", "ounces"] },
+  pound: { dim: "mass", factor: 453.59237, aliases: ["lb", "lbs", "pounds"] },
+  stone: { dim: "mass", factor: 6350.29318, aliases: ["st", "stones"] },
+  ton: { dim: "mass", factor: 907184.74, aliases: ["short ton", "tons"] },
+  tonne: { dim: "mass", factor: 1e6, aliases: ["metric ton", "tonnes"] },
+  // ── volume (base: litre; US customary) ──
+  millilitre: { dim: "volume", factor: 1e-3, aliases: ["ml", "milliliter", "millilitres", "milliliters"] },
+  litre: { dim: "volume", factor: 1, aliases: ["l", "liter", "litres", "liters"] },
+  teaspoon: { dim: "volume", factor: 0.00492892159375, aliases: ["tsp", "teaspoons"] },
+  tablespoon: { dim: "volume", factor: 0.01478676478125, aliases: ["tbsp", "tbs", "tablespoons"] },
+  fluid_ounce: { dim: "volume", factor: 0.0295735295625, aliases: ["fl oz", "floz", "fluid ounce", "fluid ounces"] },
+  cup: { dim: "volume", factor: 0.2365882365, aliases: ["cups"] },
+  pint: { dim: "volume", factor: 0.473176473, aliases: ["pt", "pints"] },
+  quart: { dim: "volume", factor: 0.946352946, aliases: ["qt", "quarts"] },
+  gallon: { dim: "volume", factor: 3.785411784, aliases: ["gal", "gallons"] },
+  imperial_pint: { dim: "volume", factor: 0.56826125, aliases: ["uk pint", "british pint"] },
+  imperial_gallon: { dim: "volume", factor: 4.54609, aliases: ["uk gallon", "british gallon"] },
+  // ── temperature (offsets — handled specially in convert_units.ts) ──
+  celsius: { dim: "temperature", factor: 1, aliases: ["c", "\xB0c", "centigrade", "degrees celsius"] },
+  fahrenheit: { dim: "temperature", factor: 1, aliases: ["f", "\xB0f", "degrees fahrenheit"] },
+  kelvin: { dim: "temperature", factor: 1, aliases: ["k", "degrees kelvin"] },
+  // ── time (base: second) ──
+  second: { dim: "time", factor: 1, aliases: ["s", "sec", "secs", "seconds"] },
+  minute: { dim: "time", factor: 60, aliases: ["min", "mins", "minutes"] },
+  hour: { dim: "time", factor: 3600, aliases: ["h", "hr", "hrs", "hours"] },
+  day: { dim: "time", factor: 86400, aliases: ["days"] },
+  week: { dim: "time", factor: 604800, aliases: ["weeks"] },
+  // ── speed (base: metre/second) ──
+  metres_per_second: { dim: "speed", factor: 1, aliases: ["m/s", "mps", "meters per second"] },
+  kilometres_per_hour: { dim: "speed", factor: 0.277777778, aliases: ["km/h", "kph", "kilometers per hour"] },
+  miles_per_hour: { dim: "speed", factor: 0.44704, aliases: ["mph", "miles per hour"] },
+  knot: { dim: "speed", factor: 0.514444444, aliases: ["kt", "knots"] },
+  // ── area (base: m²) ──
+  square_metre: { dim: "area", factor: 1, aliases: ["m2", "sq m", "square meter", "square metres", "square meters"] },
+  square_foot: { dim: "area", factor: 0.09290304, aliases: ["sq ft", "sqft", "square feet"] },
+  square_mile: { dim: "area", factor: 2589988110336e-6, aliases: ["sq mi", "square miles"] },
+  acre: { dim: "area", factor: 4046.8564224, aliases: ["acres"] },
+  hectare: { dim: "area", factor: 1e4, aliases: ["ha", "hectares"] },
+  // ── energy (base: joule) ──
+  joule: { dim: "energy", factor: 1, aliases: ["j", "joules"] },
+  kilojoule: { dim: "energy", factor: 1e3, aliases: ["kj", "kilojoules"] },
+  calorie: { dim: "energy", factor: 4.184, aliases: ["cal", "calories"] },
+  kilocalorie: { dim: "energy", factor: 4184, aliases: ["kcal", "food calorie", "food calories", "kilocalories"] },
+  watt_hour: { dim: "energy", factor: 3600, aliases: ["wh", "watt hours"] },
+  kilowatt_hour: { dim: "energy", factor: 36e5, aliases: ["kwh", "kilowatt hours"] },
+  // ── power (base: watt) ──
+  watt: { dim: "power", factor: 1, aliases: ["w", "watts"] },
+  kilowatt: { dim: "power", factor: 1e3, aliases: ["kw", "kilowatts"] },
+  horsepower: { dim: "power", factor: 745.699872, aliases: ["hp"] },
+  // ── pressure (base: pascal) ──
+  pascal: { dim: "pressure", factor: 1, aliases: ["pa", "pascals"] },
+  kilopascal: { dim: "pressure", factor: 1e3, aliases: ["kpa", "kilopascals"] },
+  bar: { dim: "pressure", factor: 1e5, aliases: ["bars"] },
+  psi: { dim: "pressure", factor: 6894.757293168, aliases: ["pounds per square inch"] },
+  atmosphere: { dim: "pressure", factor: 101325, aliases: ["atm", "atmospheres"] },
+  // ── digital storage (base: byte, decimal SI — what storage is sold in) ──
+  byte: { dim: "data", factor: 1, aliases: ["b", "bytes"] },
+  kilobyte: { dim: "data", factor: 1e3, aliases: ["kb", "kilobytes"] },
+  megabyte: { dim: "data", factor: 1e6, aliases: ["mb", "megabytes"] },
+  gigabyte: { dim: "data", factor: 1e9, aliases: ["gb", "gigabytes"] },
+  terabyte: { dim: "data", factor: 1e12, aliases: ["tb", "terabytes"] },
+  // ── angle (base: degree) ──
+  degree: { dim: "angle", factor: 1, aliases: ["deg", "degrees"] },
+  radian: { dim: "angle", factor: 57.29577951308232, aliases: ["rad", "radians"] }
+};
+var UNIT_LOOKUP = (() => {
+  const m = {};
+  for (const [key, def] of Object.entries(UNITS)) {
+    m[key.toLowerCase()] = key;
+    m[key.replace(/_/g, " ").toLowerCase()] = key;
+    for (const a of def.aliases) m[a.toLowerCase()] = key;
+  }
+  return m;
+})();
+
+// supabase/functions/_shared/tools/convert_units.ts
+function resolveUnit(raw) {
+  const k = String(raw ?? "").trim().toLowerCase().replace(/\.$/, "");
+  return UNIT_LOOKUP[k] ?? UNIT_LOOKUP[k.replace(/s$/, "")] ?? null;
+}
+var toCelsius = {
+  celsius: (v) => v,
+  fahrenheit: (v) => (v - 32) * 5 / 9,
+  kelvin: (v) => v - 273.15
+};
+var fromCelsius = {
+  celsius: (v) => v,
+  fahrenheit: (v) => v * 9 / 5 + 32,
+  kelvin: (v) => v + 273.15
+};
+function convert(value, fromRaw, toRaw) {
+  if (!Number.isFinite(value)) return null;
+  const from = resolveUnit(fromRaw);
+  const to = resolveUnit(toRaw);
+  if (!from || !to) return null;
+  const a = UNITS[from], b = UNITS[to];
+  if (a.dim !== b.dim) return null;
+  const out = a.dim === "temperature" ? fromCelsius[to](toCelsius[from](value)) : value * a.factor / b.factor;
+  if (!Number.isFinite(out)) return null;
+  return { value: out, from, to, dimension: a.dim };
+}
+function forSpeech2(n) {
+  const abs = Math.abs(n);
+  const dp = abs === 0 ? 0 : abs >= 100 ? 1 : abs >= 1 ? 2 : Math.min(6, 3 - Math.floor(Math.log10(abs)));
+  const r = Number(n.toFixed(dp));
+  return Object.is(r, -0) ? 0 : r;
+}
+var readable = (key) => key.replace(/_/g, " ");
+var NO_PLURAL = /* @__PURE__ */ new Set(["psi", "kelvin", "celsius", "fahrenheit"]);
+function spokenPhrase(value, unitKey, dim) {
+  const name = readable(unitKey);
+  if (dim === "temperature") return `${value} degrees ${name}`;
+  if (NO_PLURAL.has(unitKey) || name.endsWith("s")) return `${value} ${name}`;
+  return `${value} ${name}${Math.abs(value) === 1 ? "" : "s"}`;
+}
+var convertUnitsTool = {
+  name: "convert_units",
+  description: 'Convert a value between units \u2014 cooking measures (teaspoons, tablespoons, cups, pints, quarts, gallons, millilitres, litres), weight (ounces, pounds, grams, kilograms, stone), length, temperature (Fahrenheit, Celsius, Kelvin), time, speed, area, energy, power, pressure, digital storage and angles. Use this for ANY "how many X in a Y" or "what is N X in Y" question instead of converting yourself. For a fraction, pass it as a decimal (two thirds of a cup \u2192 value 0.667, from "cup"). Returns { found: false } if a unit is unknown or the two units measure different things (cups to miles) \u2014 say you could not convert it rather than inventing a number.',
+  parameters: {
+    type: "object",
+    properties: {
+      value: { type: "number", description: "The quantity to convert, e.g. 350 or 0.667." },
+      from: { type: "string", description: 'The unit to convert FROM, e.g. "fahrenheit", "cup", "pounds".' },
+      to: { type: "string", description: 'The unit to convert TO, e.g. "celsius", "tablespoons", "kilograms".' }
+    },
+    required: ["value", "from", "to"]
+  },
+  // deno-lint-ignore require-await
+  async execute(args) {
+    const value = Number(args?.value);
+    const c = convert(value, String(args?.from ?? ""), String(args?.to ?? ""));
+    if (!c) return { result: { found: false } };
+    const result = forSpeech2(c.value);
+    return {
+      result: {
+        found: true,
+        value: result,
+        unit: readable(c.to),
+        dimension: c.dimension,
+        spoken: spokenPhrase(result, c.to, c.dimension)
+      }
+    };
+  }
+};
+
 // supabase/functions/voice-conversation/retention.ts
 function retainFields(persist, userText, responseText, subtext) {
   if (!persist) return {};
@@ -5164,6 +5449,41 @@ ${p1PromptBase}` : p1PromptBase;
       route
     });
   }
+  if (p1Parsed.type === "info_request" && (p1Parsed.tool === "calculator" || p1Parsed.tool === "convert_units")) {
+    const q = typeof p1Parsed.query === "object" && p1Parsed.query ? p1Parsed.query : {};
+    const tool = p1Parsed.tool === "calculator" ? calculatorTool : convertUnitsTool;
+    const tRes = await tool.execute(q, { timezone: req.timezone });
+    const r = tRes?.result ?? {};
+    const spoken = r.found && r.spoken ? p1Parsed.tool === "calculator" ? `That's ${r.spoken}.` : `That's ${r.spoken}.` : "I couldn't work that one out.";
+    const parsed = { type: "response", voice: spoken, text: null, action: null };
+    const templatePass = {
+      ok: true,
+      latency_ms: 0,
+      raw: { content: spoken, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: "template", provider: "template" }
+    };
+    await logPass(
+      io,
+      deps,
+      REQUEST_TYPE,
+      req.endpoint_id,
+      sessionId,
+      `(${p1Parsed.tool} template)`,
+      templatePass,
+      retainFields(retain.serverPersist, retain.userText, spoken, null),
+      turnMeta
+    );
+    return finalize({
+      t0,
+      parsed,
+      raw: pass1.raw,
+      stages: [p1Stage],
+      usage: pass1.raw?.usage,
+      latency: pass1.latency_ms,
+      retain,
+      sessionId,
+      route
+    });
+  }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "dashie_help") {
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const hq = typeof p1Parsed.query === "object" && p1Parsed.query ? String(p1Parsed.query.question ?? req.text) : typeof p1Parsed.query === "string" && p1Parsed.query ? p1Parsed.query : req.text;
@@ -5584,4 +5904,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "27a10b2ff2c1d171c3530c29cd640a7b7a2b33de";
+module.exports.BRAIN_SOURCE_SHA = "2c2b1eabe169774d0ce99114b30d9ade1ae3326b";

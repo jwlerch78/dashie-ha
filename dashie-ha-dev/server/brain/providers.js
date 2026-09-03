@@ -173,9 +173,40 @@ async function validateProvider(provider) {
         const resp = await fetch(spec.url, { headers: spec.headers(entry.key), signal: ctl.signal });
         clearTimeout(timer);
         if (resp.ok) {
+            // ── Model-availability disclosure (the other half of the BYOK unit) ──
+            //
+            // The probe body ALREADY carries the model list; this used to count it and
+            // throw the ids away. Returning them lets the console tell a user their key
+            // cannot serve the model they picked BEFORE a turn dies — the same condition
+            // the spoken `model_unavailable` line reports AFTER one.
+            //
+            // 🔴 THREE-STATE, and the third state is the point. `models: null` means
+            // "cannot verify", NOT "no models":
+            //   · openrouter probes /key (its /models is PUBLIC and would 200 for a
+            //     garbage key), so there is no list on this path;
+            //   · bedrock has no probe at all.
+            // Collapsing null into an empty array would report every model unavailable
+            // for those providers — the failure direction that disables a working setup.
+            // Same distinction getLocalWakeWordCatalog() draws, for the same reason.
             let n = null;
-            try { const j = await resp.json(); n = Array.isArray(j?.data) ? j.data.length : null; } catch { /* body optional */ }
-            return { ok: true, detail: n != null ? `Key is valid (${n} models available).` : 'Key is valid.' };
+            let models = null;
+            try {
+                const j = await resp.json();
+                if (Array.isArray(j?.data)) {
+                    n = j.data.length;
+                    // OpenAI-compatible list shape: [{id}]. Anthropic's /v1/models
+                    // matches it. Anything without a usable id is skipped rather than
+                    // pushed as undefined, so a shape change degrades to a SHORTER list
+                    // and then to null-if-empty — never to a confident wrong answer.
+                    const ids = j.data.map((m) => (m && typeof m.id === 'string' ? m.id : null)).filter(Boolean);
+                    models = ids.length ? ids : null;
+                }
+            } catch { /* body optional */ }
+            return {
+                ok: true,
+                detail: n != null ? `Key is valid (${n} models available).` : 'Key is valid.',
+                models,
+            };
         }
         if (resp.status === 401 || resp.status === 403) return { ok: false, detail: `Key was rejected (HTTP ${resp.status}) — check it and re-save.` };
         return { ok: false, detail: `Unexpected response (HTTP ${resp.status}).` };
