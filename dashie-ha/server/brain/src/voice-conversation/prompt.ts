@@ -18,6 +18,9 @@ import {
   INQUIRY_HOME_ASSISTANT,
   INQUIRY_LOCATION_EVENTS,
   INQUIRY_PERSONALITIES,
+  INQUIRY_WIKIPEDIA,
+  INQUIRY_PLACE_SEARCH,
+  INQUIRY_DIRECTIONS,
   INQUIRY_REWARDS,
   INQUIRY_SPORTS,
   INQUIRY_TRAVEL_TIME,
@@ -45,6 +48,9 @@ const INQUIRY_BY_TYPE: Record<string, string> = {
   'sports': INQUIRY_SPORTS,
   'dashie-help': INQUIRY_DASHIE_HELP,
   'personalities': INQUIRY_PERSONALITIES,
+  'wikipedia': INQUIRY_WIKIPEDIA,
+  'place-search': INQUIRY_PLACE_SEARCH,
+  'directions': INQUIRY_DIRECTIONS,
 };
 
 // Maps Preferences locale codes → plain-English names the AI understands.
@@ -286,6 +292,12 @@ function buildInquiryValues(inquiryType: string, data: any, baseValues: Record<s
       return { ...baseValues, SEARCH_RESULTS: JSON.stringify(data, null, 2) };
     case 'dashie-help':
       return { ...baseValues, DASHIE_HELP_DATA: JSON.stringify(data, null, 2) };
+    case 'wikipedia':
+      return { ...baseValues, WIKIPEDIA_DATA: JSON.stringify(data, null, 2) };
+    case 'place-search':
+      return { ...baseValues, PLACE_SEARCH_DATA: JSON.stringify(data, null, 2) };
+    case 'directions':
+      return { ...baseValues, DIRECTIONS_DATA: JSON.stringify(data, null, 2) };
     case 'personalities':
       return { ...baseValues, PERSONALITY_CATALOG: JSON.stringify(data, null, 2) };
     case 'chores':
@@ -473,6 +485,14 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
 
   if (inquiryType && retrievedData) {
     const inquiryTemplate = INQUIRY_BY_TYPE[inquiryType];
+    // 🔴 STANDING RULE 2. Without this marker the branch below simply does nothing: a tool that
+    // fetched real data hands it to pass 2, no template claims it, and the model is asked to
+    // answer with NO tool output at all — indistinguishable from the tool never running. That is
+    // exactly what happened to `wikipedia` on 2026-09-03: dispatched, fetched, discarded, and it
+    // reached staging that way. A registered inquiryType with no template is always a wiring bug.
+    if (!inquiryTemplate) {
+      console.warn(`DROP: pass-2 inquiryType '${inquiryType}' has NO template in INQUIRY_BY_TYPE — retrieved data is being DISCARDED`);
+    }
     if (inquiryTemplate) {
       const inquiryValues = buildInquiryValues(inquiryType, retrievedData, baseValues);
       prompt += '\n\n' + fillTemplate(inquiryTemplate, inquiryValues);

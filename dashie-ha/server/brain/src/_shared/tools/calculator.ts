@@ -1,11 +1,19 @@
 /**
  * Calculator — arithmetic the model should never do in its head.
  *
- * WHY A TOOL. Measured on 2026-09-03 (V s9, `suite/compute.json`, gemini-2.5-flash on the
- * deployed cascade): the model answers 12 of 13 arithmetic/conversion questions correctly with no
- * tool at all — but it answered "seven times twenty three" as **162**. A family dashboard that
- * splits a restaurant bill wrong is worse than one that declines, and the failure is silent: a
- * confidently-wrong number is indistinguishable from a right one at the speaker.
+ * WHY A TOOL. ⚠️ CORRECTED 2026-09-03, same day: this header first said the model answered
+ * "seven times twenty three" as **162**. IT DID NOT. It said "one hundred and sixty-one",
+ * correctly, in every run — the 162 was a defect in the bench's own spoken-number parser, which
+ * ran the sentence "…is one hundred and sixty-one. One would think…" together as 161 + 1. The
+ * measured truth, re-graded from the recorded answers: gemini-2.5-flash is **51/52** across four
+ * runs of `suite/compute.json` with NO tool at all. One genuine error: "how many tablespoons are
+ * in a cup" answered "Twelve" (it is 16).
+ *
+ * So the honest case for this tool is NOT a score lift on the cloud lane — the model barely needs
+ * it there. It is (a) a precision floor on a failure that is silent and high-embarrassment (a
+ * confidently-wrong bill split is indistinguishable from a right one at the speaker), and (b) the
+ * LOCAL/BYOK lane, where a 4–26B model does arithmetic far worse. NickM's stack carries a
+ * calculator for exactly that second reason.
  *
  * So this is NOT here to lift a bad score. It is here to remove a small, high-embarrassment tail —
  * and it matters far more on the LOCAL/BYOK lane, where a 4–26B model does arithmetic much worse

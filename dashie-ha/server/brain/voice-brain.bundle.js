@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 2c2b1eabe169774d0ce99114b30d9ade1ae3326b
+   Source git SHA: 4426e2f8680e83b2f440fa217ae14e5d56e1ca71
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -1550,6 +1550,117 @@ Current date and time: {{DATE_TIME}}
 
 Now provide a helpful, natural response about where this family member is. Be careful not to assume they're heading home - phrase travel time as "X minutes from home" not "ETA is X".
 `;
+var INQUIRY_WIKIPEDIA = `# Inquiry Context: Wikipedia Lookup
+
+The user asked about a person, place, organisation, event, species or work. A Wikipedia summary has
+been retrieved below. It is the source of truth for this answer \u2014 do not supplement it from your own
+knowledge, and do not contradict it.
+
+## Response Guidelines
+
+- **Answer the question that was asked**, not the article. If they asked when someone was born, lead
+  with the date; if they asked who someone was, lead with the one-line identification. The summary is
+  raw material, not a script to read out.
+- **One or two sentences.** This is spoken aloud. No lists, headings, markdown or citations.
+- **Never add facts that are not in the summary** \u2014 not dates, not numbers, not relationships. If the
+  summary does not answer the specific question, say what it does tell you and that you do not have
+  the rest.
+- **If \`found\` is false**, say you could not find anything on that. Do NOT fall back on your own
+  recollection \u2014 that is the exact failure this lookup exists to prevent.
+- **Do not treat it as current.** Wikipedia lags live events. If the user's question turns out to be
+  about something happening now, say you would need to look it up rather than trusting the article.
+
+## Example Questions and Responses
+
+**"Who was Ada Lovelace?"**
+- Voice: "Ada Lovelace was a 19th-century English mathematician, best known for her work on Charles Babbage's Analytical Engine \u2014 she's often called the first computer programmer."
+
+**"How tall is Mount Rainier?"** (summary gives the elevation)
+- Voice: "Mount Rainier is about 14,410 feet tall \u2014 it's the highest peak in the Cascade Range."
+
+**"Tell me about Zyzzyx Corp"** (not found)
+- Voice: "I couldn't find anything on that one."
+
+## Retrieved Summary
+
+\`\`\`json
+{{WIKIPEDIA_DATA}}
+\`\`\`
+
+Answer the user's actual question from this summary, in one or two spoken sentences.
+`;
+var INQUIRY_PLACE_SEARCH = `# Inquiry Context: Place Search
+
+The user asked about a real-world place \u2014 a business, restaurant, shop, park or landmark. Matching
+places have been retrieved below from a maps provider.
+
+## Response Guidelines
+
+- **Lead with the one they want.** Usually the first result. Give the name, then the useful detail
+  they asked for \u2014 address, whether it is open, the rating. Do not read out all three.
+- **Spoken-friendly** \u2014 say the address the way a person would ("on Gulf to Bay Boulevard"), not as
+  a postal line. No lists or markdown.
+- **NEVER invent a business name, an address, opening hours or a phone number.** A wrong address
+  sends someone driving to the wrong place; this is the single worst thing this tool can do.
+- **Only say it is open or closed if \`open_now\` is present.** If it is null, do not guess \u2014 say you
+  are not sure of the hours.
+- **If \`found\` is false**, say you could not find it. Do not offer a place from memory.
+
+## Example Questions and Responses
+
+**"Where's the nearest coffee shop?"**
+- Voice: "The closest is Blue Bottle Coffee on Main Street \u2014 it's open right now."
+
+**"What's the address of Publix on Gulf to Bay?"**
+- Voice: "That one's at 2100 Gulf to Bay Boulevard in Clearwater."
+
+**"Is the hardware store open?"** (\`open_now\` is null)
+- Voice: "I found Ace Hardware on Cleveland Street, but I'm not sure of their hours right now."
+
+## Retrieved Places
+
+\`\`\`json
+{{PLACE_SEARCH_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only these results.
+`;
+var INQUIRY_DIRECTIONS = `# Inquiry Context: Distance and Travel Time
+
+The user asked how far somewhere is, or how long it takes to get there. A maps provider has returned
+the distance and duration below.
+
+## Response Guidelines
+
+- **Answer what was asked.** "How far" wants the distance; "how long" wants the duration. If the
+  question is open ("how far is the airport"), give both in one sentence.
+- **Say the numbers as speech** \u2014 "about twenty-two miles, roughly half an hour". Round; nobody
+  wants "22.4 miles, 31 minutes" read out.
+- **Mention traffic only if \`in_traffic\` is true**, and then only briefly ("about forty minutes in
+  traffic right now").
+- **NEVER estimate a distance or a drive time yourself.** If the data is missing, say so \u2014 a guessed
+  travel time gets someone somewhere late.
+- **If \`found\` is false**, say you could not work out the route.
+
+## Example Questions and Responses
+
+**"How far is Tampa airport?"**
+- Voice: "It's about twenty-two miles \u2014 roughly half an hour's drive right now."
+
+**"How long to walk to the park?"**
+- Voice: "About twelve minutes on foot."
+
+**"How long to drive to Atlanta?"** (not found)
+- Voice: "I couldn't work out a route for that one."
+
+## Retrieved Route
+
+\`\`\`json
+{{DIRECTIONS_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only this data.
+`;
 var INQUIRY_WEATHER = `# Inquiry Context: Weather Data
 
 You have been provided with weather data below based on the user's weather-related question.
@@ -1802,6 +1913,9 @@ var AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "today|tomorr
 - get_current_time: query: {} - The CURRENT local date, time, and day of week. Call for "what time is it", "what's the date", "what day is it", AND to anchor any today/tomorrow/this-week/next reasoning. Authoritative \u2014 use it instead of your own clock, which is UTC and wrong for the user.
 - calculator: query: {expression: "0.15*80"} - Arithmetic, computed exactly. MANDATORY for any sum, product, division, percentage, bill split or recipe scaling \u2014 NEVER do the arithmetic yourself, you get it wrong silently. Write the ask as a plain expression: "15% of 80"\u2192"0.15*80", "split 87 three ways"\u2192"87/3". Supports + - * / % ^ and parentheses. found:false (including divide-by-zero) means say you could not work it out \u2014 never guess a number
 - convert_units: query: {value: 350, from: "fahrenheit", to: "celsius"} - Unit conversion: cooking measures (tsp/tbsp/cup/pint/quart/gallon/ml/l), weight, length, temperature, time, speed, area, energy, power, pressure, data, angle. MANDATORY for any "how many X in a Y" or "what is N X in Y" \u2014 never convert yourself. Pass fractions as decimals (two thirds of a cup \u2192 value 0.667, from "cup"). found:false means the unit is unknown or the two measure different things (cups to miles) \u2014 say you could not convert it, never invent a number
+- wikipedia: query: {query: "Ada Lovelace"} - STABLE encyclopaedic facts: a person, place, organisation, historical event, species, work. Use for "who is/was X", "what is X", "tell me about X" when the answer does not change day to day. NEVER for anything CURRENT \u2014 news, prices, scores, who currently holds an office or job, this week's anything \u2014 those go to web_search, because Wikipedia lags live events invisibly. Free and one call, so prefer it over web_search for settled facts. found:false means say you could not find it
+- place_search: query: {query: "coffee shop near me"} - Find a REAL PLACE: business, restaurant, shop, park, landmark. Returns name, address, rating, open-now. Use for "where's the nearest X", "what's the address of X", "find a X nearby", "is X open". Pass the user's own words. NOT for family members' locations - that's family_locations. found:false means say you could not find it: NEVER invent a business name, address or opening hours
+- directions: query: {origin: "home", destination: "Tampa airport", mode: "driving|walking|bicycling|transit"} - How FAR somewhere is and how LONG it takes, in current traffic. Use for "how far is X", "how long to drive to X". NOT for "when should I leave for <calendar event>" - that's travel_time. found:false means say you could not work it out: NEVER estimate a distance or drive time yourself
 - music: query: {action: "now_playing|search|play|pause|resume|stop|next|previous|volume_up|volume_down", query?: "song/artist/album text (for search or play)", uri?: "exact uri from a prior search result (for play)", speaker?: "speaker name, ONLY if the user names one"} - Music: what's playing now (action "now_playing" \u2014 "what song is this", "who sings this"), find music ("search" \u2014 returns matches to disambiguate), play it ("play" with the chosen uri, or a query), and transport \u2014 "stop the music"\u2192stop, "pause"\u2192pause, "turn it up/down"\u2192volume_up/volume_down, "next/skip"\u2192next. NEVER use "search" for a transport phrase
 - video_feeds: query: {action: "show|hide|show_all|hide_all|playback", camera?: "the camera name the user said, e.g. \\"pool\\" or \\"front door\\"", time?: "for playback ONLY \u2014 the user's own words for WHEN, e.g. \\"10 minutes ago\\", \\"at 10:30pm\\", \\"last night\\""} - Cameras: show a live feed ("show" + camera), hide it ("hide"), all of them ("show_all"/"hide_all"), or play back RECORDED footage from a past moment ("playback" + camera + time \u2014 "what happened at the front door around 3pm", "show me the pool camera 10 minutes ago"). Pass the user's own words through as "time" \u2014 the device resolves them in its own timezone. Use "show" (live) when no past time is mentioned
 - open_app: query: {app: "the app name the user said, e.g. \\"Netflix\\", \\"YouTube TV\\", \\"Prime Video\\", \\"Spotify\\""} - Open/launch a whole app on this screen: "open Netflix", "put on YouTube TV", "launch Spotify", "go to Prime Video". Pass the app name the user said through as "app"; the device matches it against installed apps. Use ONLY for opening an app \u2014 NOT for playing a specific song (use music) or showing cameras (use video_feeds)
@@ -1932,7 +2046,10 @@ var INQUIRY_BY_TYPE = {
   "weather": INQUIRY_WEATHER,
   "sports": INQUIRY_SPORTS,
   "dashie-help": INQUIRY_DASHIE_HELP,
-  "personalities": INQUIRY_PERSONALITIES
+  "personalities": INQUIRY_PERSONALITIES,
+  "wikipedia": INQUIRY_WIKIPEDIA,
+  "place-search": INQUIRY_PLACE_SEARCH,
+  "directions": INQUIRY_DIRECTIONS
 };
 function languageNameFor(code) {
   return {
@@ -2029,6 +2146,12 @@ function buildInquiryValues(inquiryType, data, baseValues) {
       return { ...baseValues, SEARCH_RESULTS: JSON.stringify(data, null, 2) };
     case "dashie-help":
       return { ...baseValues, DASHIE_HELP_DATA: JSON.stringify(data, null, 2) };
+    case "wikipedia":
+      return { ...baseValues, WIKIPEDIA_DATA: JSON.stringify(data, null, 2) };
+    case "place-search":
+      return { ...baseValues, PLACE_SEARCH_DATA: JSON.stringify(data, null, 2) };
+    case "directions":
+      return { ...baseValues, DIRECTIONS_DATA: JSON.stringify(data, null, 2) };
     case "personalities":
       return { ...baseValues, PERSONALITY_CATALOG: JSON.stringify(data, null, 2) };
     case "chores":
@@ -2164,6 +2287,9 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
   }
   if (inquiryType && retrievedData) {
     const inquiryTemplate = INQUIRY_BY_TYPE[inquiryType];
+    if (!inquiryTemplate) {
+      console.warn(`DROP: pass-2 inquiryType '${inquiryType}' has NO template in INQUIRY_BY_TYPE \u2014 retrieved data is being DISCARDED`);
+    }
     if (inquiryTemplate) {
       const inquiryValues = buildInquiryValues(inquiryType, retrievedData, baseValues);
       prompt += "\n\n" + fillTemplate(inquiryTemplate, inquiryValues);
@@ -2426,7 +2552,10 @@ function normalizeParsedShape(parsed) {
     "schedule_action",
     "personalities",
     "calculator",
-    "convert_units"
+    "convert_units",
+    "wikipedia",
+    "place_search",
+    "directions"
   ]);
   const TERMINAL_TYPES = /* @__PURE__ */ new Set(["response", "action", "info_request", "multi"]);
   const tool = parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== "info_request" ? parsed.type : typeof parsed.tool === "string" && KNOWN_TOOLS.has(parsed.tool) && !TERMINAL_TYPES.has(parsed.type) ? parsed.tool : null;
@@ -4406,6 +4535,60 @@ var convertUnitsTool = {
   }
 };
 
+// supabase/functions/_shared/tools/wikipedia.ts
+var API = "https://en.wikipedia.org/w/api.php";
+var UA = "DashieVoiceAssistant/1.0 (https://dashieapp.com; support@dashieapp.com)";
+function trimForSpeech(extract, maxSentences = 2, maxChars = 400) {
+  const clean = extract.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [clean];
+  let out = "";
+  for (const s of sentences.slice(0, maxSentences)) {
+    if (out.length + s.length > maxChars) break;
+    out += s;
+  }
+  return (out || clean.slice(0, maxChars)).trim();
+}
+var wikipediaTool = {
+  name: "wikipedia",
+  description: `Look up a STABLE encyclopaedic fact \u2014 a person, place, organisation, historical event, species, work of art. Use this for "who is/was X", "what is X", "tell me about X" when the answer does not change day to day, instead of answering from memory. Do NOT use it for anything current or time-sensitive \u2014 news, prices, scores, who currently holds a job or office, this week's anything \u2014 use web_search for those, because Wikipedia lags live events. Returns { found: false } when there is no clear article; say you could not find it rather than filling the gap yourself.`,
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: 'The subject to look up, e.g. "Ada Lovelace" or "Mount Rainier".' }
+    },
+    required: ["query"]
+  },
+  async execute(args, _ctx) {
+    const query = String(args?.query ?? "").trim();
+    if (!query) return { result: { found: false } };
+    const url = `${API}?action=query&format=json&origin=*&redirects=1&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=extracts&exintro=1&explaintext=1`;
+    const resp = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(1e4)
+    }).catch((e) => ({ ok: false, status: 0, _e: String(e) }));
+    if (!resp.ok) {
+      await resp.text?.().catch(() => "");
+      console.warn(`DROP: wikipedia HTTP ${resp.status} for "${query.slice(0, 60)}"`);
+      return { result: { found: false } };
+    }
+    const body = await resp.json().catch(() => null);
+    const pages = body?.query?.pages;
+    if (!pages) return { result: { found: false } };
+    const page = Object.values(pages)[0];
+    const summary = trimForSpeech(String(page?.extract ?? ""));
+    if (!page?.title || !summary) return { result: { found: false } };
+    return {
+      result: {
+        found: true,
+        title: page.title,
+        summary,
+        source: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`
+      }
+    };
+  }
+};
+
 // supabase/functions/voice-conversation/retention.ts
 function retainFields(persist, userText, responseText, subtext) {
   if (!persist) return {};
@@ -5502,6 +5685,58 @@ ${p1PromptBase}` : p1PromptBase;
     };
     return await secondPass(io, deps, t0, "dashie-help", helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
+  if (p1Parsed.type === "info_request" && p1Parsed.tool === "wikipedia") {
+    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    const wq = typeof p1Parsed.query === "object" && p1Parsed.query ? String(p1Parsed.query.query ?? req.text) : typeof p1Parsed.query === "string" && p1Parsed.query ? p1Parsed.query : req.text;
+    const tFetch = Date.now();
+    const wiki = await wikipediaTool.execute({ query: wq }, { timezone: req.timezone });
+    const wikiResult = wiki?.result ?? { found: false };
+    const fetchStage = {
+      name: "fetch_wikipedia",
+      latency_ms: Date.now() - tFetch,
+      result_count: wikiResult.found ? 1 : 0
+    };
+    const wikiData = wikiResult.found ? wikiResult : {
+      found: false,
+      note: "No Wikipedia article matched. Do NOT answer from your own knowledge instead \u2014 say you could not find anything on that.",
+      query: wq
+    };
+    return await secondPass(io, deps, t0, "wikipedia", wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+  }
+  if (p1Parsed.type === "info_request" && (p1Parsed.tool === "place_search" || p1Parsed.tool === "directions")) {
+    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    const q = typeof p1Parsed.query === "object" && p1Parsed.query ? p1Parsed.query : {};
+    const isPlaces = p1Parsed.tool === "place_search";
+    const tFetch = Date.now();
+    let payload = null;
+    try {
+      if (isPlaces && io.runPlaceSearch) {
+        payload = await io.runPlaceSearch(String(q.query ?? req.text), token);
+      } else if (!isPlaces && io.runDirections) {
+        payload = await io.runDirections({
+          origin: String(q.origin ?? ""),
+          destination: String(q.destination ?? ""),
+          mode: q.mode ? String(q.mode) : void 0
+        }, token);
+      } else {
+        console.warn(`DROP: ${p1Parsed.tool} unavailable \u2014 this runtime injects no IO for it`);
+      }
+    } catch (e) {
+      console.warn(`DROP: ${p1Parsed.tool} lookup failed \u2014 ${e.message}`);
+    }
+    const result = payload ?? null;
+    const fetchStage = {
+      name: `fetch_${p1Parsed.tool}`,
+      latency_ms: Date.now() - tFetch,
+      result_count: result?.found ? 1 : 0
+    };
+    const data = result?.found ? result : {
+      found: false,
+      note: isPlaces ? "No matching place was found. Do NOT invent a business, address or opening hours \u2014 say you could not find it." : "No route could be worked out. Do NOT estimate a distance or drive time yourself \u2014 say you could not work it out."
+    };
+    const inquiryType = isPlaces ? "place-search" : "directions";
+    return await secondPass(io, deps, t0, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+  }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "personalities") {
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const tFetch = Date.now();
@@ -5904,4 +6139,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "2c2b1eabe169774d0ce99114b30d9ade1ae3326b";
+module.exports.BRAIN_SOURCE_SHA = "4426e2f8680e83b2f440fa217ae14e5d56e1ca71";

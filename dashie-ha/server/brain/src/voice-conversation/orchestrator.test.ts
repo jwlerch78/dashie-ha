@@ -505,11 +505,14 @@ Deno.test('calculator → server-templated EXACT arithmetic, no pass-2 (declared
   // 2026-09-03 before this arm existed: the prompt said "MANDATORY, call the calculator" and the
   // brain dropped the call. This test is the only thing that fails if that regresses.
   //
-  // The value is the one the deployed model actually got wrong: 7 × 23 answered as 162.
+  // ⚠️ The comment here first said 7 × 23 was "the value the deployed model actually got wrong,
+  // answered as 162". That was the bench's own parser defect, not the model (corrected 2026-09-03).
+  // The assertion is still exactly right for THIS test — it proves the turn carries the TOOL's
+  // exact value and not something the model re-derived — so only the false claim is removed.
   const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"7*23"}}']);
   const turn = await runOrchestration(deps(), m.io);
   assert(turn.voice && /\b161\b/.test(turn.voice), `expected the exact answer 161 — got: ${turn.voice}`);
-  assert(!/162/.test(turn.voice!), `must not carry the model's wrong value — got: ${turn.voice}`);
+  assert(!/162/.test(turn.voice!), `must carry the tool's exact value, not a near-miss — got: ${turn.voice}`);
   assertEquals(m.gatewayCalls(), 1); // tier-1 template: pass-1 only, no pass-2
 });
 
@@ -534,6 +537,49 @@ Deno.test('NEGATIVE CONTROL — calculator refuses code, and still declines clea
   const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"Deno.exit(1)"}}']);
   const turn = await runOrchestration(deps(), m.io);
   assert(turn.voice && !/\d/.test(turn.voice), `a rejected expression must speak no digits — got: ${turn.voice}`);
+});
+
+Deno.test('🔴 retrieved tool data actually REACHES pass 2 (the wikipedia bug that shipped)', async () => {
+  // On 2026-09-03 `wikipedia` was dispatched, fetched a real article, handed it to secondPass —
+  // and the data was DISCARDED, because INQUIRY_BY_TYPE had no template for that inquiryType and
+  // the branch that renders it simply did nothing. No error, no log: the model was asked to answer
+  // with no tool output, which is indistinguishable from the tool never having run. It reached
+  // staging that way. Asserting the retrieved value appears in the pass-2 prompt is the only thing
+  // that catches it; a dispatch test alone passes happily while the data goes nowhere.
+  const m = makeIO(['{"type":"info_request","tool":"wikipedia","query":{"query":"Ada Lovelace"}}', 'She was a mathematician.']);
+  await runOrchestration(deps(), m.io);
+  const p2 = m.lastPrompt() ?? '';
+  assertEquals(/Analytical Engine|found/.test(p2), true, 'pass-2 prompt must carry the retrieved payload');
+});
+
+Deno.test('place_search → dispatched through the IO seam, pass-2 synthesis', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"place_search","query":{"query":"coffee near me"}}', 'The nearest is Blue Bottle on Main Street.']);
+  (m.io as unknown as Record<string, unknown>).runPlaceSearch = () =>
+    Promise.resolve({ found: true, places: [{ name: 'Blue Bottle', address: '1 Main St' }], count: 1 });
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && turn.voice.length > 0, 'expected a spoken answer');
+  assertEquals(m.gatewayCalls(), 2); // pass-1 route + pass-2 synthesis
+});
+
+Deno.test('directions → dispatched through the IO seam', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"directions","query":{"origin":"home","destination":"Tampa airport"}}', "It's about 22 miles, roughly 30 minutes."]);
+  (m.io as unknown as Record<string, unknown>).runDirections = () =>
+    Promise.resolve({ found: true, distance: '22.4 miles', duration: '30 minutes' });
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && turn.voice.length > 0, 'expected a spoken answer');
+  assertEquals(m.gatewayCalls(), 2);
+});
+
+Deno.test('NEGATIVE CONTROL — a runtime with NO maps IO declines, it does not invent', async () => {
+  // The Node add-on shell injects its own IO and may not supply these. The branch must reach
+  // pass-2 with an explicit do-not-invent note rather than letting the model answer an address
+  // or a drive time from memory — the exact failure these tools exist to close.
+  const m = makeIO(['{"type":"info_request","tool":"place_search","query":{"query":"coffee near me"}}', "I couldn't find that."]);
+  const turn = await runOrchestration(deps(), m.io);   // no runPlaceSearch on the mock
+  assert(turn.voice && turn.voice.length > 0);
+  const p2 = m.lastPrompt() ?? '';   // pass-2 is the last gateway call
+  assertEquals(/do not invent/i.test(p2), true, 'pass-2 must carry the do-not-invent note');
+  assertEquals(/"found":\s*false/.test(p2), true, 'pass-2 must see found:false');
 });
 
 Deno.test('action → returned, NOT dispatched by the brain', async () => {
