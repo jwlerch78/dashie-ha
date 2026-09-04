@@ -333,6 +333,20 @@
       },
     
       // Web Search costs - Verified Oct 2025
+      // ── Google Maps Platform (place_search + directions, via maps-gateway) ──────────────
+      // ⚠️ COGS VISIBILITY ONLY — deliberately NO `perCall`. Same posture as `search.gemini_grounding`
+      // below: the plumbing debits correctly the moment a rate exists, and until John words one this
+      // costs users nothing. ADDING `perCall` HERE STARTS CHARGING USERS.
+      //
+      // List prices (Google Maps Platform, checked 2026-09): Places Text Search ~$32/1000 calls;
+      // Distance Matrix ~$5/1000 elements. Both carry a monthly free allowance that a household-scale
+      // fleet sits well inside today — which is why the honest current answer is "$0, with a cliff",
+      // and why the row exists as the early-warning gauge rather than as a charge.
+      maps: {
+        places:   { per1000Calls: 32.00, note: 'Places Text Search list price; no perCall = not billed' },
+        distance: { per1000Calls: 5.00,  note: 'Distance Matrix per element; no perCall = not billed' },
+      },
+    
       search: {
         // ── Gemini NATIVE GROUNDING (`tools: [{google_search:{}}]`) ─────────────────────────
         // Added 2026-08-27 (Thread V finding, John+O review). A grounded turn IS a billable web
@@ -480,6 +494,14 @@
     }
 
     /** USD cost of a web-search call. {provider, count} → number. */
+    function mapsCost({ op, count = 1 }) {
+        if (!op) return 0;
+        const row = TOKEN_COSTS.maps?.[op];
+        if (!row) return 0;
+        if (typeof row.perCall === 'number') return count * row.perCall;
+        return 0;
+    }
+
     function searchCost({ provider, count = 1 }) {
         const row = TOKEN_COSTS.search?.[provider];
         if (!row) return 0;
@@ -509,6 +531,7 @@
         sttCost,
         ttsCost,
         searchCost,
+        mapsCost,
         dropdownGroups,
     };
 })();
