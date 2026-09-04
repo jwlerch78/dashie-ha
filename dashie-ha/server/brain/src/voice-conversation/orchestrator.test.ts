@@ -1629,3 +1629,57 @@ Deno.test('bench override: the refused prefix never reaches the model prompt', a
   await runOrchestration(deps({ bench_prompt_prefix: 'SENTINEL-FOREIGN-PROMPT' } as Partial<VoiceRequest>), m.io);
   assert(!m.lastPrompt()?.includes('SENTINEL-FOREIGN-PROMPT'), 'a refused override must never reach the model prompt');
 });
+
+// ── ROW 130: `sports` malformed-variant recovery (2026-09-04, John's word "add sports") ──────
+// `sports` had a dispatch arm (orchestrator.ts:968) but was MISSING from `KNOWN_TOOLS` in all
+// three copies — found by `lint:tool-dispatch` (contract #22), which reports it as a warning
+// rather than a build-breaker. Not an outage: the canonical `{type:'info_request',tool:'sports'}`
+// above dispatches fine. What was missing is the REPAIR of the two malformed variants Gemini
+// emits when history primes it — those normalized to nothing and fell through to a raw
+// 'response', putting the model's own JSON at risk of being read aloud.
+//
+// It was left unfixed by V in s9 deliberately: it changes NORMALIZATION on a BILLED path (a
+// malformed blob that today falls through would instead fire a real sports lookup), so it needed
+// John's word. Given 2026-09-04 — the cheaper failure is a spurious lookup, not spoken JSON.
+//
+// These two are the round-trip: they were shown RED (route 'response', no fetch_sports stage)
+// before 'sports' was added to KNOWN_TOOLS, and green after. Same shape as the `personalities`
+// repair, which is the previous instance of this exact class.
+
+Deno.test('ROW 130 sports: tool-name-as-type is repaired and REACHES the tool', async () => {
+  const m = makeIO(['{"type":"sports","query":{"sport":"soccer","team":"Mexico","type":"score"}}']);
+  const turn = await runOrchestration(deps({ text: 'what was the score of the mexico game' }), m.io);
+  assertEquals(turn.route, 'sports');
+  assertEquals(turn.voice, 'Mexico beat South Korea 1 to 0.');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1', 'fetch_sports']);
+});
+
+Deno.test('ROW 130 sports: a bare {tool} with no type is repaired and REACHES the tool', async () => {
+  // Deliberately a DETAIL ask ("how did mexico do"), which takes the pass-2 synthesis path — so
+  // this asserts the thing under test (the malformed variant reaches the TOOL) and not the pass
+  // shape, which is the neighbouring detail-ask test's business. The first draft pinned
+  // ['pass1','fetch_sports'] here and failed on the trailing 'pass2' with the repair working
+  // perfectly: a wrong assertion, not a wrong fix.
+  const m = makeIO([
+    '{"tool":"sports","query":{"sport":"soccer","team":"Mexico","type":"summary"}}',
+    'Mexico edged South Korea one-nil.',
+  ]);
+  const turn = await runOrchestration(deps({ text: 'how did mexico do' }), m.io);
+  assertEquals(turn.route, 'sports');
+  assert(
+    turn.stages.some((s) => s.name === 'fetch_sports'),
+    `the repaired call must reach the sports tool — got stages: ${turn.stages.map((s) => s.name).join(',')}`,
+  );
+});
+
+Deno.test('ROW 130 NEGATIVE CONTROL — a well-formed response carrying a stray sports field stays a response', async () => {
+  // The blast radius. `response` is terminal, so widening KNOWN_TOOLS must NOT convert a model
+  // that already answered into a billed sports lookup. This is the guard on the spend-adjacent
+  // half of the change, and it is the reason the normalizer's second branch is gated on a
+  // non-terminal type.
+  const m = makeIO(['{"type":"response","voice":"I could not find that game.","tool":"sports"}']);
+  const turn = await runOrchestration(deps({ text: 'how did mexico do' }), m.io);
+  assertEquals(turn.route, 'direct');
+  assertEquals(turn.voice, 'I could not find that game.');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1']);
+});

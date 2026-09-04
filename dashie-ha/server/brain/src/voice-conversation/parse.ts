@@ -93,6 +93,7 @@ function normalizeParsedShape(parsed: any): ParsedResponse {
     'home_assistant', 'get_current_time', 'dashie_help', 'music',
     'schedule_action', 'personalities',
     'calculator', 'convert_units', 'wikipedia', 'place_search', 'directions',
+    'sports',
   ]);
   // Canonical tool call is `{type:'info_request', tool:'<known>'}`. Models (esp. Gemini/OpenAI,
   // when history primes them) emit two malformed variants instead — normalize both so the
