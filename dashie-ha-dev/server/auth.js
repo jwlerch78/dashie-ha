@@ -186,6 +186,44 @@ async function pollDeviceCode(deviceCode) {
  * edge fn's structured code (invalid_credentials, account_exists,
  * use_google_signin, rate_limited, ...) for the panel to display.
  */
+/**
+ * Classify one jwt-auth email_signin/email_signup response. PURE — no I/O, no
+ * filesystem, no network — so the outcomes can be pinned with fixtures; `emailAuth`
+ * below does the I/O around it. Extracted 2026-09-03 (board row 122) because the
+ * decision it encodes had a third case that the two-branch `if` could not express.
+ *
+ * THREE outcomes, not two. Row 122 turned email verification on, and a verified
+ * sign-up answers HTTP 200 with `{ success: true, verification_required: true }` and NO
+ * jwtToken. The old two-branch `if` sent that to the failure path, where — with no
+ * `body.error` to fall back to on a 200 — the machine code `http_200` and our own
+ * check-your-email sentence were rendered to the user as the reason their sign-up had
+ * FAILED, at the moment it had succeeded.
+ */
+function classifyEmailAuthResponse(status, body) {
+    if (body?.success && body.jwtToken) return { kind: 'signed_in' };
+
+    if (body?.success && body.verification_required) {
+        return {
+            kind: 'verification_required',
+            message: body.message || 'Check your email for a confirmation link, then sign in.',
+        };
+    }
+
+    // `success: true` with neither a JWT nor a verification flag is a shape no current
+    // server sends. Fail CLOSED — an auth decision must not become a success by default —
+    // but say so loudly rather than swallowing it (standing rule 2, no silent drops).
+    if (body?.success) {
+        console.warn(`DROP: ${'email-auth'} — success with neither jwtToken nor ` +
+            `verification_required; treating as failure. Keys: ${Object.keys(body).join(',')}`);
+    }
+
+    return {
+        kind: 'failed',
+        error: body?.error || `http_${status}`,
+        message: body?.message || body?.details || 'Sign-in failed.',
+    };
+}
+
 async function emailAuth(operation, { email, password, name }) {
     const { status, body } = await edgeFnCallRaw(operation, {
         email,
@@ -194,7 +232,9 @@ async function emailAuth(operation, { email, password, name }) {
         device_type: DEVICE_TYPE,
         device_id: getStableDeviceId(),
     });
-    if (body?.success && body.jwtToken) {
+    const outcome = classifyEmailAuthResponse(status, body);
+
+    if (outcome.kind === 'signed_in') {
         const stored = writeStoredJwt({
             jwt: body.jwtToken,
             userId: body.user?.id,
@@ -205,10 +245,18 @@ async function emailAuth(operation, { email, password, name }) {
         console.log(`[auth] ${operation}: signed in as ${stored.userEmail} (${CLOUD_ENV})`);
         return { ok: true, user: body.user };
     }
-    const error = body?.error || `http_${status}`;
-    const message = body?.message || body?.details || 'Sign-in failed.';
-    console.warn(`[auth] ${operation} rejected: ${error}`);
-    return { ok: false, error, message };
+
+    if (outcome.kind === 'verification_required') {
+        // `ok` stays FALSE deliberately: it means "signed in", and nobody is. The console
+        // reloads the page on ok:true, and with no JWT that reload lands straight back on
+        // the login screen with nothing said — a silent loop, worse than the bug being
+        // fixed. The third case travels as its own flag, which an older console ignores.
+        console.log(`[auth] ${operation}: verification required — confirmation email sent`);
+        return { ok: false, verificationRequired: true, error: 'verification_required', message: outcome.message };
+    }
+
+    console.warn(`[auth] ${operation} rejected: ${outcome.error}`);
+    return { ok: false, error: outcome.error, message: outcome.message };
 }
 
 const emailSignIn = (creds) => emailAuth('email_signin', creds);
@@ -257,6 +305,7 @@ async function getValidJwt() {
 }
 
 module.exports = {
+    classifyEmailAuthResponse,
     readStoredJwt,
     writeStoredJwt,
     clearStoredJwt,

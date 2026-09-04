@@ -60,6 +60,8 @@ import { listAvailablePersonalities } from './personality.ts';
 import type { PersonalityChoice } from './personality.ts';
 import { currentTimeTool } from '../_shared/tools/current_time.ts';
 import { dashieHelpTool } from '../_shared/tools/dashie-help.ts';
+import { calculatorTool } from '../_shared/tools/calculator.ts';
+import { convertUnitsTool } from '../_shared/tools/convert_units.ts';
 import type { ToolContext } from '../_shared/tools/types.ts';
 import { retainFields } from './retention.ts';
 import { templateWeather, weatherResultToReading } from './weather-synth.ts';
@@ -1276,6 +1278,43 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       raw: { content: spoken, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
     };
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, '(current_time template)', templatePass,
+      retainFields(retain.serverPersist, retain.userText, spoken, null), turnMeta);
+    return finalize({
+      t0, parsed, raw: pass1.raw!, stages: [p1Stage],
+      usage: pass1.raw?.usage, latency: pass1.latency_ms, retain, sessionId, route,
+    });
+  }
+
+  // ── info_request → calculator / convert_units (SERVER-fulfilled, tier-1 template) ────
+  // Pure, deterministic, no network, no card, NO PASS-2 — same shape as get_current_time above.
+  //
+  // WHY TEMPLATED rather than synthesized. Two reasons, and the second is the important one:
+  //   1. Cost/latency. Measured 2026-09-03: the cascade model already answers ~96 % of arithmetic
+  //      and unit questions correctly in ONE pass. Routing them through a tool AND a pass-2 would
+  //      make the common case slower and dearer to fix the rare one — a bad trade, and exactly the
+  //      catalogue tax the user-toggleable-tools work exists to remove.
+  //   2. A pass-2 hands the model a chance to RESTATE the number, and restating is where it went
+  //      wrong in the first place (it answered 7 × 23 as 162). Templating the tool's own value is
+  //      the only version of this tool that cannot be overridden by the failure it exists to fix.
+  //
+  // ⚠️ This arm and `KNOWN_TOOLS` in parse.ts are two halves of one contract — see the comment
+  // there. `orchestrator.test.ts` asserts the round trip so neither half can rot silently.
+  if (p1Parsed.type === 'info_request' && (p1Parsed.tool === 'calculator' || p1Parsed.tool === 'convert_units')) {
+    const q = (typeof p1Parsed.query === 'object' && p1Parsed.query ? p1Parsed.query : {}) as Record<string, unknown>;
+    const tool = p1Parsed.tool === 'calculator' ? calculatorTool : convertUnitsTool;
+    const tRes = await tool.execute(q, { timezone: req.timezone } as ToolContext);
+    const r = (tRes?.result ?? {}) as { found?: boolean; spoken?: string };
+    // found:false is a MISS, never a guess — the tools return no prose, so the decline is authored
+    // here (rule 3 of the tool contract: a tool must not hand back a speakable sentence).
+    const spoken = r.found && r.spoken
+      ? (p1Parsed.tool === 'calculator' ? `That's ${r.spoken}.` : `That's ${r.spoken}.`)
+      : "I couldn't work that one out.";
+    const parsed = { type: 'response', voice: spoken, text: null, action: null } as ReturnType<typeof parseContent>;
+    const templatePass: GatewayResult = {
+      ok: true, latency_ms: 0,
+      raw: { content: spoken, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
+    };
+    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, `(${p1Parsed.tool} template)`, templatePass,
       retainFields(retain.serverPersist, retain.userText, spoken, null), turnMeta);
     return finalize({
       t0, parsed, raw: pass1.raw!, stages: [p1Stage],

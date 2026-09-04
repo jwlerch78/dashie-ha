@@ -497,6 +497,45 @@ Deno.test('get_current_time → server-templated LOCAL time, no pass-2, never UT
   assertEquals(m.gatewayCalls(), 1); // tier-1 template: pass-1 only, no pass-2
 });
 
+Deno.test('calculator → server-templated EXACT arithmetic, no pass-2 (declared AND dispatched)', async () => {
+  // 🔴 THE POINT OF THIS TEST. A tool can pass every gate we have — lint:shared-tools (the two
+  // registries reconcile), lint:known-tools (the three KNOWN_TOOLS copies agree), lint:prompts
+  // (bundles in sync) — and still be UNREACHABLE, because none of them asks whether a declared
+  // tool can be executed. `calculator` and `convert_units` were in exactly that state on
+  // 2026-09-03 before this arm existed: the prompt said "MANDATORY, call the calculator" and the
+  // brain dropped the call. This test is the only thing that fails if that regresses.
+  //
+  // The value is the one the deployed model actually got wrong: 7 × 23 answered as 162.
+  const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"7*23"}}']);
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && /\b161\b/.test(turn.voice), `expected the exact answer 161 — got: ${turn.voice}`);
+  assert(!/162/.test(turn.voice!), `must not carry the model's wrong value — got: ${turn.voice}`);
+  assertEquals(m.gatewayCalls(), 1); // tier-1 template: pass-1 only, no pass-2
+});
+
+Deno.test('convert_units → server-templated conversion, no pass-2', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"convert_units","query":{"value":350,"from":"fahrenheit","to":"celsius"}}']);
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && /176\.7/.test(turn.voice), `expected ~176.7 C — got: ${turn.voice}`);
+  assert(/celsius/i.test(turn.voice!), `expected the unit spoken — got: ${turn.voice}`);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('NEGATIVE CONTROL — an unanswerable compute ask DECLINES, never invents a number', async () => {
+  // The failure this whole tool pair exists to reduce is a confidently-spoken wrong number, so the
+  // miss path must produce NO number at all. Cross-dimension conversion is the canonical miss.
+  const m = makeIO(['{"type":"info_request","tool":"convert_units","query":{"value":1,"from":"cup","to":"miles"}}']);
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && !/\d/.test(turn.voice), `a miss must speak no digits — got: ${turn.voice}`);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('NEGATIVE CONTROL — calculator refuses code, and still declines cleanly', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"Deno.exit(1)"}}']);
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && !/\d/.test(turn.voice), `a rejected expression must speak no digits — got: ${turn.voice}`);
+});
+
 Deno.test('action → returned, NOT dispatched by the brain', async () => {
   const m = makeIO(['{"type":"action","voice":"ok","action":{"category":"homeassistant","command":"execute_commands","parameters":{}}}']);
   const turn = await runOrchestration(deps(), m.io);
