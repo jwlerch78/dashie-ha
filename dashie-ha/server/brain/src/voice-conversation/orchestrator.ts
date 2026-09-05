@@ -740,6 +740,29 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // debit branch in handlers/logging.ts cannot fire. Do not "complete" that row without John's
   // pricing word — it is parked with the deferred credit-margin decision.
   if (geminiGrounds && pass1.ok && pass1.raw) {
+    // 🔴 DROP:GROUNDING_QUERIES_ABSENT — standing rule 2 (no silent drops), added 2026-09-04.
+    //
+    // `result_count` is NOT NULL DEFAULT 0, so the `?? 0` below converts "the gateway did not
+    // report this" into "the model ran zero searches" — two completely different facts, written
+    // to the same value. That is not hypothetical: on 2026-09-04 this column read 0 on ALL 2248
+    // grounded turns since 08-28, and the cause was that the counter (gemini-provider.ts:181,
+    // landed 08-27 in 5cb56a1c5) sits in **ai-gateway**, which was last DEPLOYED 2026-08-01 —
+    // while the logging half, in THIS function, was deployed repeatedly. One commit, two
+    // functions, one deployed. So the field was never emitted, `?? 0` silently absorbed it, and
+    // the one column that distinguishes "grounding offered" from "grounding USED" read as a
+    // confident, uniform zero.
+    //
+    // The zeros are indistinguishable from a real finding ("grounding never searches"), which is
+    // exactly the shape of the four bench headlines withdrawn that week. Anyone querying this
+    // table would have drawn the wrong conclusion with no way to tell. So say so, loudly, at the
+    // only site that knows both facts: grounding WAS attached, and the count did NOT arrive.
+    if (pass1.raw.grounding_queries === undefined) {
+      console.warn(
+        'DROP:GROUNDING_QUERIES_ABSENT — grounding was attached but ai-gateway reported no ' +
+        'grounding_queries; logging result_count=0, which is NOT a measurement. Deploy ai-gateway ' +
+        '(gemini-provider.ts sets it only when request.options.grounding is true).',
+      );
+    }
     await io.logWebSearch(token, {
       session_id: sessionId,
       provider: 'gemini_grounding',

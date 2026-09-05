@@ -1683,3 +1683,57 @@ Deno.test('ROW 130 NEGATIVE CONTROL — a well-formed response carrying a stray 
   assertEquals(turn.voice, 'I could not find that game.');
   assertEquals(turn.stages.map((s) => s.name), ['pass1']);
 });
+
+// ── DROP:GROUNDING_QUERIES_ABSENT (2026-09-04, standing rule 2) ──────────────────────────────
+// `web_search_logs.result_count` is NOT NULL DEFAULT 0, so `grounding_queries ?? 0` writes the
+// SAME value for "the model ran zero searches" and "the gateway never told us". On 2026-09-04
+// that column read 0 on all 2248 grounded turns since 08-28 — not because grounding never
+// searched, but because the counter lives in ai-gateway (last deployed 2026-08-01) while the
+// counter's own commit also touched THIS function, which was deployed repeatedly. One commit,
+// two functions, one deployed; the `?? 0` absorbed the difference in silence.
+//
+// A uniform zero is indistinguishable from a real finding, which is how it would have been read.
+// This pins the marker that makes it self-announcing.
+Deno.test('DROP marker fires when grounding is attached but the query count is ABSENT', async () => {
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...a: unknown[]) => { warnings.push(a.join(' ')); };
+  try {
+    // A plain grounded turn: makeIO's gateway raw carries no grounding_queries, which is exactly
+    // what the stale ai-gateway returns.
+    const m = makeIO(['{"type":"response","voice":"It is sunny in Paris today."}']);
+    await runOrchestration(deps({ text: "what's happening in the news today" }), m.io);
+  } finally {
+    console.warn = realWarn;
+  }
+  assert(
+    warnings.some((w) => w.includes('DROP:GROUNDING_QUERIES_ABSENT')),
+    `expected the loud drop marker — got: ${JSON.stringify(warnings)}`,
+  );
+});
+
+Deno.test('NEGATIVE CONTROL — the DROP marker stays SILENT when the count IS reported', async () => {
+  // The half that makes the marker worth having: it must not cry wolf once ai-gateway is
+  // deployed. A marker that fires on every turn gets filtered out and stops being a signal.
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...a: unknown[]) => { warnings.push(a.join(' ')); };
+  try {
+    const m = makeIO(['{"type":"response","voice":"It is sunny in Paris today."}']);
+    const io = m.io as unknown as Record<string, unknown>;
+    const inner = io.callGateway as (a: unknown) => Promise<Record<string, unknown>>;
+    io.callGateway = async (a: unknown) => {
+      const r = await inner(a);
+      const raw = r.raw as Record<string, unknown> | undefined;
+      if (raw) raw.grounding_queries = 0;   // REPORTED zero — a real measurement, not an absence
+      return r;
+    };
+    await runOrchestration(deps({ text: "what's happening in the news today" }), m.io);
+  } finally {
+    console.warn = realWarn;
+  }
+  assertEquals(
+    warnings.filter((w) => w.includes('DROP:GROUNDING_QUERIES_ABSENT')), [],
+    'a REPORTED zero is a measurement and must not be flagged as a drop',
+  );
+});

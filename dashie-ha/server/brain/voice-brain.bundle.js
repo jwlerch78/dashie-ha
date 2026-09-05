@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 049f1d808a6c6c17683ae00101a47e6618d97e3e
+   Source git SHA: 95a7f67e63c8d87c8971699e86fc0d20ceee90ea
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5101,6 +5101,11 @@ ${p1PromptBase}` : p1PromptBase;
   }) : null;
   const pass1 = forcedContent ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } } : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: "decide", temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
   if (geminiGrounds && pass1.ok && pass1.raw) {
+    if (pass1.raw.grounding_queries === void 0) {
+      console.warn(
+        "DROP:GROUNDING_QUERIES_ABSENT \u2014 grounding was attached but ai-gateway reported no grounding_queries; logging result_count=0, which is NOT a measurement. Deploy ai-gateway (gemini-provider.ts sets it only when request.options.grounding is true)."
+      );
+    }
     await io.logWebSearch(token, {
       session_id: sessionId,
       provider: "gemini_grounding",
@@ -6140,4 +6145,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "049f1d808a6c6c17683ae00101a47e6618d97e3e";
+module.exports.BRAIN_SOURCE_SHA = "95a7f67e63c8d87c8971699e86fc0d20ceee90ea";
