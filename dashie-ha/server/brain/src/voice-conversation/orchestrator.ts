@@ -183,6 +183,50 @@ export function looksLikeSportsAsk(text: string | undefined): boolean {
   return !!t && (SPORTS_ASK_RE.test(t) || SPORTS_RESULT_RE.test(t) || SPORTS_SCHEDULE_RE.test(t));
 }
 
+/** ROW 164 — the WEATHER twin of the sports guard. John's word 2026-09-05: "Yea for force the
+ *  weather tool."
+ *
+ *  MEASURED DEFECT: 56% of weather turns (27/48 over six bench runs) never reached `weather_data`
+ *  — grounding answered them `direct`. Three costs, all observed:
+ *    · the user's LOCATION is lost — "is it going to snow this week" grounded and answered
+ *      "Snow is expected in Alaska this weekend" for an account whose zip is 33756, Clearwater FL,
+ *      and the quality judge scored it `qualityOk: true`;
+ *    · billable searches for free data — "do I need a jacket today" burned THREE grounded searches
+ *      for a question `weather_data` answers free from the account zip;
+ *    · no card, and not the phrasing the device speaks.
+ *
+ *  This is the sports defect verbatim (see the block above): there, grounding cost the score card
+ *  and the user's TIMEZONE, "prompting alone didn't hold, so take the shortcut AWAY." Losing the
+ *  timezone then is losing the LOCATION now, so this takes the same shortcut away rather than
+ *  asking the model again. Prompting has now lost twice: once for sports, and once measured here —
+ *  a blanket "always use a tool" arm HALVED tool use (row 119 ①, 2026-09-05).
+ *
+ *  ⚠️ AMBIGUITY IS THE WHOLE DESIGN PROBLEM. `temperature`, `degrees`, `hot`, `cold` are NOT
+ *  weather words on their own — our own fixtures carry "set the temperature to 68" (HA),
+ *  "what's the living room temperature" (HA), "is it cold in here" (HA), "what's 350 degrees
+ *  fahrenheit in celsius" (compute) and "what internal temperature is medium rare steak" (search).
+ *  Forcing weather on any of those would be a worse bug than the one being fixed. So they are
+ *  matched ONLY with an explicit outdoor qualifier; the unambiguous nouns stand alone. */
+const WEATHER_ASK_RE = new RegExp(
+  '\\b(' +
+  // unambiguous weather nouns — none of these appear in any non-weather fixture we hold
+  'weather|forecast|uv index|humidity|windy|rain|raining|rainy|snow|snowing|sleet|hail|' +
+  'drizzle|thunderstorm|precipitation|sunny|overcast|muggy|heat index|wind chill' +
+  ')\\b',
+  'i',
+);
+/** AMBIGUOUS temperature words — only weather when explicitly OUTDOORS. Either order, because
+ *  "the temperature outside" and "outside, how cold is it" are both natural. */
+const WEATHER_OUTDOOR_RE =
+  /\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b[^?]{0,32}\b(?:outside|outdoors|out there)\b|\b(?:outside|outdoors|out there)\b[^?]{0,32}\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b/i;
+/** "do I need a jacket/umbrella" — a weather question with no weather noun in it at all. */
+const WEATHER_CLOTHING_RE =
+  /\bdo i need\b[^?]{0,32}\b(?:jacket|coat|umbrella|sunscreen|sweater|boots|gloves|scarf|raincoat)\b/i;
+export function looksLikeWeatherAsk(text: string | undefined): boolean {
+  const t = text || '';
+  return !!t && (WEATHER_ASK_RE.test(t) || WEATHER_OUTDOOR_RE.test(t) || WEATHER_CLOTHING_RE.test(t));
+}
+
 /** Brain-owned progress copy per tool — the client displays these verbatim. No trailing
  *  "…": the client's thinking indicator is already an animated ellipsis, so the copy would
  *  double it up ("Checking the score……"). */
@@ -590,7 +634,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // sports info_request. Deterministic, per the "move determinism out of the model"
   // rule. Anything the tool can't serve still falls through to its normal handling.
   const groundingAvailable = provider === 'gemini' && webSearchAllowed;
-  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
+  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text) && !looksLikeWeatherAsk(req.text);
   // false → prompt omits web_search from the tools list (T3 opt-out, or Gemini-grounds-natively)
   //
   // 🔴 …AND on a sports-shaped Gemini turn, where the guard above would otherwise DEFEAT ITSELF.
@@ -613,7 +657,13 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // synthesis pass (see the TOOL FIRST, WEB SECOND block below). Pass-1 loses the shortcut;
   // pass-2 keeps the safety net.
   const sportsToolOnlyTurn = groundingAvailable && looksLikeSportsAsk(req.text);
-  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn;
+  // ROW 164: the SAME inverse trap, for weather. Removing grounding alone would silently hand the
+  // model `web_search` instead — same bypass, different door — and it would LOOK fixed: the turn
+  // stops answering `direct`, so a route-only check goes green while the user still gets a web
+  // answer with no location and no card. That is exactly what happened to the sports guard before
+  // `sportsToolOnlyTurn` existed (measured: score card on 1 turn in 3). Suppress both doors.
+  const weatherToolOnlyTurn = groundingAvailable && looksLikeWeatherAsk(req.text);
+  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn && !weatherToolOnlyTurn;
   // Capability snapshot: what THIS turn was allowed to do, logged into
   // tool_trace.caps on every terminal row — so an image request with retrieve_pictures
   // OFF reads as "disabled" in the fleet metadata, not a routing defect. `tools` comes

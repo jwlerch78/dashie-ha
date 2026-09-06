@@ -1737,3 +1737,61 @@ Deno.test('NEGATIVE CONTROL — the DROP marker stays SILENT when the count IS r
     'a REPORTED zero is a measurement and must not be flagged as a drop',
   );
 });
+
+// ── ROW 164: force weather_data on weather intents (John, 2026-09-05: "Yea for force the weather
+// tool.") ────────────────────────────────────────────────────────────────────────────────────
+// MEASURED: 56% of weather turns (27/48 over six bench runs) never reached weather_data —
+// grounding answered them `direct`, losing the user's LOCATION ("Snow is expected in Alaska" for a
+// Clearwater account, scored qualityOk TRUE), burning billable searches for data the tool serves
+// free, and producing neither a card nor the device's own phrasing.
+import { looksLikeWeatherAsk } from './orchestrator.ts';
+
+Deno.test('ROW 164 ① weather intents are recognised (the cases that were being lost)', () => {
+  for (const u of [
+    "what's the weather today", "what's the weather tomorrow", 'will it rain tomorrow',
+    "what's the temperature outside right now", 'is it going to snow this week',
+    'how windy is it outside', "what's the forecast for this weekend", "what's the uv index today",
+    'do I need a jacket today',
+  ]) assert(looksLikeWeatherAsk(u), `should be a weather ask: "${u}"`);
+});
+
+Deno.test('ROW 164 ② NEGATIVE CONTROL — the ambiguous words do NOT drag other lanes in', () => {
+  // 🔴 THE REAL DESIGN RISK, and every string here is lifted from our own suites. `temperature`,
+  // `degrees` and `cold` are not weather words on their own; forcing weather on an HA thermostat
+  // turn would be a worse bug than the one being fixed. A greedy regex is the failure mode.
+  for (const u of [
+    'set the temperature to 68',                       // ha-household
+    'set the main thermostat to 71',                   // ha-large
+    "what's the living room temperature",              // ha-large
+    'set the thermostat to 72',                        // ha
+    "what's the thermostat set to",                    // ha
+    'is it cold in here',                              // overlap → home_assistant (INDOOR)
+    "what's 350 degrees fahrenheit in celsius",        // compute
+    'what internal temperature is medium rare steak',  // search-deep
+    'how many minutes per pound to roast a turkey at 325 degrees', // search-deep
+    'what was the score of the eagles game last sunday',           // sports ("sunday" ≠ "sunny")
+    'who was Ada Lovelace', 'turn on the kitchen light', 'play some music',
+  ]) assert(!looksLikeWeatherAsk(u), `must NOT be forced to weather: "${u}"`);
+});
+
+Deno.test('ROW 164 ③ 🔴 THE SELF-DEFEAT CONTROL — grounding AND web_search both off', async () => {
+  // The test the sports guard NEEDED AND DID NOT HAVE until the bug shipped. Removing grounding
+  // alone silently hands the model `web_search` instead — same bypass, different door — and it
+  // LOOKS fixed, because the turn stops answering `direct` and a route-only assertion goes green
+  // while the user still gets a web answer with no location and no card. Measured on sports before
+  // sportsToolOnlyTurn existed: the score card appeared on 1 turn in 3.
+  const m = makeIO(['{"type":"info_request","tool":"weather_data","query":{}}']);
+  await runOrchestration(deps({ text: "what's the weather today" }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean; tools: string[] } }).caps!;
+  assertEquals(caps.grounding, false, 'grounding must be OFF on a weather turn (door 1)');
+  assert(!caps.tools.includes('web_search'), `web_search must NOT be offered either (door 2) — got: ${caps.tools.join(', ')}`);
+});
+
+Deno.test('ROW 164 ④ SCOPING GUARD — a non-weather turn keeps grounding', async () => {
+  // Without this, a greedy guard could silently disable grounding for the whole general lane —
+  // a far larger regression than the defect being fixed, and invisible in a weather-only test.
+  const m = makeIO(['{"type":"response","voice":"Ada Lovelace was a mathematician."}']);
+  await runOrchestration(deps({ text: 'who was Ada Lovelace' }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean } }).caps!;
+  assertEquals(caps.grounding, true, 'a non-weather turn must still ground');
+});

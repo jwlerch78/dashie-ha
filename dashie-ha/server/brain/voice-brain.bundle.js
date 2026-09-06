@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 95a7f67e63c8d87c8971699e86fc0d20ceee90ea
+   Source git SHA: d32b4c3bff6b4d11885dd02ca6ddc5c7a3fa0243
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -31,6 +31,7 @@ var orchestrator_exports = {};
 __export(orchestrator_exports, {
   amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
+  looksLikeWeatherAsk: () => looksLikeWeatherAsk,
   promisedPictureQuery: () => promisedPictureQuery,
   resolvePersonality: () => resolvePersonality,
   runOrchestration: () => runOrchestration,
@@ -4883,6 +4884,16 @@ function looksLikeSportsAsk(text) {
   const t = text || "";
   return !!t && (SPORTS_ASK_RE.test(t) || SPORTS_RESULT_RE.test(t) || SPORTS_SCHEDULE_RE.test(t));
 }
+var WEATHER_ASK_RE = new RegExp(
+  "\\b(weather|forecast|uv index|humidity|windy|rain|raining|rainy|snow|snowing|sleet|hail|drizzle|thunderstorm|precipitation|sunny|overcast|muggy|heat index|wind chill)\\b",
+  "i"
+);
+var WEATHER_OUTDOOR_RE = /\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b[^?]{0,32}\b(?:outside|outdoors|out there)\b|\b(?:outside|outdoors|out there)\b[^?]{0,32}\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b/i;
+var WEATHER_CLOTHING_RE = /\bdo i need\b[^?]{0,32}\b(?:jacket|coat|umbrella|sunscreen|sweater|boots|gloves|scarf|raincoat)\b/i;
+function looksLikeWeatherAsk(text) {
+  const t = text || "";
+  return !!t && (WEATHER_ASK_RE.test(t) || WEATHER_OUTDOOR_RE.test(t) || WEATHER_CLOTHING_RE.test(t));
+}
 var TOOL_STATUS = {
   web_search: "Searching the web",
   sports: "Checking the score",
@@ -5032,9 +5043,10 @@ async function orchestrate(deps, io, voiceCtx) {
   };
   const deviceFulfilledRetain = () => retainFields(retain.serverPersist, retain.userText, "", null);
   const groundingAvailable = provider === "gemini" && webSearchAllowed;
-  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
+  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text) && !looksLikeWeatherAsk(req.text);
   const sportsToolOnlyTurn = groundingAvailable && looksLikeSportsAsk(req.text);
-  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn;
+  const weatherToolOnlyTurn = groundingAvailable && looksLikeWeatherAsk(req.text);
+  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn && !weatherToolOnlyTurn;
   const isAnnouncement = req.announcement === true;
   const clientTools = req.client_fulfilled_tools;
   const multiEnabled = Array.isArray(clientTools) && clientTools.includes("multi");
@@ -6137,6 +6149,7 @@ function toolMeta(parsed, route, caps) {
 0 && (module.exports = {
   amendUnkeptPicturePromise,
   looksLikeSportsAsk,
+  looksLikeWeatherAsk,
   promisedPictureQuery,
   resolvePersonality,
   runOrchestration,
@@ -6145,4 +6158,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "95a7f67e63c8d87c8971699e86fc0d20ceee90ea";
+module.exports.BRAIN_SOURCE_SHA = "d32b4c3bff6b4d11885dd02ca6ddc5c7a3fa0243";
