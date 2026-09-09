@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 82d7c8ef96f0f0e630da9d32567b37eea071693c
+   Source git SHA: 00cde296c9676dc2571e6d464c11a6f8336f5497
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -4612,13 +4612,15 @@ var wikipediaTool = {
 };
 
 // supabase/functions/_shared/tools/places.ts
-var EXPLICIT_PLACE = /\b(near|nearby|around|close to|in|at|on)\b/i;
+var EXPLICIT_PLACE = /\b(near|around|close to|in|at|on)\b/i;
+var SELF_REFERENTIAL = /\b(?:near|around|close to|next to)\s+(?:me|us|here|my\s+(?:home|house|place)|our\s+(?:home|house))\b|\bnearby\b|\baround here\b|\bin\s+my\s+area\b/gi;
 function biasQuery(query, location) {
   const where = typeof location === "string" ? location.trim() : "";
   if (!where) return query;
-  if (EXPLICIT_PLACE.test(query)) return query;
+  const stripped = query.replace(SELF_REFERENTIAL, " ").replace(/\s+/g, " ").trim();
+  if (EXPLICIT_PLACE.test(stripped)) return query;
   if (query.toLowerCase().includes(where.toLowerCase())) return query;
-  return `${query} near ${where}`;
+  return `${stripped || query} near ${where}`;
 }
 
 // supabase/functions/voice-conversation/retention.ts
@@ -6204,4 +6206,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "82d7c8ef96f0f0e630da9d32567b37eea071693c";
+module.exports.BRAIN_SOURCE_SHA = "00cde296c9676dc2571e6d464c11a6f8336f5497";

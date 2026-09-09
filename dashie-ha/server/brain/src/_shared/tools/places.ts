@@ -51,7 +51,27 @@ export function spokenDuration(seconds: number): string {
 }
 
 /** Words that mean the model has ALREADY put a place in the query. */
-const EXPLICIT_PLACE = /\b(near|nearby|around|close to|in|at|on)\b/i;
+const EXPLICIT_PLACE = /\b(near|around|close to|in|at|on)\b/i;
+
+/**
+ * Self-referential "where I am" phrasings, which name NO place and must not suppress the bias.
+ *
+ * 🔴 THIS EXISTS BECAUSE THE FIRST VERSION SHIPPED WITHOUT IT AND DID NOTHING (staging v185,
+ * 2026-09-09, caught by running the feature instead of trusting its unit tests). `EXPLICIT_PLACE`
+ * included `nearby` and matched the bare word `near`, so the model's own phrasings —
+ * `"hardware store near me"`, `"coffee shop nearby"` — tripped the "the user named a place" guard
+ * and the household location was never appended. Those are precisely the queries that need it: a
+ * bare `"hardware store"` got biased correctly, while the far more common `"… near me"` did not.
+ * Measured on the deployed function: 3 of 3 place_search turns came back with the same
+ * out-of-state businesses as before the fix.
+ *
+ * 📌 The unit tests did not catch it because I chose the examples. Every "must not re-bias" case I
+ * wrote named a REAL place (`"coffee shop near Tampa"`, `"pizza in Orlando"`) — the guard's happy
+ * path. I never wrote `"near me"`, so the suite proved the guard fires and never asked whether it
+ * fires too often. A test written by the same person who wrote the guard inherits its blind spot;
+ * only the live run had a different opinion.
+ */
+const SELF_REFERENTIAL = /\b(?:near|around|close to|next to)\s+(?:me|us|here|my\s+(?:home|house|place)|our\s+(?:home|house))\b|\bnearby\b|\baround here\b|\bin\s+my\s+area\b/gi;
 
 /**
  * Bias a place query toward where the household actually is (need ⑧).
@@ -77,9 +97,15 @@ const EXPLICIT_PLACE = /\b(near|nearby|around|close to|in|at|on)\b/i;
 export function biasQuery(query: string, location: ToolContext['location']): string {
   const where = typeof location === 'string' ? location.trim() : '';
   if (!where) return query;
-  if (EXPLICIT_PLACE.test(query)) return query;
+  // Strip "near me"/"nearby"/"around here" FIRST — they are the user saying "where I am", which is
+  // a request for the bias, not a place that competes with it. Only then ask whether what remains
+  // names somewhere. Order matters: testing the raw query is what made the first version inert.
+  const stripped = query.replace(SELF_REFERENTIAL, ' ').replace(/\s+/g, ' ').trim();
+  if (EXPLICIT_PLACE.test(stripped)) return query;
   if (query.toLowerCase().includes(where.toLowerCase())) return query;
-  return `${query} near ${where}`;
+  // Bias the STRIPPED text, so "coffee shop nearby" becomes "coffee shop near 33756" rather than
+  // "coffee shop nearby near 33756". Falls back to the original if stripping emptied it.
+  return `${stripped || query} near ${where}`;
 }
 
 export const placeSearchTool: ToolDef = {
