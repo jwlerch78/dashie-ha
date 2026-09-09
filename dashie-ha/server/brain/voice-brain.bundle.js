@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 8a4e79e0c727131b4b4a5c1e9aa022e024c3fcc7
+   Source git SHA: 82d7c8ef96f0f0e630da9d32567b37eea071693c
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -6204,4 +6204,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "8a4e79e0c727131b4b4a5c1e9aa022e024c3fcc7";
+module.exports.BRAIN_SOURCE_SHA = "82d7c8ef96f0f0e630da9d32567b37eea071693c";
