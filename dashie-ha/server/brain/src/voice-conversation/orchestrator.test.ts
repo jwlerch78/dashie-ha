@@ -1795,3 +1795,69 @@ Deno.test('ROW 164 ④ SCOPING GUARD — a non-weather turn keeps grounding', as
   const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean } }).caps!;
   assertEquals(caps.grounding, true, 'a non-weather turn must still ground');
 });
+
+// ── options.grounding — the bench-only ON/OFF lever ─────────────────────────────────────────
+// Added 2026-09-09 (VH s3, John's ask: "Are we able to re-run our testing without gemini
+// grounding?"). The lever exists so a bench can hold the model, prompt, persona and account
+// fixed and move ONE variable. Its three legs, and the gate it must NOT be able to move:
+//
+// RULE-9 INJECTIONS — these are what the runs PRINTED, not what I expected them to print.
+// Baseline for the counts below: 145 passed / 0 failed.
+//   # | mutation                                            | result       | which
+//   --|------------------------------------------------------|--------------|--------------------
+//   1 | `req.options?.grounding ?? groundingDefault`          | 143 / 2 fail | the OFF and ON legs;
+//     |   -> `groundingDefault` (override ignored)            |              | entitlement stays
+//     |                                                       |              | green, correctly —
+//     |                                                       |              | it does not exercise
+//     |                                                       |              | the override
+//   2 | `groundingAvailable && (...)` -> `(...)`              | 137 / 8 fail | the ENTITLEMENT leg
+//     |   (the gate moved inside the override)                |              | + 7 EXISTING tests.
+//     |                                                       |              | Expected once run:
+//     |                                                       |              | non-Gemini models
+//     |                                                       |              | would ground too.
+//   3 | `provider === 'gemini' && geminiGrounds`              | 144 / 1 fail | the OFF leg alone —
+//     |   -> `provider === 'gemini'` (the original bug)       |              | i.e. this test is
+//     |                                                       |              | the only thing that
+//     |                                                       |              | catches it
+// Restored from a scratch copy, `cmp`-proven, never `git checkout`.
+//
+// 🔴 INJECTION 3 IS THE ONE THAT MATTERS, and it is why this lever is TWO changes and not one.
+// VH-status recorded Need ① as "a 1-line change at orchestrator.ts:637". That was wrong. Pass 2's
+// web_search branch grounded on `provider === 'gemini'` alone, so with the pass-1 override off a
+// Gemini turn STILL grounded the moment it asked for web_search — both arms of the intended A/B
+// would have grounded and the flag would only have moved which pass did it. The OFF test failed
+// until that branch was gated too. A one-line lever would have produced a clean, wrong result.
+
+Deno.test('options.grounding=false → Gemini does NOT ground, and Tavily web_search is offered instead', async () => {
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"weather"}',
+    '{"type":"response","voice":"It is 78"}',
+  ]);
+  const turn = await runOrchestration(deps({ options: { grounding: false } }), m.io);
+  assertEquals(m.grounded(), false);                 // native grounding OFF
+  assertEquals(m.searchCalls(), 1);                  // …and the explicit tool ran instead
+  assertEquals(turn.stages.map((s) => s.name), ['pass1', 'fetch_search', 'pass2']);
+  assertEquals(m.searchLogs[0].provider, 'tavily');  // the arm this makes comparable to Brave
+});
+
+Deno.test('options.grounding=true → grounds even on a sports-shaped ask (the guard is overridable)', async () => {
+  // The sports guard is a DEFAULT, not an entitlement. A bench measuring retrieval must be able
+  // to lift it; production never sets the flag, so the guard still holds for every real caller.
+  const m = makeIO(['{"type":"response","voice":"They won"}']);
+  await runOrchestration(deps({ text: 'who won the game last night', options: { grounding: true } }), m.io);
+  assertEquals(m.grounded(), true);
+});
+
+Deno.test('options.grounding=true CANNOT buy grounding an account is not entitled to', async () => {
+  // The load-bearing leg. `groundingAvailable` (provider + webSearchAllowed) sits OUTSIDE the
+  // override, so a bench flag can relax the sports/weather guards and nothing else.
+  const m = makeIO(['{"type":"response","voice":"ok"}'], { account: { webSearchEnabled: false } });
+  await runOrchestration(deps({ options: { grounding: true } }), m.io);
+  assertEquals(m.grounded(), false);
+});
+
+Deno.test('options.grounding absent → shipped behaviour, unchanged', async () => {
+  const m = makeIO(['{"type":"response","voice":"It is 78"}']);
+  await runOrchestration(deps(), m.io);
+  assertEquals(m.grounded(), true);                  // the default for a non-sports Gemini turn
+});

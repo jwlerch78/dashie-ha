@@ -31,7 +31,7 @@ import {
   RESPONSE_FORMAT_MULTI,
 } from './templates.ts';
 import { buildPersonalityPrompt } from './personality-prompt-builder.js';
-import type { PromptContext } from './types.ts';
+import type { PromptContext, WebGuidanceMode } from './types.ts';
 
 // inquiryType (matches webapp loadTemplate(`inquiries/${type}.md`)) → bundled constant.
 const INQUIRY_BY_TYPE: Record<string, string> = {
@@ -197,6 +197,67 @@ function dropUnofferedExamples(text: string, context: ToolsContext): string {
  *  deliberately turned off. Emitting NATIVE on a bare `!webSearchOffered` did exactly that; this
  *  is the fix. When neither block applies, BOTH are dropped and the closed-list decline above
  *  correctly governs the turn. */
+const WEB_GUIDANCE_MODES: readonly WebGuidanceMode[] = ['auto', 'tool', 'native', 'none'];
+
+/**
+ * Validate `options.web_guidance` into a closed set. Anything else — a typo, a wrong type, a value
+ * from a future client — resolves to 'auto' (the shipped selection) and logs a DROP marker, because
+ * a knob that silently accepts an unknown value is a knob that silently changes what is measured.
+ *
+ * WHY THIS KNOB EXISTS (Thread VH s4, 2026-09-09). With Gemini grounding ON the model reached ZERO
+ * non-web tools across 54 bench cases; with grounding OFF it reached 15 (p ≈ 2e-6). But THREE things
+ * move together and nothing separated them:
+ *   (a) the `grounding` flag on the gateway call (`geminiGrounds`),
+ *   (b) `promptWebSearch = !geminiGrounds`, so `web_search` leaves the offered tool list,
+ *   (c) `selectWebGuidance` swaps the WEB:TOOL block for WEB:NATIVE, which says in so many words
+ *       "you do not need a tool and there is none to call. Answer the question directly."
+ * (b) is NOT a candidate cause for the non-web tools: `toolsListFor` drops ONLY `web_search` on
+ * `webSearchEnabled === false`, so `calculator`/`wikipedia`/`place_search` are offered identically
+ * in both arms. That leaves (a) vs (c) — and this knob holds (a) and (b) fixed while varying (c),
+ * which is the decisive cell. Prior art says do not expect a clean answer: `orchestrator.ts`'s
+ * sports guard records that in July someone tried to prompt around this and "prompting alone
+ * didn't hold".
+ */
+export function resolveWebGuidance(candidate: unknown): WebGuidanceMode {
+  if (candidate === undefined || candidate === null) return 'auto';
+  if (typeof candidate === 'string' && (WEB_GUIDANCE_MODES as readonly string[]).includes(candidate)) {
+    return candidate as WebGuidanceMode;
+  }
+  console.warn(`DROP: options.web_guidance value not recognised (${JSON.stringify(candidate)}) — falling back to 'auto'`);
+  return 'auto';
+}
+
+/**
+ * The mode that will actually be APPLIED, given what was asked for and whether grounding is on.
+ *
+ * 🔴 'native' is honoured ONLY when grounding is genuinely on. That is the one value that could make
+ * the prompt claim a capability the turn does not have ("this device reaches the web for you
+ * automatically") — the exact three-state bug `selectWebGuidance`'s doc comment records fixing.
+ * Refused ⇒ 'auto', loudly. 'tool' and 'none' can only ever REMOVE a claim, so they need no such
+ * guard; 'tool' deliberately produces a taught-but-unoffered contradiction, which is the point of
+ * the experiment, and the orchestrator logs it.
+ *
+ * 📌 SEPARATE FROM `selectWebGuidance` ON PURPOSE, and this is the load-bearing reason: the
+ * orchestrator has to report the applied mode on the wire (`metadata.web_guidance`) so a bench can
+ * tell "the deployment honoured the knob" from "the deployment has never heard of the field and
+ * ignored it" — a distinction that is otherwise INVISIBLE and would turn a stale deployment into a
+ * clean-looking null result. Reporting the REQUESTED mode there would be a small lie in the one
+ * case that matters ('native' refused). Reporting the applied one means the orchestrator must
+ * compute it — and the way to have two callers agree is ONE function, not a second copy of the
+ * rule (the seam test; a bare hand-mirror is what this estate's whole contracts doctrine exists to
+ * prevent). So the rule lives here, `selectWebGuidance` calls it at the point of USE, and the
+ * orchestrator calls it to log and echo.
+ */
+export function effectiveWebGuidance(
+  requested: WebGuidanceMode | undefined,
+  groundingOn: boolean,
+): WebGuidanceMode {
+  if (!requested || requested === 'auto') return 'auto';
+  if (requested !== 'native' || groundingOn) return requested;
+  console.warn("DROP: options.web_guidance='native' refused — grounding is OFF on this turn, so the NATIVE block would claim web access this turn does not have");
+  return 'auto';
+}
+
 export function selectWebGuidance(
   text: string,
   webSearchOffered: boolean,
@@ -204,8 +265,16 @@ export function selectWebGuidance(
    *  unknown → treated as OFF, i.e. no capability is claimed. Fail-closed on purpose: a missing
    *  wire must never invent an ability. */
   groundingEnabled?: boolean,
+  /** Bench/debug ONLY (`options.web_guidance`). See WebGuidanceMode + resolveWebGuidance below.
+   *  Absent/'auto' → the shipped selection above, byte-identical. */
+  override?: WebGuidanceMode,
 ): string {
-  const keep = webSearchOffered ? 'TOOL' : groundingEnabled ? 'NATIVE' : null;
+  const auto = webSearchOffered ? 'TOOL' : groundingEnabled ? 'NATIVE' : null;
+  // Applied at the point of USE, not carried in from the caller — the orchestrator computes the
+  // same value from the same function to log/echo it, but this call is what actually governs the
+  // prompt. (A permission read into a variable far from its use is the H 09-05 failure class.)
+  const mode = effectiveWebGuidance(override, groundingEnabled === true);
+  const keep = mode === 'auto' ? auto : mode === 'none' ? null : mode === 'tool' ? 'TOOL' : 'NATIVE';
   let out = text;
   for (const block of ['TOOL', 'NATIVE']) {
     if (block === keep) continue;
@@ -525,10 +594,10 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
     // paragraph. Implement what was measured.
     let p2 = fillTemplate(RESPONSE_FORMAT_FULL, baseValues);
     if (inquiryType === 'home-assistant') p2 = trimPass2Tools(p2);
-    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled);
+    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled, context.webGuidance);
   } else {
     // Initial request — slim format focused on tool selection.
-    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
+    prompt += '\n\n' + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled, context.webGuidance);
     // Multi-tool emission (capability-gated): teach pass-1 to emit {type:"multi", steps:[…]}
     // ONLY when the caller declared the `multi` capability. Withheld otherwise so old clients —
     // which never declare it — keep today's exact single-tool behavior (a multi envelope would
@@ -536,6 +605,34 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
     if (context.multiEnabled) {
       prompt = injectMultiBlock(prompt);
     }
+  }
+
+  // ── WHERE THE HOUSEHOLD IS (need ⑧, John: "supply the zip code / address grounding") ─────────
+  //
+  // Until now the cascade brain had NO idea where the user was. `account.zipCode` is read on every
+  // turn (`ai-settings.ts:83`, no extra query) and was consumed in exactly ONE place —
+  // `orchestrator.ts`'s headless weather fallback. It never reached the prompt or any tool. The
+  // symptom John reported: a Florida household asking for the nearest something is told about
+  // San Francisco.
+  //
+  // 📌 APPENDED SERVER-SIDE, NOT PUT IN THE SHARED `.md` TEMPLATE — deliberately, and for a reason
+  // beyond taste. `scripts/bundle-ai-prompts.js` regenerates the console bundles into TWO OTHER
+  // REPOS (`dashie-ha-console` and `dashie-console`, CONSOLE_ROOT_SPECS), and both currently hold
+  // a regenerated bundle committed-but-UNPUSHED on top of other threads' commits (VH need ⑨,
+  // unresolved). Editing the template would add another layer to that. This is also simply the
+  // established pattern here — the image-capability note directly below says the same thing:
+  // "Appended server-side (not in the shared .md template) so the console/webapp prompt surfaces
+  // stay byte-identical."
+  //
+  // ⚠️ The Android LIVE path already says almost exactly this (`RealtimeConfig.kt`'s `whereLine`:
+  // "The user is located in $it (timezone ${tz.id})."). That is NOT a shared contract and is not
+  // being made into one: the two paths carry entirely separate system prompts already, so this is
+  // one more sentence inside two bodies that never agreed, not a new hand-mirror. Worded to match
+  // anyway, so a household hears the same framing on either pipeline.
+  if (context.userLocation) {
+    prompt += `\n\nThe user is located in ${context.userLocation}. When they ask for something ` +
+      'nearby — the closest store, a restaurant, directions — assume they mean near there unless ' +
+      'they name somewhere else.';
   }
 
   // Image capability gate: the response-format spec unconditionally documents the

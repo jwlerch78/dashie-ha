@@ -21,7 +21,7 @@
 // (gateway/gather/personality/logging/config + readRetainTranscripts) are imported TYPE-ONLY
 // here and provided at call time via OrchestratorIO. Deno wires them in default-io.ts; the Node
 // add-on wires its own. Keep it this way — see README "Dual-runtime sync contract" + §13.16.
-import { buildPrompt, offeredToolNames } from './prompt.ts';
+import { buildPrompt, effectiveWebGuidance, offeredToolNames, resolveWebGuidance } from './prompt.ts';
 import { resolveBenchPromptPrefix, logBenchOverride, readEnvSafe } from './bench-override.ts';
 
 // Spoken decline per KNOWN tool a caller wasn't offered (see the clarify-path refinement in
@@ -64,6 +64,9 @@ import { calculatorTool } from '../_shared/tools/calculator.ts';
 import { convertUnitsTool } from '../_shared/tools/convert_units.ts';
 import { wikipediaTool } from '../_shared/tools/wikipedia.ts';
 import type { ToolContext } from '../_shared/tools/types.ts';
+// The household-location bias for place queries. Imported rather than reimplemented — see the
+// call site; one rule, two callers (the tool's own ctx.location path and this one).
+import { biasQuery } from '../_shared/tools/places.ts';
 import { retainFields } from './retention.ts';
 import { templateWeather, weatherResultToReading } from './weather-synth.ts';
 // Contract types come from io-contracts.ts / the published tool + weather modules —
@@ -74,7 +77,7 @@ import { templateWeather, weatherResultToReading } from './weather-synth.ts';
 import type { GatewayResult, WebSearchResult, LogData, WebSearchLogData, SportsLogData } from './io-contracts.ts';
 import type { SportsResult } from '../_shared/tools/sports.ts';
 import type { WeatherLocation, WeatherResult } from './weather.ts';
-import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest } from './types.ts';
+import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest, WebGuidanceMode } from './types.ts';
 import { dispatchMultiTurn, recoverHaAction } from './multi-dispatch.ts';
 
 export interface OrchestrationDeps {
@@ -466,6 +469,20 @@ export async function runOrchestration(deps: OrchestrationDeps, io: Orchestrator
   // pattern as voice_id above — one site, not threaded through each finalize call.
   // Nullable/ignorable per the §13.16 compat contract (old callers just don't read it).
   if (voiceCtx.credit) turn.metadata = { ...(turn.metadata ?? {}), credit: voiceCtx.credit };
+  // BENCH ECHO (VH s4). Stamped ONLY when a non-'auto' web-capability block was actually applied,
+  // so every production turn's metadata is byte-identical to before. Same one-site post-stamp
+  // pattern as voice_id/credit above.
+  //
+  // 🔴 WHY IT IS ON THE WIRE AND NOT ONLY IN `caps`. `caps` rides tool_trace into ai_interactions,
+  // which the caller never sees — so from the bench's side "this deployment honoured the knob" and
+  // "this deployment has never heard of the field and silently ignored it" are INDISTINGUISHABLE,
+  // and the second one makes both arms of the A/B identical: a clean, wrong null result, in the
+  // exact shape of the four findings VOICE_BENCH_CHARACTERISATION.md records being withdrawn. This
+  // field is what lets the run REFUSE rather than report that. It carries the APPLIED mode, never
+  // the requested one — a refused 'native' echoes nothing.
+  if (voiceCtx.webGuidance && voiceCtx.webGuidance !== 'auto') {
+    turn.metadata = { ...(turn.metadata ?? {}), web_guidance: voiceCtx.webGuidance };
+  }
   return turn;
 }
 
@@ -474,6 +491,10 @@ interface OrchestrateCtx {
   voiceId: string | null;
   voiceProvider: string | null;
   credit?: { balance: number | null; spendable: boolean; low: boolean };
+  /** The web-capability block mode ACTUALLY APPLIED this turn (bench echo). Left undefined on any
+   *  turn that short-circuited before a prompt was built (credits, noise, rate limit) — there is
+   *  no applied mode on a turn that never assembled a prompt, and saying 'auto' would be a claim. */
+  webGuidance?: WebGuidanceMode;
 }
 
 async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx: OrchestrateCtx): Promise<Turn> {
@@ -634,7 +655,23 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // sports info_request. Deterministic, per the "move determinism out of the model"
   // rule. Anything the tool can't serve still falls through to its normal handling.
   const groundingAvailable = provider === 'gemini' && webSearchAllowed;
-  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text) && !looksLikeWeatherAsk(req.text);
+  // `options.grounding` — a per-request override, absent by default, in the same shape as
+  // `route_temperature` / `thinking_budget`. It exists so a bench can run the SAME model and
+  // prompt with native grounding ON and OFF and attribute the difference to retrieval rather
+  // than to a changed model or a changed account. Shipped behaviour is unchanged when it is
+  // omitted, which is every production caller.
+  //
+  // 🔴 `groundingAvailable &&` stays OUTSIDE the override ON PURPOSE. `grounding: true` must not
+  // be able to override the provider gate or the credit/webSearchAllowed gate — it can only
+  // relax the sports/weather guards, never buy grounding the account is not entitled to.
+  //
+  // 📌 Turning it OFF also switches the retrieval path rather than removing it:
+  // `promptWebSearch` below is the inverse of `geminiGrounds`, so grounding-off automatically
+  // OFFERS the `web_search` tool (Tavily, via web-search-gateway). That is the shipped rule, not
+  // a bench special case — which is what makes an A/B here a Tavily-vs-native-grounding
+  // comparison rather than a with-web-vs-without one.
+  const groundingDefault = !looksLikeSportsAsk(req.text) && !looksLikeWeatherAsk(req.text);
+  const geminiGrounds = groundingAvailable && (req.options?.grounding ?? groundingDefault);
   // false → prompt omits web_search from the tools list (T3 opt-out, or Gemini-grounds-natively)
   //
   // 🔴 …AND on a sports-shaped Gemini turn, where the guard above would otherwise DEFEAT ITSELF.
@@ -664,6 +701,23 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // `sportsToolOnlyTurn` existed (measured: score card on 1 turn in 3). Suppress both doors.
   const weatherToolOnlyTurn = groundingAvailable && looksLikeWeatherAsk(req.text);
   const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn && !weatherToolOnlyTurn;
+  // `options.web_guidance` — the DECOUPLING knob (VH s4). `geminiGrounds` above decides three
+  // things at once: the gateway grounding flag, whether `web_search` is offered, and which
+  // web-capability block the prompt carries. This forces the third independently of the first two,
+  // so "grounding ON with the NATIVE text removed" becomes runnable. Absent → 'auto' → the shipped
+  // selection, byte-identical for every production caller. Validation + the refusal rules are in
+  // resolveWebGuidance/selectWebGuidance (prompt.ts), not here, so there is ONE place that decides.
+  // Two steps, and they answer different questions: `resolveWebGuidance` says what was ASKED FOR
+  // (closed-set validated), `effectiveWebGuidance` says what will actually be APPLIED once the
+  // grounding-off refusal of 'native' is taken into account. Only the second may be reported.
+  const webGuidance = effectiveWebGuidance(resolveWebGuidance(req.options?.web_guidance), geminiGrounds);
+  voiceCtx.webGuidance = webGuidance;   // → metadata.web_guidance, stamped once in runOrchestration
+  if (webGuidance !== 'auto') {
+    // Loud on purpose, the same reasoning as logBenchOverride: a turn measured under a forced
+    // prompt block is not a normal turn, and an override silently ACCEPTED is worse than one
+    // silently refused — every number taken afterwards is quietly about a different prompt.
+    console.warn(`BENCH-WEB-GUIDANCE ACTIVE: web-capability block forced to '${webGuidance}' (grounding=${geminiGrounds}, web_search offered=${promptWebSearch})`);
+  }
   // Capability snapshot: what THIS turn was allowed to do, logged into
   // tool_trace.caps on every terminal row — so an image request with retrieve_pictures
   // OFF reads as "disabled" in the fleet metadata, not a routing defect. `tools` comes
@@ -692,6 +746,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
     // caller; omitted entirely on real turns so the common row shape is unchanged.
     ...(benchOverride.active ? { bench_prompt_override: true } : {}),
+    ...(webGuidance !== 'auto' ? { web_guidance: webGuidance } : {}),
   };
   const context = {
     customPersonalityConfig: personality,
@@ -702,6 +757,11 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // → buildPrompt's three-state web guidance: NATIVE only when grounding is genuinely on;
     // absent/false must never imply reachability (fail closed — a missing wire is not an ability).
     groundingEnabled: geminiGrounds,
+    webGuidance,   // → selectWebGuidance; 'auto' on every production turn
+    // → the location line buildPrompt appends (need ⑧). Trimmed to null so a blank/whitespace zip
+    // reads as "unknown" rather than emitting "The user is located in ." — an empty setting must
+    // produce NO claim, not a malformed one.
+    userLocation: (account.zipCode ?? '').trim() || null,
     announcement: isAnnouncement,
     clientTools,   // → toolsListFor drops device-only tools this caller can't fulfill
     multiEnabled,  // → buildPrompt appends the capability-gated multi-emission block when true
@@ -990,7 +1050,18 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // pre-fetched results telling the model to use its search tool. Non-Gemini / local
     // models fall through to the runWebSearch (Tavily/Brave) two-pass below.
     // Build plan 20260628 §D ("fix web search to Google for Gemini").
-    if (provider === 'gemini') {
+    // 🔴 GATED ON `geminiGrounds`, NOT on `provider === 'gemini'` (corrected 2026-09-09, VH s3).
+    // It read `provider === 'gemini'` — so a Gemini turn re-grounded HERE even when grounding had
+    // been turned off upstream, and Tavily was never reached. Two consequences, both measured by
+    // `orchestrator.test.ts`'s `options.grounding=false` case, which failed until this changed:
+    //   • `options.grounding:false` did not actually produce a grounding-free turn — the moment
+    //     pass 1 emitted a `web_search` info_request, pass 2 grounded anyway.
+    //   • so the intended A/B (native grounding vs Tavily) could not be run at all: BOTH arms
+    //     grounded, and the flag only moved which pass did it.
+    // For every production caller this is unchanged, because `geminiGrounds` is true by default
+    // on a Gemini turn — the only turns that now fall through to Tavily are ones where grounding
+    // was already off, and those had no business grounding here.
+    if (provider === 'gemini' && geminiGrounds) {
       const GROUNDED_SENTINEL = {
         note: 'No pre-fetched results were provided. Use your Google Search tool to find current information for the query, then answer.',
         query: queryStr,
@@ -1478,7 +1549,16 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     let payload: unknown = null;
     try {
       if (isPlaces && io.runPlaceSearch) {
-        payload = await io.runPlaceSearch(String(q.query ?? req.text), token);
+        // NEED ⑧ — bias the search toward where the household actually is. `runPlaceSearch`'s IO
+        // signature is (query, auth) and is implemented by several runtimes, so widening it is the
+        // expensive way to do this; biasing the QUERY here needs no interface change and reaches
+        // every runtime at once.
+        //
+        // 📌 It is the SAME `biasQuery` the tool itself calls, imported, not re-written — the seam
+        // test. And the two cannot double-apply: `default-io` sets no `ctx.location`, so the tool's
+        // own bias is inert on this path; even if a runtime set both, the guard sees the "near …"
+        // this call already added and declines to add a second.
+        payload = await io.runPlaceSearch(biasQuery(String(q.query ?? req.text), account.zipCode ?? undefined), token);
       } else if (!isPlaces && io.runDirections) {
         payload = await io.runDirections({
           origin: String(q.origin ?? ''), destination: String(q.destination ?? ''),
