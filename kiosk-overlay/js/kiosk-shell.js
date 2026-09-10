@@ -15,9 +15,22 @@ import { OnboardingController } from './onboarding/onboarding-controller.js';
 import { renderSwipeTip, renderControlCenterTip } from './onboarding/onboarding-renderer.js';
 import { PowerManagementEngine } from './power-management-engine.js';
 import { applyThemeClass, syncHaIframeTheme } from './utils/theme-utils.js';
+import {
+  LATCH_ATTR, VERIFY_POLL_MS, createLatchVerifier, dropMessageFor,
+} from './utils/ha-viewport-latch.js';
 import * as haOfflineOverlay from './ha-offline-overlay.js';
 import { getVideoFeedConfig, VIDEO_FEED_STORAGE_KEY } from '../../js/utils/video-feed-config.js';
 import { initKioskSessionBridge, armKioskSyncTripwire } from './kiosk-settings-sync.js';
+// Side-effect import: registers window.dashieSports (contract row 107), which the NATIVE Sports
+// settings page calls through the WebView.
+//
+// ⚠️ It is needed HERE, not only in the webapp, and that is not obvious. Kiosk normally has no
+// account, so the alpha-gated Sports card cannot appear — but Kiosk-Real-Login gives a kiosk device
+// a real JWT, and John's test accounts are precisely the alpha ones. In that combination the card
+// IS reachable, and without this import the games-calendar picker would be a silent no-op: the
+// optional chain swallows the call and the screen looks like it saved. `lint:bridge-globals` caught
+// exactly this (webapp only — MISSING from kiosk bundle) rather than it reaching a device.
+import '../../js/data/sports/sports-bridge.js';
 
 let onboarding = null;
 
@@ -316,6 +329,279 @@ function injectScriptsViaContentDocument(iframe) {
   }
 }
 
+/**
+ * 🔴 NEED 70 — make the HA frame's LAYOUT VIEWPORT follow the iframe's width, so Dashboard Zoom
+ * does something on engines where it never has.
+ *
+ * ## The bug this exists for
+ *
+ * On some Chromium builds (Amazon WebView 126 measured; 151/152 not) the HA child frame pins its
+ * layout viewport to the DEVICE width and ignores the iframe element's CSS width — element 1818 or
+ * element 455, child reports 909 either way. So widening the iframe and scaling it back down
+ * cancels exactly, at every setting, and the zoom slider is a structural no-op.
+ *
+ * ## The lever, and how it was found
+ *
+ * Not by guessing. X s4 diffed the child's state either side of an HA more-info dialog — the one
+ * thing observed to move it — and the ONLY primary delta was `body` overflow `visible → hidden`
+ * (HA's Web Awesome scroll lock; everything else in the diff was a consequence). Driven directly:
+ * `overflow: hidden` on BOTH axes latches the child to the element width. `overflow-x` alone does
+ * not, and releasing it drops back within ~7 s — so it must PERSIST.
+ *
+ * ⚠️ Naive `overflow: hidden` costs the user the ability to scroll — measured 395 px of real
+ * dashboard unreachable. **This variant restores it**: the lock goes on the documentElement and the
+ * body becomes the scroll container. Graded on `.41`: latch holds at 1818, `scrollTop` reaches
+ * exactly `scrollHeight − clientHeight`, a REAL swipe scrolls, and an HA dialog still opens and
+ * closes.
+ *
+ * ## Why it is gated on a READ-BACK rather than applied unconditionally
+ *
+ * The CSS half (`transform: scale()` in kiosk-shell.css) is only correct when the child actually
+ * widened. If the latch fails on some engine, `transform` alone leaves the child's narrow document
+ * painted into a wide box — content in the top-left quadrant with dead space, which is strictly
+ * WORSE than the no-op it replaced. So this reads `innerWidth` back out of the child and only then
+ * sets the attribute the CSS keys on. **Verified state, not intent** — a device where this does not
+ * work is left exactly as it is today.
+ *
+ * @returns {boolean} whether the child's viewport actually widened.
+ */
+/**
+ * The live half of need 70's verify: drive `createLatchVerifier` off a real timer against the real
+ * child document, and revert BOTH halves the moment it says to.
+ *
+ * ⚠️ **The retire token is not defensive tidiness — it is Y's row-218 lesson borrowed directly.**
+ * This latch runs on every HA load AND from Kotlin on every zoom apply, so two watchers can easily
+ * overlap; Y measured exactly that hazard in the theme sync (two loops asserting opposite values at
+ * each other during boot) and paid for it with a session. A newer watcher retires an older one.
+ */
+/**
+ * The lever currently in force, and the document it was written into — module-level because the
+ * thing that needs to undo it is often NOT the verifier that applied it (a zoom-to-100 % call
+ * clears a lever a previous zoom left behind).
+ *
+ * 🔴 This replaces per-call restore points, which were wrong twice (row 223):
+ *  - they were captured from the arm-time document, which a reload detaches, so they described
+ *    a document nobody could write to any more;
+ *  - the zoom-to-100 % path captured them from the CURRENT document *without writing*, so
+ *    `prevHtmlOverflow` already read `hidden` and putting it "back" was a NO-OP. The one path
+ *    whose job is to clear a stale lever could not clear it.
+ */
+let _activeLever = null;   // { doc, htmlOverflow, bodyOverflowY, bodyHeight }
+
+/** Put the frame back exactly as HA left it, if we have a lever in force. Safe to call always. */
+function revertActiveLever() {
+  const held = _activeLever;
+  if (!held) return;                 // nothing applied — nothing to undo, and nothing to fake
+  _activeLever = null;
+  try {
+    held.doc.documentElement.style.overflow = held.htmlOverflow;
+    held.doc.body.style.overflowY = held.bodyOverflowY;
+    held.doc.body.style.height = held.bodyHeight;
+  } catch (e) {
+    // The document may be gone (a reload took it). That is a successful outcome for a revert:
+    // the styles went with it. Deliberately quiet — the caller still drops the attribute.
+  }
+}
+
+let _latchVerifyToken = 0;
+/**
+ * @param {HTMLIFrameElement} el
+ * @param {() => Document|null} getDoc  re-resolved EVERY tick, never captured — see row 223
+ */
+function armLatchVerify(el, getDoc) {
+  const myToken = ++_latchVerifyToken;
+  const startedAt = Date.now();
+  const verifier = createLatchVerifier({
+    // 🔴 RE-RESOLVED PER TICK. Closing over one `contentDocument` was row 223: a zoom apply
+    // reloads the frame and arms this in the same breath, so the captured document detaches,
+    // `defaultView` goes null, every tick reads child=0, the no-document clause skips them all,
+    // and the window expired as `never-loaded` having never applied the lever — while the user
+    // looked at the unwidened layout for the whole window.
+    readWidths: () => {
+      const doc = getDoc();
+      const view = doc && doc.defaultView;
+      return {
+        child: view ? view.innerWidth : 0,
+        target: el.offsetWidth,
+      };
+    },
+    // 🔴 Applied on the FIRST NARROW TICK, never up front — see the module's header. X graded the
+    // previous revision 0/9 and the diagnostic column was `htmlOvf=(empty)` at every sample: the
+    // child was transiently correct, the old early-return called that a non-folding engine, and the
+    // lever never ran at all. A device that never narrows still never receives it.
+    onApplyLever: () => {
+      const doc = getDoc();
+      // A `narrow` verdict means we just read a live document, so this should always resolve.
+      // If it somehow does not, say so rather than throwing into `lever-threw`, which would
+      // blame the lever for a frame that vanished between two statements.
+      if (!doc || !doc.documentElement || !doc.body) {
+        console.warn('DROP: HA viewport latch — the frame went away between reading it and ' +
+          'applying the lever; nothing was written (need 70)');
+        return;
+      }
+
+      // Restore points captured from the document we are ABOUT TO WRITE TO, immediately before
+      // writing — not at arm time, when the document may be a different one (row 223). HA
+      // carries its own inline styles here (a Bubble Card custom property was observed on
+      // `body`), so blanket-clearing on revert would be destructive.
+      _activeLever = {
+        doc,
+        htmlOverflow: doc.documentElement.style.overflow,
+        bodyOverflowY: doc.body.style.overflowY,
+        bodyHeight: doc.body.style.height,
+      };
+
+      // 🔴 THESE THREE LINES ARE ONE UNIT — see the block comment in applyHaViewportLatch. The
+      // tidier `body.style.overflow = hidden` is the version John refused; `overflow-y: auto` is
+      // what keeps the scrolling and is the entire reason this fix is shippable.
+      doc.documentElement.style.overflow = 'hidden';
+      doc.body.style.overflowY = 'auto';
+      doc.body.style.height = '100%';
+      console.log('[KioskShell] HA viewport latch — child narrowed to ' +
+        (doc.defaultView ? doc.defaultView.innerWidth : 0) + ' in a ' + el.offsetWidth +
+        ' element; applying the overflow lever (need 70)');
+    },
+    onRevert: (reason, detail) => {
+      revertActiveLever();   // no-ops when this watcher never applied one
+      document.documentElement.removeAttribute(LATCH_ATTR);
+      console.warn(dropMessageFor(reason, detail));
+    },
+  });
+
+  const timer = setInterval(() => {
+    // Superseded by a later latch call: stop without touching anything. The newer watcher owns the
+    // decision now, and two watchers reverting each other is the bug this token exists to prevent.
+    if (myToken !== _latchVerifyToken) { clearInterval(timer); return; }
+    if (verifier.tick(Date.now() - startedAt) !== 'watching') clearInterval(timer);
+  }, VERIFY_POLL_MS);
+}
+
+function applyHaViewportLatch(iframe) {
+  const el = iframe || document.getElementById('ha-content');
+  if (!el) return false;
+  let doc = null;
+  try {
+    doc = el.contentDocument;
+  } catch (e) {
+    // Cross-origin: no access, and no latch. Not an error — the same-origin kiosk shell is the
+    // configuration this exists for; anything else keeps today's behaviour.
+    console.log('[KioskShell] viewport latch skipped — HA frame is cross-origin');
+    return false;
+  }
+  if (!doc || !doc.documentElement || !doc.body) return false;
+
+  const view = doc.defaultView;
+  if (!view) return false;
+
+  // 🔴 The document is resolved LIVE from here on, never captured. `doc` above is used only to
+  // decide whether a latch is possible at all (same-origin, has a body); every later read goes
+  // through this, because a zoom apply reloads the frame and the document we just tested is the
+  // one that is about to be replaced (row 223).
+  const getDoc = () => {
+    try {
+      const d = el.contentDocument;
+      return (d && d.documentElement && d.body) ? d : null;
+    } catch (e) {
+      return null;   // went cross-origin under us
+    }
+  };
+
+  try {
+    // At 100 % there is nothing to widen. Clear anything a previous zoom left behind, or the user
+    // keeps our scroll model for no benefit.
+    if (Math.abs(getZoomFactor() - 1) < 0.001) {
+      // Retire any watcher still running from a previous zoom, or it will keep polling a decision
+      // that has already been made here and can print a DROP about a latch nobody is holding.
+      _latchVerifyToken++;
+      // 🔴 Undoes the lever a PREVIOUS zoom left in force, using the restore points captured
+      // when it was applied. The old code captured restore points here, without writing — so
+      // `prevHtmlOverflow` already read `hidden` and putting it "back" wrote `hidden` again.
+      // The one path whose job is to clear a stale lever was a no-op whenever one existed.
+      revertActiveLever();
+      document.documentElement.removeAttribute(LATCH_ATTR);
+      return false;
+    }
+
+    // 🔴 OPTIMISTIC, THEN VERIFY — and the order is X s4's measurement, not a preference.
+    //
+    // The previous version verified BEFORE applying and was CIRCULAR: `transform` is gated on this
+    // attribute, the attribute was set only if the child was seen to widen, and the check ran while
+    // `zoom:` was still in force — which is the very thing that pins the child on a folding engine.
+    // It could only ever succeed on devices that did not need it. Measured: `re-latch returned
+    // false`, `"applied":"none"`, `"zoomCss":"0.5"`, child 909 at every poll.
+    //
+    // Two preconditions were proved necessary and neither was met:
+    //   (i)  the frame must be under `transform`, NOT `zoom`, AT LOAD TIME — a fold at load pins
+    //        the child and no post-load lever undoes it (transform live but frame not freshly
+    //        loaded: 909 at +4/+8/+12/+16 s).
+    //   (ii) the re-read must be DEFERRED — a frame loaded under transform goes 909 → 1818 at
+    //        about +4 s, not synchronously.
+    // So: assume it will work, let it load that way, check later, and undo BOTH halves if it did
+    // not. A device we cannot fix ends up exactly where it started — which is the property that
+    // makes this shippable at all.
+    document.documentElement.setAttribute(LATCH_ATTR, 'true');
+
+    // ⚠️ `offsetWidth`, NOT `getBoundingClientRect().width / zoom`. The old expression was wrong by
+    // 2× on the path that mattered: under `zoom` the rect already reports the zoomed 1818, so
+    // dividing by 0.5 gave 3636 and compared the child against a number twice the truth. offsetWidth
+    // is the LAYOUT width in both regimes — 1818 under transform (where rect says 909) and 1818
+    // under zoom — which is exactly the width the child should adopt.
+    // 🔴 ONE PATH, DELIBERATELY — there is no longer a branch here, and removing it IS the fix.
+    //
+    // This used to fork on `near(view.innerWidth, el.offsetWidth)`: "already correct ⇒ a non-folding
+    // engine ⇒ do not apply the lever". X graded that 0/9 and the diagnostic column was
+    // `htmlOvf=(empty)` at EVERY sample — the child is TRANSIENTLY correct off the element resize,
+    // so a folding engine took the non-folding branch and the lever never ran. The widening then
+    // re-narrowed on its own and the watcher dutifully reverted a fix that had never been applied.
+    //
+    // Reading the width HERE cannot answer the question, because at this instant the answer is not
+    // yet true either way. So do not ask it here. Arm the watcher, let the fold reveal itself, and
+    // apply the lever on the first narrow tick (see `createLatchVerifier`). A device that never
+    // narrows never receives the lever, which is the Fire tablet protection — by construction now,
+    // rather than by a timing guess.
+    //
+    // 🔴 THE LEVER ITSELF IS THREE LINES AND THEY ARE ONE UNIT (they live in `onApplyLever` in
+    // armLatchVerify). DO NOT "SIMPLIFY" THEM TO `body.style.overflow = hidden`.
+    //
+    // John, 2026-09-07, verbatim, a PERMANENT constraint rather than a preference for this round:
+    // **"we can't trade off scrolling for zoom."**
+    //
+    // Plain `overflow: hidden` latches the viewport too — and costs 395 px of unreachable dashboard
+    // (`scrollHeight` 1475 vs `clientHeight` 1080, measured). It is dead by his word. The lock goes
+    // on the documentElement; the body becomes the scroll container and keeps the scrolling.
+    // Graded: `scrollTop` reaches exactly `scrollHeight − clientHeight`, and a REAL swipe scrolls it.
+    //
+    // ⚠️ A future reader will see two overflow declarations and reach for the tidier one. The tidier
+    // one is the version that was refused. `overflow-y: auto` is not redundant — it is the entire
+    // reason this fix is shippable. ⚠️ It also depends on the HOST document giving html/body a
+    // height, which is HA's stylesheet and not ours, and can change with an HA release.
+    armLatchVerify(el, getDoc);
+
+    return true;   // optimistic; the watcher above is the real verdict
+  } catch (e) {
+    revertActiveLever();
+    document.documentElement.removeAttribute(LATCH_ATTR);
+    console.warn('DROP: HA viewport latch threw — ' + e.message + '; keeping CSS zoom (need 70)');
+    return false;
+  }
+}
+
+/** The current dashboard zoom as a factor, read from the shell's own CSS variable. */
+function getZoomFactor() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--dashboard-zoom');
+  const f = parseFloat(v);
+  return (f && f > 0) ? f : 1;
+}
+
+/**
+ * Re-apply the latch. Called by Kotlin when the zoom value CHANGES, because the child does not
+ * follow a live element resize on its own — the latch has to be re-established against the new
+ * width. Exposed on `window` so an older bundle under a newer APK is detectable by its absence.
+ */
+window.dashieApplyHaViewportLatch = function() {
+  return applyHaViewportLatch(null);
+};
+
 /** Load HA dashboard into the content iframe. Called by Kotlin after shell loads. */
 let _haLoadTimeout = null;
 // The URL Kotlin last asked us to load — the canonical target for a forced
@@ -412,6 +698,12 @@ window.dashieSetHaUrl = function(url) {
     // Same-origin: inject kiosk CSS and scripts via contentDocument
     if (hasSameOriginScripts) {
       injectScriptsViaContentDocument(iframe);
+      // 🔴 NEED 70: the latch is inline style on the CHILD document, so a new document means a new
+      // (empty) style — MEASURED lapsing after dashieReloadHaIframe(): child back to 909, both
+      // inline properties gone. A one-shot write would give "zoom works until you navigate", which
+      // is harder to diagnose than "zoom does not work". This runs on EVERY HA load for the same
+      // reason the kiosk CSS does, and from the same call site.
+      applyHaViewportLatch(iframe);
       // Show iframe after a brief delay for CSS to take effect
       setTimeout(() => { iframe.style.visibility = 'visible'; }, 150);
     }

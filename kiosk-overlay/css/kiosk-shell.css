@@ -25,8 +25,58 @@ html, body {
   height: calc(100vh / var(--dashboard-zoom, 1));
   border: none;
   background: transparent;
+  /* 🔴 NEED 70 — `transform`, NOT `zoom`. The two are not interchangeable here and the
+     difference is why the Dashboard Zoom slider has been a NO-OP on some devices since it
+     shipped.
+
+     CSS `zoom` on an iframe FOLDS INTO THE CHILD'S VIEWPORT on some Chromium builds. With the
+     `width: calc(… / var(--dashboard-zoom))` above, the child then sees
+         (909 / 0.75) × 0.75 = 909
+     — the widening and the zoom CANCEL EXACTLY, at every setting. Nothing changes, at any
+     value, and it looks like a clamp or a gate or a stale bundle rather than a cancellation.
+
+     Measured over CDP (X s4, 2026-09-07), 600 px iframe, `zoom: 0.5`:
+       Amazon WebView 126 (Fire TV)          child innerWidth 300   ← FOLDS
+       Android System WebView 151 (Samsung)  child innerWidth 600   ← does not
+       desktop Chrome 152                    child innerWidth 600   ← does not
+     `transform: scale(0.5)` on all three: child 600, box painted at 300. So `transform` is
+     correct on BOTH sides of the boundary — it repairs the folding engines and is a no-op on
+     the rest, which is what makes it safe to ship fleet-wide.
+
+     ⚠️ It is a VERSION boundary, not a vendor one. It sits somewhere in 126 < v ≤ 151, so any
+     device with an old enough WebView is affected regardless of who made it — do not describe
+     this as an Amazon bug. `ZOOMVP:` logs each device's raw WebView version so the population
+     is measured rather than inferred.
+
+     ⚠️ `transform` does NOT scale the layout box, only the paint — the element stays
+     `calc(100vw / zoom)` wide in layout while rendering at 100vw. That is safe here and only
+     here: `html, body` above are `overflow: hidden` at exactly 100vw/100vh, this element is
+     `position: fixed`, and it has no in-flow siblings — so an oversized layout box has nothing
+     to scroll, nothing to reflow and no scrollbar to produce. If any of those three change,
+     re-check this. */
   zoom: var(--dashboard-zoom, 1);
   transform-origin: top left;
+}
+
+/* 🔴 NEED 70, GATE (A) — `transform` is used ONLY where the HA child's layout viewport has been
+   MEASURED to follow the element width. `kiosk-shell.js`'s applyHaViewportLatch() applies the
+   scroll-lock latch, reads `innerWidth` back out of the child, and sets this attribute only if the
+   child actually widened.
+
+   ⚠️ This gate is the whole reason the change is safe to ship, and it exists because the
+   un-gated version was a REGRESSION: `transform` alone paints a narrow child document into a wide
+   box, so the dashboard lands in the top-left quadrant with dead space beside it — strictly worse
+   than the silent no-op it replaces. Graded on `.41`: (c) and (f) passed, (a), (b) and (d) failed.
+
+   So: latch verified ⇒ widen + transform (the fix). Latch absent or unverified ⇒ the rule above
+   stands untouched and the device behaves exactly as it does today. A device we cannot fix is
+   never made worse. */
+html[data-ha-viewport-latched="true"] #ha-content,
+html[data-ha-viewport-latched="true"] #custom-content {
+  /* zoom must be neutralised, not merely overridden: on a folding engine it would fold into the
+     child's viewport and cancel the widening all over again — which is the original bug. */
+  zoom: 1;
+  transform: scale(var(--dashboard-zoom, 1));
 }
 
 /* Sidebar hidden state — uses visibility:hidden to preserve backdrop-filter compositing */

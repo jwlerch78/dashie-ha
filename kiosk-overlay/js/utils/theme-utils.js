@@ -44,21 +44,13 @@ export function applyThemeClass(isDark) {
 
 /**
  * Sync the HA iframe theme to match the kiosk overlay theme.
- * Dispatches HA's internal `settheme` CustomEvent on the <home-assistant> element.
  *
- * @param {boolean} isDark - Whether to apply dark theme in HA
+ * 🔴 The implementation moved to `js/ui/themes/ha-theme-sync.js` (2026-09-07) and
+ * is RE-EXPORTED here so every existing caller keeps working. It used to be a
+ * hand-copy of the same payload and the same guard that lives in
+ * `js/ui/theme-applier.js` — two copies, both of which failed silently in three
+ * different ways. Standing rule 1: share the first copy, do not improve the
+ * second. Read that file for what the statuses mean and why a silent failure
+ * here is permanent rather than transient.
  */
-export function syncHaIframeTheme(isDark) {
-  const darkBool = isDark ? 'true' : 'false';
-  if (typeof window.evalInHaIframe === 'function') {
-    window.evalInHaIframe(`
-      try {
-        var ha = document.querySelector('home-assistant');
-        if (ha) {
-          ha.dispatchEvent(new CustomEvent('settheme', { detail: { dark: ${darkBool} } }));
-          console.log('[DashieLite] settheme synced: dark=${darkBool}');
-        }
-      } catch(e) {}
-    `);
-  }
-}
+export { syncHaIframeTheme, HA_THEME_SYNC } from '@dashie/ui/themes/ha-theme-sync.js';

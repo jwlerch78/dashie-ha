@@ -24,6 +24,11 @@ import { classifyTimerIntent, classifyMediaIntent, classifyVolumeIntent, parseDu
 // Shared with full mode (pure module, no app imports — bundles cleanly): answers
 // "what time / date / day is it" on-device instead of a billable brain round-trip.
 import { answerTimeQuery } from '../../js/core/voice/time-fast-path.js';
+// 🔴 SHARED, NOT MIRRORED (standing rule 1). The kiosk builds its own entity list below — it does
+// NOT go through entitiesForBrain — so the utterance-aware scoping would have been a second copy
+// waiting to drift. It is a pure module with no browser deps precisely so all three consumers
+// (webapp, kiosk bundle, voice bench) can import the one function.
+import { scopeHaEntities } from '../../js/ai/ha-entity-scope.js';
 import { DASHIE_CONFIG, isLLMEnabled } from './config.js';
 // Own module, NOT brand.js: importing it from there pulled the whole BRANDS table (Dashie's
 // legal URLs included) into this bundle. See ha-api-prefix.js for why it is not a brand fact.
@@ -169,7 +174,17 @@ window.dashieOverlay = {
 // {entity_id, domain, friendly_name, state, area, aliases}, so we need no ha-service/entityCache
 // (contract: .reference/build-plans/20260717_HA_ENTITY_EXPOSURE_CONTRACT.md). Default source =
 // exposed (the kiosk has no settingsStore). ANY failure → empty, so the brain proceeds gracefully.
-async function buildHaVoiceContext() {
+//
+// ⚠️ THIS IS A SECOND LIST-BUILDER, not a call into entitiesForBrain (found 2026-09-06 while
+// wiring Unit A, which had been ruled on the premise that every path converges on that one
+// function — true for the webapp and the native conversation path, FALSE here). The list itself
+// legitimately differs (the kiosk reads the integration same-origin and has no entityCache), so
+// the two builders stay separate; what must NOT diverge is the SCOPING RULE, which is therefore
+// imported from js/ai/ha-entity-scope.js rather than restated.
+//
+// @param {string} [utterance] — absent ⇒ the full curated list, exactly as before. The native
+//   bridge calls build() with no args today, so this is the branch the kiosk currently takes.
+async function buildHaVoiceContext(utterance) {
   try {
     // Same-origin as HA → read the frontend's stored bearer token (HA API auth, not cookies).
     let token = null;
@@ -201,6 +216,14 @@ async function buildHaVoiceContext() {
     if (!entities || entities.length === 0) entities = await fetchEntities(api + '/exposed_entities');
     entities = entities || [];
     console.log(`[KioskServices] 🏠 ha voice context (${source}): ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'}`);
+    // Utterance-aware second cut. Null ⇒ not confident ⇒ send the full list; never empty.
+    // Standing rule 2 — a narrowed payload is announced, because entities silently leaving the
+    // payload is the failure mode (the command targets nothing and the user hears an apology).
+    const scoped = scopeHaEntities(entities, utterance, { deviceArea: null });
+    if (scoped) {
+      console.log(`[KioskServices] SCOPE:HA_ENTITIES_NARROWED ${entities.length} → ${scoped.length}`);
+      return { ha_entities: scoped, device_area: null };
+    }
     return { ha_entities: entities, device_area: null };
   } catch (e) {
     console.warn('[KioskServices] dashieHaVoiceContext failed:', e?.message || e);
@@ -676,7 +699,10 @@ class KioskServicesController {
         // Native RealtimeHaEntitiesBridge relays here (it evaluates the MAIN frame, but
         // window.dashieHaVoiceContext lives in THIS overlay iframe). Run it and post the result
         // back on a distinct type so it doesn't collide with the voice-response listener.
-        buildHaVoiceContext().then(result => {
+        // args[0] is the utterance when the caller has it. The native bridge relays `args:[]`
+        // today, so this is undefined and the full list is returned — unchanged behaviour. The
+        // parameter is wired now so the Kotlin one-string change lights up both frames at once.
+        buildHaVoiceContext(args?.[0]).then(result => {
           event.source?.postMessage({
             source: 'dashie-overlay', type: 'ha-voice-context-response', requestId: callbackId, result
           }, '*');
