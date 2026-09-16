@@ -1,7 +1,9 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
-const { kioskShimPlugin, chickadeeShellShimPlugin } = require('./esbuild-kiosk-shims');
+const { kioskShimPlugin, chickadeeShellShimPlugin, ROOT_CONFIG } = require('./esbuild-kiosk-shims');
+// Refuses to write any bundle carrying a Google API key (Thread A s199; see key-guard.js).
+const { refuseKeyedOutputs } = require('./key-guard');
 
 // Copy shared CSS from main webapp into kiosk assets (single source of truth).
 //
@@ -123,7 +125,7 @@ const entries = [
     alias: {
       '@dashie/ui': path.resolve(__dirname, '../js/ui'),
       '@dashie/utils': path.resolve(__dirname, '../js/utils'),
-      '@dashie/config': path.resolve(__dirname, '../config.js'),
+      '@dashie/config': ROOT_CONFIG, // the same file the shim strips keys from - one constant
     },
     plugins: [kioskShimPlugin],
   },
@@ -152,7 +154,7 @@ const entries = [
     alias: {
       '@dashie/ui': path.resolve(__dirname, '../js/ui'),
       '@dashie/utils': path.resolve(__dirname, '../js/utils'),
-      '@dashie/config': path.resolve(__dirname, '../config.js'),
+      '@dashie/config': ROOT_CONFIG, // the same file the shim strips keys from - one constant
     },
     plugins: [kioskShimPlugin, chickadeeShellShimPlugin],
   },
@@ -165,9 +167,16 @@ Promise.all(
   )
 ).then(results => {
   let wrote = 0, kept = 0;
+  // No Google key in ANY bundle (dist/ and dist-chickadee/), checked before anything is written.
+  const refused = refuseKeyedOutputs(
+    results.flatMap(r => r.outputFiles).map(o => ({ rel: path.relative(__dirname, o.path), text: o.text }))
+  );
+  const refusedRels = new Set(refused.map(r => r.rel));
+  for (const r of refused) console.error(r.message);
   for (const result of results) {
     for (const out of result.outputFiles) {
       const rel = path.relative(__dirname, out.path);
+      if (refusedRels.has(rel)) continue;
       const next = out.text;
 
       let prev = null;
@@ -187,6 +196,13 @@ Promise.all(
       console.log(`\u2705 Built: ${rel} (${sizeKB} KB)`);
       wrote++;
     }
+  }
+  // A refused bundle means this build did NOT produce what the sources describe: fail, and do not
+  // record a build as having run (the staleness guard below must keep saying "rebuild").
+  if (refused.length) {
+    console.error(`DROP: kiosk build - ${refused.length} bundle(s) refused for carrying a Google API key; nothing recorded`);
+    process.exitCode = 1;
+    return;
   }
   // \u2500\u2500 Record that a build RAN, regardless of whether it wrote anything \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   //

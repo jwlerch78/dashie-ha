@@ -249,6 +249,9 @@ export class OnboardingController {
       onCustomUrlPath: () => this._showCustomUrlConfig(),
       onCreateAccount: () => this._handleDashieAccountPath('create'),
       onSignIn: () => this._handleDashieAccountPath('signin'),
+      // Same native handoff as Google; `mode=apple` reaches the login URL verbatim
+      // (MainBroadcastManager.kt appends mode=$mode), where the Apple button is focused.
+      onAppleSignIn: () => this._handleDashieAccountPath('apple'),
       onClose: () => this._handleClose()
     }), 'welcome');
     // Auto-focus the primary CTA. No HA detected → "Sign in with Google"

@@ -12,6 +12,22 @@ const SHIM_DIR = path.resolve(__dirname, 'js/shims');
 const MAIN_APP_JS = path.resolve(__dirname, '../js');
 
 /**
+ * The repo-root config.js — the ONE file the Google-key strip applies to, and the file build.js aliases as
+ * `@dashie/config`. Resolved from this file's own location, so it holds for any clone, worktree or copy name.
+ * (The old rule matched the path ending `/dashieapp_staging/config.js`; a worktree under another name
+ * silently bundled both keys — vc239, staging 8b6f919bf. Thread A s199, O -3d approved.)
+ */
+const ROOT_CONFIG = path.resolve(__dirname, '..', 'config.js');
+const GOOGLE_KEY_CONSTANTS = ['GOOGLE_MAPS_WEB_API_KEY', 'GOOGLE_MAPS_IOS_API_KEY'];
+
+/** Same file on disk? Compares real paths (macOS /var vs /private/var); falls back to plain resolve. */
+function samePath(a, b) {
+  const fs = require('fs');
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  return real(a) === real(b);
+}
+
+/**
  * Check if the import is coming from the main webapp's js/ tree.
  */
 function isFromMainApp(resolveDir) {
@@ -23,22 +39,26 @@ const kioskShimPlugin = {
   setup(build) {
     // Strip Google Maps API keys from config.js — kiosk mode never uses maps
     build.onLoad({ filter: /config\.js$/ }, async (args) => {
-      // Only transform the root config.js, not any other config.js files
-      if (!args.path.endsWith('/dashieapp_staging/config.js') &&
-          !args.path.endsWith('/dashieapp-website/config.js')) {
+      // Only the repo-root config.js. The filter also matches logger-config.js and friends; those pass
+      // silently. A file named exactly config.js that is NOT the root is left alone, loudly.
+      if (!samePath(args.path, ROOT_CONFIG)) {
+        if (path.basename(args.path) === 'config.js') {
+          console.warn(`DROP: kiosk-shims — config.js at ${args.path} is not the build root's (${ROOT_CONFIG}); Google keys NOT stripped from it`);
+        }
         return null;
       }
       const fs = require('fs');
       let contents = fs.readFileSync(args.path, 'utf8');
-      // Replace API key values with empty strings
-      contents = contents.replace(
-        /export const GOOGLE_MAPS_WEB_API_KEY = '[^']*'/,
-        "export const GOOGLE_MAPS_WEB_API_KEY = ''"
-      );
-      contents = contents.replace(
-        /export const GOOGLE_MAPS_IOS_API_KEY = '[^']*'/,
-        "export const GOOGLE_MAPS_IOS_API_KEY = ''"
-      );
+      // Replace each API key value with an empty string. A constant that is not there means the strip
+      // did not apply (a rename, a new key) — that must fail the build, never ship. Names the file and
+      // the constant, never the value.
+      for (const name of GOOGLE_KEY_CONSTANTS) {
+        const assignment = new RegExp(`export const ${name} = '[^']*'`);
+        if (!assignment.test(contents)) {
+          throw new Error(`DROP: kiosk-shims — root config.js (${args.path}) has no ${name}; the Google key strip did not apply`);
+        }
+        contents = contents.replace(assignment, `export const ${name} = ''`);
+      }
       return { contents, loader: 'js' };
     });
     // Stub theme-applier.js (kiosk is always dark, no theme toggling)
@@ -170,4 +190,4 @@ const chickadeeShellShimPlugin = {
   },
 };
 
-module.exports = { kioskShimPlugin, chickadeeShellShimPlugin };
+module.exports = { kioskShimPlugin, chickadeeShellShimPlugin, ROOT_CONFIG };

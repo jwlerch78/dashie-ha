@@ -12,6 +12,12 @@
  */
 
 import { getBrand } from '../brand.js';
+// Sign in with Apple beside Google (U s15; John: "Anywhere we have a Google sign-in we need an apple
+// sign in option too"). The environment gate is the REAL module on the REAL config — auth-config is
+// already in this bundle (supabase-realtime shim) and is flavor-driven on a kiosk — so no copy.
+import { resolveAppleSsoEnabled } from '../../../js/data/auth/apple-sso-availability.js';
+import { SUPABASE_CONFIG } from '../../../js/data/auth/auth-config.js';
+import { APPLE_LOGO_VIEWBOX, APPLE_LOGO_PATH_D } from '../../../js/data/auth/apple-logo.js';
 
 // Inline SVGs for icons (avoids asset path issues in kiosk bundle)
 const HA_LOGO_SVG = `<svg width="40" height="40" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -128,7 +134,7 @@ function sameHaTarget(a, b) {
  * @param {function} opts.onSignIn - callback when user picks "I already have a Dashie Account"
  * @returns {HTMLElement}
  */
-export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, onStandalonePath, onCustomUrlPath, onCreateAccount, onSignIn, onClose }) {
+export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, onStandalonePath, onCustomUrlPath, onCreateAccount, onSignIn, onAppleSignIn, onClose }) {
   const brand = getBrand();
   const card = document.createElement('div');
   card.className = 'onboarding-card onboarding-card--welcome';
@@ -211,6 +217,22 @@ export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, o
   })();
   const dashieAccountEnabled = brand.hasAccounts && bridgeAllowsAccounts;
 
+  // Apple beside Google, only where the environment offers Apple (production stays hidden until John
+  // flips the gate). The leg is not consulted: this card only runs on kiosk tablet/TV shells, whose
+  // Apple leg is always the QR pairing arm — and the button just opens the login page (mode=apple),
+  // which makes the authoritative per-shell decision itself.
+  const appleOffered = dashieAccountEnabled && resolveAppleSsoEnabled(SUPABASE_CONFIG);
+  const appleButton = appleOffered ? `
+        <button class="onboarding-path-btn primary" id="ob-apple-btn">
+          <span class="onboarding-path-icon">
+            <svg width="36" height="36" viewBox="${APPLE_LOGO_VIEWBOX}" fill="currentColor" aria-hidden="true"><path d="${APPLE_LOGO_PATH_D}"/></svg>
+          </span>
+          <span class="onboarding-path-text">
+            <span class="onboarding-path-label">Sign in with Apple</span>
+          </span>
+        </button>
+` : '';
+
   // Path buttons differ between the two layouts. While scanning we show the
   // HA-first layout (most users have HA); the buttons re-render when scan
   // completes.
@@ -228,7 +250,7 @@ export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, o
             <span class="onboarding-path-label">Sign in with Google</span>
           </span>
         </button>
-
+${appleButton}
         <div class="onboarding-divider"><span>or</span></div>
 
         <button class="onboarding-path-btn secondary" id="ob-create-btn">
@@ -342,6 +364,14 @@ export function renderWelcome({ scanResults, scanning, configuredHa, onHaPath, o
 
   const signinBtn = card.querySelector('#ob-signin-btn');
   if (signinBtn) signinBtn.addEventListener('click', () => onSignIn && onSignIn());
+
+  const appleBtn = card.querySelector('#ob-apple-btn');
+  if (appleBtn) {
+    appleBtn.addEventListener('click', () => {
+      if (onAppleSignIn) onAppleSignIn();
+      else console.warn('[Onboarding] DROP: Sign in with Apple tapped but no onAppleSignIn handler was wired');
+    });
+  }
 
   card.querySelector('#ob-close-btn').addEventListener('click', () => {
     if (onClose) onClose();
