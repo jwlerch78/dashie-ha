@@ -223,9 +223,13 @@ async def async_wire_wake_when_ready(
     """
     if not satellite_wake.is_custom_wake(wake_word_id):
         return
-    wake_entity, _ = satellite_wake.resolve_wake(hass, wake_word_id)
-    if wake_entity is not None:
-        return  # already wired at creation — nothing to wait for
+    # A wake entity already up is NOT proof the pipeline carries the wake word: wake is
+    # only set when the pipeline is CREATED, so an existing pipeline (any earlier run) with
+    # the wake service started before us was never wired and had nothing watching it either.
+    # Try once now, and only watch if there is still something to wait for.
+    wake_entity, wake_id = satellite_wake.resolve_wake(hass, wake_word_id)
+    if wake_entity is not None and await _apply_wake_to_pipeline(hass, wake_entity, wake_id):
+        return
 
     async def _on_wake_entity_added(_event: Event) -> None:
         entity, wake_id = satellite_wake.resolve_wake(hass, wake_word_id)
