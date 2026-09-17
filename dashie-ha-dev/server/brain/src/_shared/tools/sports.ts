@@ -57,6 +57,12 @@ export type State = 'pre' | 'in' | 'post';
 
 export interface SportsTeam {
   name: string; score: number | null; record?: string; logo?: string; color?: string;
+  /** The provider's own short form ("CIN"), used for the name plate. ADDITIVE and OPTIONAL: the
+   *  native renderer ignores an unknown field, so an old APK is unaffected, and a JS renderer with
+   *  no `abbr` falls back to computed initials. Added 2026-09-07 because the plate showed "CB" for
+   *  the Cincinnati Bengals — `Game.homeAbbr`/`awayAbbr` have carried "CIN" since the provider was
+   *  written (`espn-provider.ts:427`); only this hop was missing. Registry row 105. */
+  abbr?: string;
 }
 /** Sport-agnostic key stats for the card (renderer shows whatever's present):
  *  • lines — paired team numbers (baseball R/H/E, possession, …) rendered "label home–away".
@@ -79,6 +85,40 @@ export interface SportsCard {
   // renderer reads `highlights`. Remove once all clients render highlights.
   scorers?: Array<{ player: string; side?: 'home' | 'away'; clocks: string[] }>;
 }
+/**
+ * The CALENDAR surface's card: a `SportsCard` plus the things a calendar event knows and a
+ * scoreboard does not (build plan 20260906 §4 + John's sourcing doc's draft contract, 2026-09-06).
+ *
+ * ⚠️ IT EXTENDS RATHER THAN REPLACES, and that is the whole design decision. John's draft renamed the
+ * teams to `participants[]`; `home`/`away` are what the NATIVE voice renderer binds
+ * (`VoiceSportsCardRenderer.bindTeam`, registry row 105), so renaming them would break the voice card
+ * silently and off-device. Extending keeps one payload and one set of renderers. If `participants[]`
+ * is ever preferred, it lands together with the Kotlin change — never as a quiet rename.
+ *
+ * Pro fields are simply absent on youth events and vice versa; a YOUTH card carries no `state`,
+ * `lines` or `highlights` at all, because nothing fetches ESPN for it.
+ */
+export interface GameCard extends SportsCard {
+  /** `practice` renders a REDUCED card: one team, no opponent, no score, no records. */
+  eventType: 'game' | 'practice';
+  /** Home or away — "a top-line parent question" (John). */
+  isHome?: boolean;
+  /** ISO time the kid is expected there, parsed from the invite. Youth only. */
+  arrivalTime?: string;
+  driveTimeEstimate?: { minutes: number; source: string };
+  /** TYPED, not free-form — uniform is the first known field (John's open question, resolved). */
+  details?: { uniform?: string; notes?: string };
+  /**
+   * 🔴 NAME / CITY / STATE ONLY — deliberately NOT the street address, and deliberately not called
+   * `venue` so it does not read as "the venue object minus a field" and invite someone to add it back
+   * for symmetry. John's rule: the calendar surface shows city/state, never the full address. A field
+   * that must never be rendered should not be handed to a renderer — one careless template line puts
+   * a child's game address on a wall-mounted tablet. The full address belongs to the maps-handoff
+   * path, resolved where the link is built.
+   */
+  place?: { name?: string; city?: string; state?: string };
+}
+
 export interface SportsSynthesis {
   voice: string;
   text: string | null;
@@ -360,8 +400,8 @@ function card(g: Game, state: State, tz?: string): SportsCard {
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)
-    home: { name: g.home || '', score: state === 'pre' ? null : (g.homeScore ?? null), record: g.homeRecord, logo: g.homeLogo, color: g.homeColor },
-    away: { name: g.away || '', score: state === 'pre' ? null : (g.awayScore ?? null), record: g.awayRecord, logo: g.awayLogo, color: g.awayColor },
+    home: { name: g.home || '', score: state === 'pre' ? null : (g.homeScore ?? null), record: g.homeRecord, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
+    away: { name: g.away || '', score: state === 'pre' ? null : (g.awayScore ?? null), record: g.awayRecord, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
     winner: g.winner ?? null,
     // Per-sport population of the generic stats. Standout leader lines render for every
     // sport whose provider fills home/awayLeader (baseball batting, basketball PTS,
@@ -375,6 +415,19 @@ function card(g: Game, state: State, tz?: string): SportsCard {
     scorers: groupScorers(g),   // legacy — drop once all renderers read highlights
   };
 }
+
+/** The card builder, exported for callers OUTSIDE the voice synthesis path — currently the
+ *  `sports-gateway` `gameId` arm, which serves the calendar's open-a-game card (build plan
+ *  20260906 §4, Piece 1). Exported as an ALIAS rather than by renaming `card` so this is a
+ *  pure addition: no existing call site, and therefore no existing behaviour, moves.
+ *
+ *  It exists because a `SportsCard` is NOT what the gateway returns — `SportsResponse.games[]`
+ *  is flat (`home: string`, separate scores, no logo/colour/record/venue). Everything that makes
+ *  the card correct lives in here: the penalty-shootout "Final (Pens)" label, the suppression of
+ *  a misleading `0–0` on a `pre` game (ESPN sends "0"/"0" for scheduled games), and tz-relative
+ *  dating so a stale final does not read as live. A second implementation in JS would have to
+ *  reproduce all three, and would drift. One payload, built once, here. */
+export { card as buildSportsCard };
 
 function finalLine(g: Game): string {
   const hs = g.homeScore ?? 0, as = g.awayScore ?? 0;

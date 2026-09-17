@@ -505,11 +505,14 @@ Deno.test('calculator → server-templated EXACT arithmetic, no pass-2 (declared
   // 2026-09-03 before this arm existed: the prompt said "MANDATORY, call the calculator" and the
   // brain dropped the call. This test is the only thing that fails if that regresses.
   //
-  // The value is the one the deployed model actually got wrong: 7 × 23 answered as 162.
+  // ⚠️ The comment here first said 7 × 23 was "the value the deployed model actually got wrong,
+  // answered as 162". That was the bench's own parser defect, not the model (corrected 2026-09-03).
+  // The assertion is still exactly right for THIS test — it proves the turn carries the TOOL's
+  // exact value and not something the model re-derived — so only the false claim is removed.
   const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"7*23"}}']);
   const turn = await runOrchestration(deps(), m.io);
   assert(turn.voice && /\b161\b/.test(turn.voice), `expected the exact answer 161 — got: ${turn.voice}`);
-  assert(!/162/.test(turn.voice!), `must not carry the model's wrong value — got: ${turn.voice}`);
+  assert(!/162/.test(turn.voice!), `must carry the tool's exact value, not a near-miss — got: ${turn.voice}`);
   assertEquals(m.gatewayCalls(), 1); // tier-1 template: pass-1 only, no pass-2
 });
 
@@ -534,6 +537,49 @@ Deno.test('NEGATIVE CONTROL — calculator refuses code, and still declines clea
   const m = makeIO(['{"type":"info_request","tool":"calculator","query":{"expression":"Deno.exit(1)"}}']);
   const turn = await runOrchestration(deps(), m.io);
   assert(turn.voice && !/\d/.test(turn.voice), `a rejected expression must speak no digits — got: ${turn.voice}`);
+});
+
+Deno.test('🔴 retrieved tool data actually REACHES pass 2 (the wikipedia bug that shipped)', async () => {
+  // On 2026-09-03 `wikipedia` was dispatched, fetched a real article, handed it to secondPass —
+  // and the data was DISCARDED, because INQUIRY_BY_TYPE had no template for that inquiryType and
+  // the branch that renders it simply did nothing. No error, no log: the model was asked to answer
+  // with no tool output, which is indistinguishable from the tool never having run. It reached
+  // staging that way. Asserting the retrieved value appears in the pass-2 prompt is the only thing
+  // that catches it; a dispatch test alone passes happily while the data goes nowhere.
+  const m = makeIO(['{"type":"info_request","tool":"wikipedia","query":{"query":"Ada Lovelace"}}', 'She was a mathematician.']);
+  await runOrchestration(deps(), m.io);
+  const p2 = m.lastPrompt() ?? '';
+  assertEquals(/Analytical Engine|found/.test(p2), true, 'pass-2 prompt must carry the retrieved payload');
+});
+
+Deno.test('place_search → dispatched through the IO seam, pass-2 synthesis', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"place_search","query":{"query":"coffee near me"}}', 'The nearest is Blue Bottle on Main Street.']);
+  (m.io as unknown as Record<string, unknown>).runPlaceSearch = () =>
+    Promise.resolve({ found: true, places: [{ name: 'Blue Bottle', address: '1 Main St' }], count: 1 });
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && turn.voice.length > 0, 'expected a spoken answer');
+  assertEquals(m.gatewayCalls(), 2); // pass-1 route + pass-2 synthesis
+});
+
+Deno.test('directions → dispatched through the IO seam', async () => {
+  const m = makeIO(['{"type":"info_request","tool":"directions","query":{"origin":"home","destination":"Tampa airport"}}', "It's about 22 miles, roughly 30 minutes."]);
+  (m.io as unknown as Record<string, unknown>).runDirections = () =>
+    Promise.resolve({ found: true, distance: '22.4 miles', duration: '30 minutes' });
+  const turn = await runOrchestration(deps(), m.io);
+  assert(turn.voice && turn.voice.length > 0, 'expected a spoken answer');
+  assertEquals(m.gatewayCalls(), 2);
+});
+
+Deno.test('NEGATIVE CONTROL — a runtime with NO maps IO declines, it does not invent', async () => {
+  // The Node add-on shell injects its own IO and may not supply these. The branch must reach
+  // pass-2 with an explicit do-not-invent note rather than letting the model answer an address
+  // or a drive time from memory — the exact failure these tools exist to close.
+  const m = makeIO(['{"type":"info_request","tool":"place_search","query":{"query":"coffee near me"}}', "I couldn't find that."]);
+  const turn = await runOrchestration(deps(), m.io);   // no runPlaceSearch on the mock
+  assert(turn.voice && turn.voice.length > 0);
+  const p2 = m.lastPrompt() ?? '';   // pass-2 is the last gateway call
+  assertEquals(/do not invent/i.test(p2), true, 'pass-2 must carry the do-not-invent note');
+  assertEquals(/"found":\s*false/.test(p2), true, 'pass-2 must see found:false');
 });
 
 Deno.test('action → returned, NOT dispatched by the brain', async () => {
@@ -1582,4 +1628,236 @@ Deno.test('bench override: the refused prefix never reaches the model prompt', a
   const m = makeIO(['{"type":"response","voice":"ok"}']);
   await runOrchestration(deps({ bench_prompt_prefix: 'SENTINEL-FOREIGN-PROMPT' } as Partial<VoiceRequest>), m.io);
   assert(!m.lastPrompt()?.includes('SENTINEL-FOREIGN-PROMPT'), 'a refused override must never reach the model prompt');
+});
+
+// ── ROW 130: `sports` malformed-variant recovery (2026-09-04, John's word "add sports") ──────
+// `sports` had a dispatch arm (orchestrator.ts:968) but was MISSING from `KNOWN_TOOLS` in all
+// three copies — found by `lint:tool-dispatch` (contract #22), which reports it as a warning
+// rather than a build-breaker. Not an outage: the canonical `{type:'info_request',tool:'sports'}`
+// above dispatches fine. What was missing is the REPAIR of the two malformed variants Gemini
+// emits when history primes it — those normalized to nothing and fell through to a raw
+// 'response', putting the model's own JSON at risk of being read aloud.
+//
+// It was left unfixed by V in s9 deliberately: it changes NORMALIZATION on a BILLED path (a
+// malformed blob that today falls through would instead fire a real sports lookup), so it needed
+// John's word. Given 2026-09-04 — the cheaper failure is a spurious lookup, not spoken JSON.
+//
+// These two are the round-trip: they were shown RED (route 'response', no fetch_sports stage)
+// before 'sports' was added to KNOWN_TOOLS, and green after. Same shape as the `personalities`
+// repair, which is the previous instance of this exact class.
+
+Deno.test('ROW 130 sports: tool-name-as-type is repaired and REACHES the tool', async () => {
+  const m = makeIO(['{"type":"sports","query":{"sport":"soccer","team":"Mexico","type":"score"}}']);
+  const turn = await runOrchestration(deps({ text: 'what was the score of the mexico game' }), m.io);
+  assertEquals(turn.route, 'sports');
+  assertEquals(turn.voice, 'Mexico beat South Korea 1 to 0.');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1', 'fetch_sports']);
+});
+
+Deno.test('ROW 130 sports: a bare {tool} with no type is repaired and REACHES the tool', async () => {
+  // Deliberately a DETAIL ask ("how did mexico do"), which takes the pass-2 synthesis path — so
+  // this asserts the thing under test (the malformed variant reaches the TOOL) and not the pass
+  // shape, which is the neighbouring detail-ask test's business. The first draft pinned
+  // ['pass1','fetch_sports'] here and failed on the trailing 'pass2' with the repair working
+  // perfectly: a wrong assertion, not a wrong fix.
+  const m = makeIO([
+    '{"tool":"sports","query":{"sport":"soccer","team":"Mexico","type":"summary"}}',
+    'Mexico edged South Korea one-nil.',
+  ]);
+  const turn = await runOrchestration(deps({ text: 'how did mexico do' }), m.io);
+  assertEquals(turn.route, 'sports');
+  assert(
+    turn.stages.some((s) => s.name === 'fetch_sports'),
+    `the repaired call must reach the sports tool — got stages: ${turn.stages.map((s) => s.name).join(',')}`,
+  );
+});
+
+Deno.test('ROW 130 NEGATIVE CONTROL — a well-formed response carrying a stray sports field stays a response', async () => {
+  // The blast radius. `response` is terminal, so widening KNOWN_TOOLS must NOT convert a model
+  // that already answered into a billed sports lookup. This is the guard on the spend-adjacent
+  // half of the change, and it is the reason the normalizer's second branch is gated on a
+  // non-terminal type.
+  const m = makeIO(['{"type":"response","voice":"I could not find that game.","tool":"sports"}']);
+  const turn = await runOrchestration(deps({ text: 'how did mexico do' }), m.io);
+  assertEquals(turn.route, 'direct');
+  assertEquals(turn.voice, 'I could not find that game.');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1']);
+});
+
+// ── DROP:GROUNDING_QUERIES_ABSENT (2026-09-04, standing rule 2) ──────────────────────────────
+// `web_search_logs.result_count` is NOT NULL DEFAULT 0, so `grounding_queries ?? 0` writes the
+// SAME value for "the model ran zero searches" and "the gateway never told us". On 2026-09-04
+// that column read 0 on all 2248 grounded turns since 08-28 — not because grounding never
+// searched, but because the counter lives in ai-gateway (last deployed 2026-08-01) while the
+// counter's own commit also touched THIS function, which was deployed repeatedly. One commit,
+// two functions, one deployed; the `?? 0` absorbed the difference in silence.
+//
+// A uniform zero is indistinguishable from a real finding, which is how it would have been read.
+// This pins the marker that makes it self-announcing.
+Deno.test('DROP marker fires when grounding is attached but the query count is ABSENT', async () => {
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...a: unknown[]) => { warnings.push(a.join(' ')); };
+  try {
+    // A plain grounded turn: makeIO's gateway raw carries no grounding_queries, which is exactly
+    // what the stale ai-gateway returns.
+    const m = makeIO(['{"type":"response","voice":"It is sunny in Paris today."}']);
+    await runOrchestration(deps({ text: "what's happening in the news today" }), m.io);
+  } finally {
+    console.warn = realWarn;
+  }
+  assert(
+    warnings.some((w) => w.includes('DROP:GROUNDING_QUERIES_ABSENT')),
+    `expected the loud drop marker — got: ${JSON.stringify(warnings)}`,
+  );
+});
+
+Deno.test('NEGATIVE CONTROL — the DROP marker stays SILENT when the count IS reported', async () => {
+  // The half that makes the marker worth having: it must not cry wolf once ai-gateway is
+  // deployed. A marker that fires on every turn gets filtered out and stops being a signal.
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...a: unknown[]) => { warnings.push(a.join(' ')); };
+  try {
+    const m = makeIO(['{"type":"response","voice":"It is sunny in Paris today."}']);
+    const io = m.io as unknown as Record<string, unknown>;
+    const inner = io.callGateway as (a: unknown) => Promise<Record<string, unknown>>;
+    io.callGateway = async (a: unknown) => {
+      const r = await inner(a);
+      const raw = r.raw as Record<string, unknown> | undefined;
+      if (raw) raw.grounding_queries = 0;   // REPORTED zero — a real measurement, not an absence
+      return r;
+    };
+    await runOrchestration(deps({ text: "what's happening in the news today" }), m.io);
+  } finally {
+    console.warn = realWarn;
+  }
+  assertEquals(
+    warnings.filter((w) => w.includes('DROP:GROUNDING_QUERIES_ABSENT')), [],
+    'a REPORTED zero is a measurement and must not be flagged as a drop',
+  );
+});
+
+// ── ROW 164: force weather_data on weather intents (John, 2026-09-05: "Yea for force the weather
+// tool.") ────────────────────────────────────────────────────────────────────────────────────
+// MEASURED: 56% of weather turns (27/48 over six bench runs) never reached weather_data —
+// grounding answered them `direct`, losing the user's LOCATION ("Snow is expected in Alaska" for a
+// Clearwater account, scored qualityOk TRUE), burning billable searches for data the tool serves
+// free, and producing neither a card nor the device's own phrasing.
+import { looksLikeWeatherAsk } from './orchestrator.ts';
+
+Deno.test('ROW 164 ① weather intents are recognised (the cases that were being lost)', () => {
+  for (const u of [
+    "what's the weather today", "what's the weather tomorrow", 'will it rain tomorrow',
+    "what's the temperature outside right now", 'is it going to snow this week',
+    'how windy is it outside', "what's the forecast for this weekend", "what's the uv index today",
+    'do I need a jacket today',
+  ]) assert(looksLikeWeatherAsk(u), `should be a weather ask: "${u}"`);
+});
+
+Deno.test('ROW 164 ② NEGATIVE CONTROL — the ambiguous words do NOT drag other lanes in', () => {
+  // 🔴 THE REAL DESIGN RISK, and every string here is lifted from our own suites. `temperature`,
+  // `degrees` and `cold` are not weather words on their own; forcing weather on an HA thermostat
+  // turn would be a worse bug than the one being fixed. A greedy regex is the failure mode.
+  for (const u of [
+    'set the temperature to 68',                       // ha-household
+    'set the main thermostat to 71',                   // ha-large
+    "what's the living room temperature",              // ha-large
+    'set the thermostat to 72',                        // ha
+    "what's the thermostat set to",                    // ha
+    'is it cold in here',                              // overlap → home_assistant (INDOOR)
+    "what's 350 degrees fahrenheit in celsius",        // compute
+    'what internal temperature is medium rare steak',  // search-deep
+    'how many minutes per pound to roast a turkey at 325 degrees', // search-deep
+    'what was the score of the eagles game last sunday',           // sports ("sunday" ≠ "sunny")
+    'who was Ada Lovelace', 'turn on the kitchen light', 'play some music',
+  ]) assert(!looksLikeWeatherAsk(u), `must NOT be forced to weather: "${u}"`);
+});
+
+Deno.test('ROW 164 ③ 🔴 THE SELF-DEFEAT CONTROL — grounding AND web_search both off', async () => {
+  // The test the sports guard NEEDED AND DID NOT HAVE until the bug shipped. Removing grounding
+  // alone silently hands the model `web_search` instead — same bypass, different door — and it
+  // LOOKS fixed, because the turn stops answering `direct` and a route-only assertion goes green
+  // while the user still gets a web answer with no location and no card. Measured on sports before
+  // sportsToolOnlyTurn existed: the score card appeared on 1 turn in 3.
+  const m = makeIO(['{"type":"info_request","tool":"weather_data","query":{}}']);
+  await runOrchestration(deps({ text: "what's the weather today" }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean; tools: string[] } }).caps!;
+  assertEquals(caps.grounding, false, 'grounding must be OFF on a weather turn (door 1)');
+  assert(!caps.tools.includes('web_search'), `web_search must NOT be offered either (door 2) — got: ${caps.tools.join(', ')}`);
+});
+
+Deno.test('ROW 164 ④ SCOPING GUARD — a non-weather turn keeps grounding', async () => {
+  // Without this, a greedy guard could silently disable grounding for the whole general lane —
+  // a far larger regression than the defect being fixed, and invisible in a weather-only test.
+  const m = makeIO(['{"type":"response","voice":"Ada Lovelace was a mathematician."}']);
+  await runOrchestration(deps({ text: 'who was Ada Lovelace' }), m.io);
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { grounding: boolean } }).caps!;
+  assertEquals(caps.grounding, true, 'a non-weather turn must still ground');
+});
+
+// ── options.grounding — the bench-only ON/OFF lever ─────────────────────────────────────────
+// Added 2026-09-09 (VH s3, John's ask: "Are we able to re-run our testing without gemini
+// grounding?"). The lever exists so a bench can hold the model, prompt, persona and account
+// fixed and move ONE variable. Its three legs, and the gate it must NOT be able to move:
+//
+// RULE-9 INJECTIONS — these are what the runs PRINTED, not what I expected them to print.
+// Baseline for the counts below: 145 passed / 0 failed.
+//   # | mutation                                            | result       | which
+//   --|------------------------------------------------------|--------------|--------------------
+//   1 | `req.options?.grounding ?? groundingDefault`          | 143 / 2 fail | the OFF and ON legs;
+//     |   -> `groundingDefault` (override ignored)            |              | entitlement stays
+//     |                                                       |              | green, correctly —
+//     |                                                       |              | it does not exercise
+//     |                                                       |              | the override
+//   2 | `groundingAvailable && (...)` -> `(...)`              | 137 / 8 fail | the ENTITLEMENT leg
+//     |   (the gate moved inside the override)                |              | + 7 EXISTING tests.
+//     |                                                       |              | Expected once run:
+//     |                                                       |              | non-Gemini models
+//     |                                                       |              | would ground too.
+//   3 | `provider === 'gemini' && geminiGrounds`              | 144 / 1 fail | the OFF leg alone —
+//     |   -> `provider === 'gemini'` (the original bug)       |              | i.e. this test is
+//     |                                                       |              | the only thing that
+//     |                                                       |              | catches it
+// Restored from a scratch copy, `cmp`-proven, never `git checkout`.
+//
+// 🔴 INJECTION 3 IS THE ONE THAT MATTERS, and it is why this lever is TWO changes and not one.
+// VH-status recorded Need ① as "a 1-line change at orchestrator.ts:637". That was wrong. Pass 2's
+// web_search branch grounded on `provider === 'gemini'` alone, so with the pass-1 override off a
+// Gemini turn STILL grounded the moment it asked for web_search — both arms of the intended A/B
+// would have grounded and the flag would only have moved which pass did it. The OFF test failed
+// until that branch was gated too. A one-line lever would have produced a clean, wrong result.
+
+Deno.test('options.grounding=false → Gemini does NOT ground, and Tavily web_search is offered instead', async () => {
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"weather"}',
+    '{"type":"response","voice":"It is 78"}',
+  ]);
+  const turn = await runOrchestration(deps({ options: { grounding: false } }), m.io);
+  assertEquals(m.grounded(), false);                 // native grounding OFF
+  assertEquals(m.searchCalls(), 1);                  // …and the explicit tool ran instead
+  assertEquals(turn.stages.map((s) => s.name), ['pass1', 'fetch_search', 'pass2']);
+  assertEquals(m.searchLogs[0].provider, 'tavily');  // the arm this makes comparable to Brave
+});
+
+Deno.test('options.grounding=true → grounds even on a sports-shaped ask (the guard is overridable)', async () => {
+  // The sports guard is a DEFAULT, not an entitlement. A bench measuring retrieval must be able
+  // to lift it; production never sets the flag, so the guard still holds for every real caller.
+  const m = makeIO(['{"type":"response","voice":"They won"}']);
+  await runOrchestration(deps({ text: 'who won the game last night', options: { grounding: true } }), m.io);
+  assertEquals(m.grounded(), true);
+});
+
+Deno.test('options.grounding=true CANNOT buy grounding an account is not entitled to', async () => {
+  // The load-bearing leg. `groundingAvailable` (provider + webSearchAllowed) sits OUTSIDE the
+  // override, so a bench flag can relax the sports/weather guards and nothing else.
+  const m = makeIO(['{"type":"response","voice":"ok"}'], { account: { webSearchEnabled: false } });
+  await runOrchestration(deps({ options: { grounding: true } }), m.io);
+  assertEquals(m.grounded(), false);
+});
+
+Deno.test('options.grounding absent → shipped behaviour, unchanged', async () => {
+  const m = makeIO(['{"type":"response","voice":"It is 78"}']);
+  await runOrchestration(deps(), m.io);
+  assertEquals(m.grounded(), true);                  // the default for a non-sports Gemini turn
 });

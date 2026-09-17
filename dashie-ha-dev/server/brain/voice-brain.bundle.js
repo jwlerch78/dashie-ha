@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 2c2b1eabe169774d0ce99114b30d9ade1ae3326b
+   Source git SHA: 00cde296c9676dc2571e6d464c11a6f8336f5497
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -31,6 +31,7 @@ var orchestrator_exports = {};
 __export(orchestrator_exports, {
   amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
+  looksLikeWeatherAsk: () => looksLikeWeatherAsk,
   promisedPictureQuery: () => promisedPictureQuery,
   resolvePersonality: () => resolvePersonality,
   runOrchestration: () => runOrchestration,
@@ -1550,6 +1551,117 @@ Current date and time: {{DATE_TIME}}
 
 Now provide a helpful, natural response about where this family member is. Be careful not to assume they're heading home - phrase travel time as "X minutes from home" not "ETA is X".
 `;
+var INQUIRY_WIKIPEDIA = `# Inquiry Context: Wikipedia Lookup
+
+The user asked about a person, place, organisation, event, species or work. A Wikipedia summary has
+been retrieved below. It is the source of truth for this answer \u2014 do not supplement it from your own
+knowledge, and do not contradict it.
+
+## Response Guidelines
+
+- **Answer the question that was asked**, not the article. If they asked when someone was born, lead
+  with the date; if they asked who someone was, lead with the one-line identification. The summary is
+  raw material, not a script to read out.
+- **One or two sentences.** This is spoken aloud. No lists, headings, markdown or citations.
+- **Never add facts that are not in the summary** \u2014 not dates, not numbers, not relationships. If the
+  summary does not answer the specific question, say what it does tell you and that you do not have
+  the rest.
+- **If \`found\` is false**, say you could not find anything on that. Do NOT fall back on your own
+  recollection \u2014 that is the exact failure this lookup exists to prevent.
+- **Do not treat it as current.** Wikipedia lags live events. If the user's question turns out to be
+  about something happening now, say you would need to look it up rather than trusting the article.
+
+## Example Questions and Responses
+
+**"Who was Ada Lovelace?"**
+- Voice: "Ada Lovelace was a 19th-century English mathematician, best known for her work on Charles Babbage's Analytical Engine \u2014 she's often called the first computer programmer."
+
+**"How tall is Mount Rainier?"** (summary gives the elevation)
+- Voice: "Mount Rainier is about 14,410 feet tall \u2014 it's the highest peak in the Cascade Range."
+
+**"Tell me about Zyzzyx Corp"** (not found)
+- Voice: "I couldn't find anything on that one."
+
+## Retrieved Summary
+
+\`\`\`json
+{{WIKIPEDIA_DATA}}
+\`\`\`
+
+Answer the user's actual question from this summary, in one or two spoken sentences.
+`;
+var INQUIRY_PLACE_SEARCH = `# Inquiry Context: Place Search
+
+The user asked about a real-world place \u2014 a business, restaurant, shop, park or landmark. Matching
+places have been retrieved below from a maps provider.
+
+## Response Guidelines
+
+- **Lead with the one they want.** Usually the first result. Give the name, then the useful detail
+  they asked for \u2014 address, whether it is open, the rating. Do not read out all three.
+- **Spoken-friendly** \u2014 say the address the way a person would ("on Gulf to Bay Boulevard"), not as
+  a postal line. No lists or markdown.
+- **NEVER invent a business name, an address, opening hours or a phone number.** A wrong address
+  sends someone driving to the wrong place; this is the single worst thing this tool can do.
+- **Only say it is open or closed if \`open_now\` is present.** If it is null, do not guess \u2014 say you
+  are not sure of the hours.
+- **If \`found\` is false**, say you could not find it. Do not offer a place from memory.
+
+## Example Questions and Responses
+
+**"Where's the nearest coffee shop?"**
+- Voice: "The closest is Blue Bottle Coffee on Main Street \u2014 it's open right now."
+
+**"What's the address of Publix on Gulf to Bay?"**
+- Voice: "That one's at 2100 Gulf to Bay Boulevard in Clearwater."
+
+**"Is the hardware store open?"** (\`open_now\` is null)
+- Voice: "I found Ace Hardware on Cleveland Street, but I'm not sure of their hours right now."
+
+## Retrieved Places
+
+\`\`\`json
+{{PLACE_SEARCH_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only these results.
+`;
+var INQUIRY_DIRECTIONS = `# Inquiry Context: Distance and Travel Time
+
+The user asked how far somewhere is, or how long it takes to get there. A maps provider has returned
+the distance and duration below.
+
+## Response Guidelines
+
+- **Answer what was asked.** "How far" wants the distance; "how long" wants the duration. If the
+  question is open ("how far is the airport"), give both in one sentence.
+- **Say the numbers as speech** \u2014 "about twenty-two miles, roughly half an hour". Round; nobody
+  wants "22.4 miles, 31 minutes" read out.
+- **Mention traffic only if \`in_traffic\` is true**, and then only briefly ("about forty minutes in
+  traffic right now").
+- **NEVER estimate a distance or a drive time yourself.** If the data is missing, say so \u2014 a guessed
+  travel time gets someone somewhere late.
+- **If \`found\` is false**, say you could not work out the route.
+
+## Example Questions and Responses
+
+**"How far is Tampa airport?"**
+- Voice: "It's about twenty-two miles \u2014 roughly half an hour's drive right now."
+
+**"How long to walk to the park?"**
+- Voice: "About twelve minutes on foot."
+
+**"How long to drive to Atlanta?"** (not found)
+- Voice: "I couldn't work out a route for that one."
+
+## Retrieved Route
+
+\`\`\`json
+{{DIRECTIONS_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only this data.
+`;
 var INQUIRY_WEATHER = `# Inquiry Context: Weather Data
 
 You have been provided with weather data below based on the user's weather-related question.
@@ -1800,8 +1912,9 @@ var AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "today|tomorr
 - home_assistant: query: {command_hint: "transcript"} - Smart home control NOW (lights, thermostat, garage, etc.). If the request has a future time or delay ("turn the porch light off in 5 minutes", "turn on the lights at 9:30"), DO NOT use this \u2014 use schedule_action so it runs later, not now.
 - sports: query: {sport: "soccer|football|basketball|baseball|hockey", league: "nfl|nba|mlb|nhl|college-football|world-cup|premier-league|...", team: "team or country name", date: "YYYY-MM-DD (optional)", type: "score|schedule", list: true (for PLURAL "games")} - Live game SCORES and SCHEDULES, and nothing else. MANDATORY for the score, the result, who won, the kickoff time, "what time is the game", WHICH TEAMS are playing, and upcoming fixtures. NEVER answer THOSE from your own knowledge or a web/Google search, not even one you are sure about: this tool is the ONLY source with the user's correct LOCAL time (a web answer comes back in the wrong timezone) and the ONLY way the scorecard appears on screen. Always emit an info_request for this tool instead of replying directly. **This tool returns ONLY fixtures and scores. It has NO roster, lineup, player, stats, standings, or club-history data.** A question about WHO PLAYS or PLAYED a position ("who's starting at striker for Spain", "who's their quarterback"), a player's stats or injuries, the table/standings, or a club's history is NOT a score/schedule question \u2014 use web_search for those, even when the user names a team or a specific game. Calling this tool for a roster question hands you back the FIXTURE, and reading that out loud answers nothing (it just repeats the schedule at the user). Set list:true for any MULTI-game ask \u2014 "what games are on", "the NEXT games", "upcoming/today's World Cup games" (the plural "games" is the tell); leave it off for one team's score or "the next game" (singular). A FOLLOW-UP asking for MORE about a game already discussed ("tell me more about that game", details, color, highlights, a recap, how a team played) is ALSO not a score/schedule question: use web_search with a SELF-CONTAINED query naming both teams and the date from the conversation (e.g. "Yankees White Sox July 27 2026 recap key plays") \u2014 NEVER answer it from conversation memory alone; the score you already gave is exactly what the user wants to go BEYOND
 - get_current_time: query: {} - The CURRENT local date, time, and day of week. Call for "what time is it", "what's the date", "what day is it", AND to anchor any today/tomorrow/this-week/next reasoning. Authoritative \u2014 use it instead of your own clock, which is UTC and wrong for the user.
-- calculator: query: {expression: "0.15*80"} - Arithmetic, computed exactly. MANDATORY for any sum, product, division, percentage, bill split or recipe scaling \u2014 NEVER do the arithmetic yourself, you get it wrong silently. Write the ask as a plain expression: "15% of 80"\u2192"0.15*80", "split 87 three ways"\u2192"87/3". Supports + - * / % ^ and parentheses. found:false (including divide-by-zero) means say you could not work it out \u2014 never guess a number
-- convert_units: query: {value: 350, from: "fahrenheit", to: "celsius"} - Unit conversion: cooking measures (tsp/tbsp/cup/pint/quart/gallon/ml/l), weight, length, temperature, time, speed, area, energy, power, pressure, data, angle. MANDATORY for any "how many X in a Y" or "what is N X in Y" \u2014 never convert yourself. Pass fractions as decimals (two thirds of a cup \u2192 value 0.667, from "cup"). found:false means the unit is unknown or the two measure different things (cups to miles) \u2014 say you could not convert it, never invent a number
+- wikipedia: query: {query: "Ada Lovelace"} - STABLE encyclopaedic facts: a person, place, organisation, historical event, species, work. Use for "who is/was X", "what is X", "tell me about X" when the answer does not change day to day. NEVER for anything CURRENT \u2014 news, prices, scores, who currently holds an office or job, this week's anything \u2014 those go to web_search, because Wikipedia lags live events invisibly. Free and one call, so prefer it over web_search for settled facts. found:false means say you could not find it
+- place_search: query: {query: "coffee shop near me"} - Find a REAL PLACE: business, restaurant, shop, park, landmark. Returns name, address, rating, open-now. Use for "where's the nearest X", "what's the address of X", "find a X nearby", "is X open". Pass the user's own words. NOT for family members' locations - that's family_locations. found:false means say you could not find it: NEVER invent a business name, address or opening hours
+- directions: query: {origin: "home", destination: "Tampa airport", mode: "driving|walking|bicycling|transit"} - How FAR somewhere is and how LONG it takes, in current traffic. Use for "how far is X", "how long to drive to X". NOT for "when should I leave for <calendar event>" - that's travel_time. found:false means say you could not work it out: NEVER estimate a distance or drive time yourself
 - music: query: {action: "now_playing|search|play|pause|resume|stop|next|previous|volume_up|volume_down", query?: "song/artist/album text (for search or play)", uri?: "exact uri from a prior search result (for play)", speaker?: "speaker name, ONLY if the user names one"} - Music: what's playing now (action "now_playing" \u2014 "what song is this", "who sings this"), find music ("search" \u2014 returns matches to disambiguate), play it ("play" with the chosen uri, or a query), and transport \u2014 "stop the music"\u2192stop, "pause"\u2192pause, "turn it up/down"\u2192volume_up/volume_down, "next/skip"\u2192next. NEVER use "search" for a transport phrase
 - video_feeds: query: {action: "show|hide|show_all|hide_all|playback", camera?: "the camera name the user said, e.g. \\"pool\\" or \\"front door\\"", time?: "for playback ONLY \u2014 the user's own words for WHEN, e.g. \\"10 minutes ago\\", \\"at 10:30pm\\", \\"last night\\""} - Cameras: show a live feed ("show" + camera), hide it ("hide"), all of them ("show_all"/"hide_all"), or play back RECORDED footage from a past moment ("playback" + camera + time \u2014 "what happened at the front door around 3pm", "show me the pool camera 10 minutes ago"). Pass the user's own words through as "time" \u2014 the device resolves them in its own timezone. Use "show" (live) when no past time is mentioned
 - open_app: query: {app: "the app name the user said, e.g. \\"Netflix\\", \\"YouTube TV\\", \\"Prime Video\\", \\"Spotify\\""} - Open/launch a whole app on this screen: "open Netflix", "put on YouTube TV", "launch Spotify", "go to Prime Video". Pass the app name the user said through as "app"; the device matches it against installed apps. Use ONLY for opening an app \u2014 NOT for playing a specific song (use music) or showing cameras (use video_feeds)
@@ -1932,7 +2045,10 @@ var INQUIRY_BY_TYPE = {
   "weather": INQUIRY_WEATHER,
   "sports": INQUIRY_SPORTS,
   "dashie-help": INQUIRY_DASHIE_HELP,
-  "personalities": INQUIRY_PERSONALITIES
+  "personalities": INQUIRY_PERSONALITIES,
+  "wikipedia": INQUIRY_WIKIPEDIA,
+  "place-search": INQUIRY_PLACE_SEARCH,
+  "directions": INQUIRY_DIRECTIONS
 };
 function languageNameFor(code) {
   return {
@@ -1973,8 +2089,25 @@ function dropUnofferedExamples(text, context) {
     return !m || offered.has(m[1]);
   }).join("\n");
 }
-function selectWebGuidance(text, webSearchOffered, groundingEnabled) {
-  const keep = webSearchOffered ? "TOOL" : groundingEnabled ? "NATIVE" : null;
+var WEB_GUIDANCE_MODES = ["auto", "tool", "native", "none"];
+function resolveWebGuidance(candidate) {
+  if (candidate === void 0 || candidate === null) return "auto";
+  if (typeof candidate === "string" && WEB_GUIDANCE_MODES.includes(candidate)) {
+    return candidate;
+  }
+  console.warn(`DROP: options.web_guidance value not recognised (${JSON.stringify(candidate)}) \u2014 falling back to 'auto'`);
+  return "auto";
+}
+function effectiveWebGuidance(requested, groundingOn) {
+  if (!requested || requested === "auto") return "auto";
+  if (requested !== "native" || groundingOn) return requested;
+  console.warn("DROP: options.web_guidance='native' refused \u2014 grounding is OFF on this turn, so the NATIVE block would claim web access this turn does not have");
+  return "auto";
+}
+function selectWebGuidance(text, webSearchOffered, groundingEnabled, override) {
+  const auto = webSearchOffered ? "TOOL" : groundingEnabled ? "NATIVE" : null;
+  const mode = effectiveWebGuidance(override, groundingEnabled === true);
+  const keep = mode === "auto" ? auto : mode === "none" ? null : mode === "tool" ? "TOOL" : "NATIVE";
   let out = text;
   for (const block of ["TOOL", "NATIVE"]) {
     if (block === keep) continue;
@@ -2029,6 +2162,12 @@ function buildInquiryValues(inquiryType, data, baseValues) {
       return { ...baseValues, SEARCH_RESULTS: JSON.stringify(data, null, 2) };
     case "dashie-help":
       return { ...baseValues, DASHIE_HELP_DATA: JSON.stringify(data, null, 2) };
+    case "wikipedia":
+      return { ...baseValues, WIKIPEDIA_DATA: JSON.stringify(data, null, 2) };
+    case "place-search":
+      return { ...baseValues, PLACE_SEARCH_DATA: JSON.stringify(data, null, 2) };
+    case "directions":
+      return { ...baseValues, DIRECTIONS_DATA: JSON.stringify(data, null, 2) };
     case "personalities":
       return { ...baseValues, PERSONALITY_CATALOG: JSON.stringify(data, null, 2) };
     case "chores":
@@ -2164,18 +2303,26 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
   }
   if (inquiryType && retrievedData) {
     const inquiryTemplate = INQUIRY_BY_TYPE[inquiryType];
+    if (!inquiryTemplate) {
+      console.warn(`DROP: pass-2 inquiryType '${inquiryType}' has NO template in INQUIRY_BY_TYPE \u2014 retrieved data is being DISCARDED`);
+    }
     if (inquiryTemplate) {
       const inquiryValues = buildInquiryValues(inquiryType, retrievedData, baseValues);
       prompt += "\n\n" + fillTemplate(inquiryTemplate, inquiryValues);
     }
     let p2 = fillTemplate(RESPONSE_FORMAT_FULL, baseValues);
     if (inquiryType === "home-assistant") p2 = trimPass2Tools(p2);
-    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled);
+    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(p2, context), context.webSearchEnabled !== false, context.groundingEnabled, context.webGuidance);
   } else {
-    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled);
+    prompt += "\n\n" + selectWebGuidance(dropUnofferedExamples(fillTemplate(RESPONSE_FORMAT_INITIAL, baseValues), context), context.webSearchEnabled !== false, context.groundingEnabled, context.webGuidance);
     if (context.multiEnabled) {
       prompt = injectMultiBlock(prompt);
     }
+  }
+  if (context.userLocation) {
+    prompt += `
+
+The user is located in ${context.userLocation}. When they ask for something nearby \u2014 the closest store, a restaurant, directions \u2014 assume they mean near there unless they name somewhere else.`;
   }
   if (inquiryType === "home-assistant") {
   } else if (inquiryType && inquiryType !== "web-search") {
@@ -2426,7 +2573,11 @@ function normalizeParsedShape(parsed) {
     "schedule_action",
     "personalities",
     "calculator",
-    "convert_units"
+    "convert_units",
+    "wikipedia",
+    "place_search",
+    "directions",
+    "sports"
   ]);
   const TERMINAL_TYPES = /* @__PURE__ */ new Set(["response", "action", "info_request", "multi"]);
   const tool = parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== "info_request" ? parsed.type : typeof parsed.tool === "string" && KNOWN_TOOLS.has(parsed.tool) && !TERMINAL_TYPES.has(parsed.type) ? parsed.tool : null;
@@ -3060,8 +3211,8 @@ function card(g, state, tz) {
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)
-    home: { name: g.home || "", score: state === "pre" ? null : g.homeScore ?? null, record: g.homeRecord, logo: g.homeLogo, color: g.homeColor },
-    away: { name: g.away || "", score: state === "pre" ? null : g.awayScore ?? null, record: g.awayRecord, logo: g.awayLogo, color: g.awayColor },
+    home: { name: g.home || "", score: state === "pre" ? null : g.homeScore ?? null, record: g.homeRecord, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
+    away: { name: g.away || "", score: state === "pre" ? null : g.awayScore ?? null, record: g.awayRecord, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
     winner: g.winner ?? null,
     // Per-sport population of the generic stats. Standout leader lines render for every
     // sport whose provider fills home/awayLeader (baseball batting, basketball PTS,
@@ -4406,6 +4557,72 @@ var convertUnitsTool = {
   }
 };
 
+// supabase/functions/_shared/tools/wikipedia.ts
+var API = "https://en.wikipedia.org/w/api.php";
+var UA = "DashieVoiceAssistant/1.0 (https://dashieapp.com; support@dashieapp.com)";
+function trimForSpeech(extract, maxSentences = 2, maxChars = 400) {
+  const clean = extract.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [clean];
+  let out = "";
+  for (const s of sentences.slice(0, maxSentences)) {
+    if (out.length + s.length > maxChars) break;
+    out += s;
+  }
+  return (out || clean.slice(0, maxChars)).trim();
+}
+var wikipediaTool = {
+  name: "wikipedia",
+  description: `Look up a STABLE encyclopaedic fact \u2014 a person, place, organisation, historical event, species, work of art. Use this for "who is/was X", "what is X", "tell me about X" when the answer does not change day to day, instead of answering from memory. Do NOT use it for anything current or time-sensitive \u2014 news, prices, scores, who currently holds a job or office, this week's anything \u2014 use web_search for those, because Wikipedia lags live events. Returns { found: false } when there is no clear article; say you could not find it rather than filling the gap yourself.`,
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: 'The subject to look up, e.g. "Ada Lovelace" or "Mount Rainier".' }
+    },
+    required: ["query"]
+  },
+  async execute(args, _ctx) {
+    const query = String(args?.query ?? "").trim();
+    if (!query) return { result: { found: false } };
+    const url = `${API}?action=query&format=json&origin=*&redirects=1&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=extracts&exintro=1&explaintext=1`;
+    const resp = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(1e4)
+    }).catch((e) => ({ ok: false, status: 0, _e: String(e) }));
+    if (!resp.ok) {
+      await resp.text?.().catch(() => "");
+      console.warn(`DROP: wikipedia HTTP ${resp.status} for "${query.slice(0, 60)}"`);
+      return { result: { found: false } };
+    }
+    const body = await resp.json().catch(() => null);
+    const pages = body?.query?.pages;
+    if (!pages) return { result: { found: false } };
+    const page = Object.values(pages)[0];
+    const summary = trimForSpeech(String(page?.extract ?? ""));
+    if (!page?.title || !summary) return { result: { found: false } };
+    return {
+      result: {
+        found: true,
+        title: page.title,
+        summary,
+        source: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`
+      }
+    };
+  }
+};
+
+// supabase/functions/_shared/tools/places.ts
+var EXPLICIT_PLACE = /\b(near|around|close to|in|at|on)\b/i;
+var SELF_REFERENTIAL = /\b(?:near|around|close to|next to)\s+(?:me|us|here|my\s+(?:home|house|place)|our\s+(?:home|house))\b|\bnearby\b|\baround here\b|\bin\s+my\s+area\b/gi;
+function biasQuery(query, location) {
+  const where = typeof location === "string" ? location.trim() : "";
+  if (!where) return query;
+  const stripped = query.replace(SELF_REFERENTIAL, " ").replace(/\s+/g, " ").trim();
+  if (EXPLICIT_PLACE.test(stripped)) return query;
+  if (query.toLowerCase().includes(where.toLowerCase())) return query;
+  return `${stripped || query} near ${where}`;
+}
+
 // supabase/functions/voice-conversation/retention.ts
 function retainFields(persist, userText, responseText, subtext) {
   if (!persist) return {};
@@ -4699,6 +4916,16 @@ function looksLikeSportsAsk(text) {
   const t = text || "";
   return !!t && (SPORTS_ASK_RE.test(t) || SPORTS_RESULT_RE.test(t) || SPORTS_SCHEDULE_RE.test(t));
 }
+var WEATHER_ASK_RE = new RegExp(
+  "\\b(weather|forecast|uv index|humidity|windy|rain|raining|rainy|snow|snowing|sleet|hail|drizzle|thunderstorm|precipitation|sunny|overcast|muggy|heat index|wind chill)\\b",
+  "i"
+);
+var WEATHER_OUTDOOR_RE = /\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b[^?]{0,32}\b(?:outside|outdoors|out there)\b|\b(?:outside|outdoors|out there)\b[^?]{0,32}\b(?:temperature|temp|degrees|hot|cold|warm|chilly|freezing)\b/i;
+var WEATHER_CLOTHING_RE = /\bdo i need\b[^?]{0,32}\b(?:jacket|coat|umbrella|sunscreen|sweater|boots|gloves|scarf|raincoat)\b/i;
+function looksLikeWeatherAsk(text) {
+  const t = text || "";
+  return !!t && (WEATHER_ASK_RE.test(t) || WEATHER_OUTDOOR_RE.test(t) || WEATHER_CLOTHING_RE.test(t));
+}
 var TOOL_STATUS = {
   web_search: "Searching the web",
   sports: "Checking the score",
@@ -4775,6 +5002,9 @@ async function runOrchestration(deps, io) {
     if (isFirstTurn) turn.metadata.end_conversation = true;
   }
   if (voiceCtx.credit) turn.metadata = { ...turn.metadata ?? {}, credit: voiceCtx.credit };
+  if (voiceCtx.webGuidance && voiceCtx.webGuidance !== "auto") {
+    turn.metadata = { ...turn.metadata ?? {}, web_guidance: voiceCtx.webGuidance };
+  }
   return turn;
 }
 async function orchestrate(deps, io, voiceCtx) {
@@ -4848,9 +5078,16 @@ async function orchestrate(deps, io, voiceCtx) {
   };
   const deviceFulfilledRetain = () => retainFields(retain.serverPersist, retain.userText, "", null);
   const groundingAvailable = provider === "gemini" && webSearchAllowed;
-  const geminiGrounds = groundingAvailable && !looksLikeSportsAsk(req.text);
+  const groundingDefault = !looksLikeSportsAsk(req.text) && !looksLikeWeatherAsk(req.text);
+  const geminiGrounds = groundingAvailable && (req.options?.grounding ?? groundingDefault);
   const sportsToolOnlyTurn = groundingAvailable && looksLikeSportsAsk(req.text);
-  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn;
+  const weatherToolOnlyTurn = groundingAvailable && looksLikeWeatherAsk(req.text);
+  const promptWebSearch = webSearchAllowed && !geminiGrounds && !sportsToolOnlyTurn && !weatherToolOnlyTurn;
+  const webGuidance = effectiveWebGuidance(resolveWebGuidance(req.options?.web_guidance), geminiGrounds);
+  voiceCtx.webGuidance = webGuidance;
+  if (webGuidance !== "auto") {
+    console.warn(`BENCH-WEB-GUIDANCE ACTIVE: web-capability block forced to '${webGuidance}' (grounding=${geminiGrounds}, web_search offered=${promptWebSearch})`);
+  }
   const isAnnouncement = req.announcement === true;
   const clientTools = req.client_fulfilled_tools;
   const multiEnabled = Array.isArray(clientTools) && clientTools.includes("multi");
@@ -4862,7 +5099,8 @@ async function orchestrate(deps, io, voiceCtx) {
     tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
     // Contamination tag — see CapsSnapshot. Only ever true on staging for an allowlisted bench
     // caller; omitted entirely on real turns so the common row shape is unchanged.
-    ...benchOverride.active ? { bench_prompt_override: true } : {}
+    ...benchOverride.active ? { bench_prompt_override: true } : {},
+    ...webGuidance !== "auto" ? { web_guidance: webGuidance } : {}
   };
   const context = {
     customPersonalityConfig: personality,
@@ -4874,6 +5112,12 @@ async function orchestrate(deps, io, voiceCtx) {
     // → buildPrompt's three-state web guidance: NATIVE only when grounding is genuinely on;
     // absent/false must never imply reachability (fail closed — a missing wire is not an ability).
     groundingEnabled: geminiGrounds,
+    webGuidance,
+    // → selectWebGuidance; 'auto' on every production turn
+    // → the location line buildPrompt appends (need ⑧). Trimmed to null so a blank/whitespace zip
+    // reads as "unknown" rather than emitting "The user is located in ." — an empty setting must
+    // produce NO claim, not a malformed one.
+    userLocation: (account.zipCode ?? "").trim() || null,
     announcement: isAnnouncement,
     clientTools,
     // → toolsListFor drops device-only tools this caller can't fulfill
@@ -4917,6 +5161,11 @@ ${p1PromptBase}` : p1PromptBase;
   }) : null;
   const pass1 = forcedContent ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } } : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: "decide", temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
   if (geminiGrounds && pass1.ok && pass1.raw) {
+    if (pass1.raw.grounding_queries === void 0) {
+      console.warn(
+        "DROP:GROUNDING_QUERIES_ABSENT \u2014 grounding was attached but ai-gateway reported no grounding_queries; logging result_count=0, which is NOT a measurement. Deploy ai-gateway (gemini-provider.ts sets it only when request.options.grounding is true)."
+      );
+    }
     await io.logWebSearch(token, {
       session_id: sessionId,
       provider: "gemini_grounding",
@@ -5051,7 +5300,7 @@ ${p1PromptBase}` : p1PromptBase;
       };
       return await secondPass(io, deps, t0, "web-search", NO_SEARCH_SENTINEL, [p1Stage, { name: "web_search_disabled", latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
     }
-    if (provider === "gemini") {
+    if (provider === "gemini" && geminiGrounds) {
       const GROUNDED_SENTINEL = {
         note: "No pre-fetched results were provided. Use your Google Search tool to find current information for the query, then answer.",
         query: queryStr
@@ -5502,6 +5751,58 @@ ${p1PromptBase}` : p1PromptBase;
     };
     return await secondPass(io, deps, t0, "dashie-help", helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
+  if (p1Parsed.type === "info_request" && p1Parsed.tool === "wikipedia") {
+    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    const wq = typeof p1Parsed.query === "object" && p1Parsed.query ? String(p1Parsed.query.query ?? req.text) : typeof p1Parsed.query === "string" && p1Parsed.query ? p1Parsed.query : req.text;
+    const tFetch = Date.now();
+    const wiki = await wikipediaTool.execute({ query: wq }, { timezone: req.timezone });
+    const wikiResult = wiki?.result ?? { found: false };
+    const fetchStage = {
+      name: "fetch_wikipedia",
+      latency_ms: Date.now() - tFetch,
+      result_count: wikiResult.found ? 1 : 0
+    };
+    const wikiData = wikiResult.found ? wikiResult : {
+      found: false,
+      note: "No Wikipedia article matched. Do NOT answer from your own knowledge instead \u2014 say you could not find anything on that.",
+      query: wq
+    };
+    return await secondPass(io, deps, t0, "wikipedia", wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+  }
+  if (p1Parsed.type === "info_request" && (p1Parsed.tool === "place_search" || p1Parsed.tool === "directions")) {
+    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    const q = typeof p1Parsed.query === "object" && p1Parsed.query ? p1Parsed.query : {};
+    const isPlaces = p1Parsed.tool === "place_search";
+    const tFetch = Date.now();
+    let payload = null;
+    try {
+      if (isPlaces && io.runPlaceSearch) {
+        payload = await io.runPlaceSearch(biasQuery(String(q.query ?? req.text), account.zipCode ?? void 0), token);
+      } else if (!isPlaces && io.runDirections) {
+        payload = await io.runDirections({
+          origin: String(q.origin ?? ""),
+          destination: String(q.destination ?? ""),
+          mode: q.mode ? String(q.mode) : void 0
+        }, token);
+      } else {
+        console.warn(`DROP: ${p1Parsed.tool} unavailable \u2014 this runtime injects no IO for it`);
+      }
+    } catch (e) {
+      console.warn(`DROP: ${p1Parsed.tool} lookup failed \u2014 ${e.message}`);
+    }
+    const result = payload ?? null;
+    const fetchStage = {
+      name: `fetch_${p1Parsed.tool}`,
+      latency_ms: Date.now() - tFetch,
+      result_count: result?.found ? 1 : 0
+    };
+    const data = result?.found ? result : {
+      found: false,
+      note: isPlaces ? "No matching place was found. Do NOT invent a business, address or opening hours \u2014 say you could not find it." : "No route could be worked out. Do NOT estimate a distance or drive time yourself \u2014 say you could not work it out."
+    };
+    const inquiryType = isPlaces ? "place-search" : "directions";
+    return await secondPass(io, deps, t0, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+  }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "personalities") {
     await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const tFetch = Date.now();
@@ -5896,6 +6197,7 @@ function toolMeta(parsed, route, caps) {
 0 && (module.exports = {
   amendUnkeptPicturePromise,
   looksLikeSportsAsk,
+  looksLikeWeatherAsk,
   promisedPictureQuery,
   resolvePersonality,
   runOrchestration,
@@ -5904,4 +6206,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "2c2b1eabe169774d0ce99114b30d9ade1ae3326b";
+module.exports.BRAIN_SOURCE_SHA = "00cde296c9676dc2571e6d464c11a6f8336f5497";

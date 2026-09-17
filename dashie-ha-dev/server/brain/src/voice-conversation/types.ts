@@ -64,6 +64,22 @@ export interface VoiceRequest {
     // accuracy 100% across every category while cutting the field compound turn ~15s→~1s. The
     // narrate pass-2 keeps dynamic thinking regardless. Additive/nullable.
     thinking_budget?: number;
+    // Bench/debug ONLY: force Gemini native grounding ON or OFF for this turn. ABSENT → the
+    // shipped default (grounding on for Gemini, minus the sports/weather guards) — no production
+    // caller sets it. Cannot buy grounding the account is not entitled to: the provider and
+    // credit gates sit outside the override (`orchestrator.ts`, `groundingAvailable &&`).
+    // Setting it FALSE makes the prompt offer `web_search` instead (Tavily), because
+    // `promptWebSearch` is the inverse of `geminiGrounds` — so the A/B is native-grounding vs
+    // Tavily, not web vs no-web. Additive/nullable.
+    grounding?: boolean;
+    // Bench/debug ONLY: force WHICH web-capability block the prompt carries, independently of the
+    // grounding flag that normally selects it. ABSENT → 'auto', the shipped selection, byte-
+    // identical — no production caller sets it. It exists for ONE experiment: grounding ON with
+    // the NATIVE text removed, which is the only way to tell Gemini's own tool suppression under
+    // grounding apart from our prompt saying "there is none to call". See resolveWebGuidance
+    // (prompt.ts) for the full derivation and for why 'native' is refused when grounding is off.
+    // Additive/nullable; an unrecognised value falls back to 'auto' with a DROP marker.
+    web_guidance?: WebGuidanceMode;
   };
 }
 
@@ -241,6 +257,10 @@ export interface Turn {
   metadata?: Record<string, unknown>;
 }
 
+/** Which web-capability block the prompt carries, FORCED. Bench/debug only; 'auto' is the shipped
+ *  selection (`selectWebGuidance`). See `resolveWebGuidance` in prompt.ts for why it exists. */
+export type WebGuidanceMode = 'auto' | 'tool' | 'native' | 'none';
+
 export interface PromptContext {
   customPersonalityConfig?: Personality | null;
   // Assistant identity → {{ASSISTANT_NAME}} in the base prompt (Chickadee
@@ -258,6 +278,15 @@ export interface PromptContext {
    *  Only this flag says "no tool, but the model still reaches the web". Drives which web-
    *  capability block the prompt carries — see selectWebGuidance in prompt.ts. */
   groundingEnabled?: boolean;
+  /** Bench/debug ONLY (`options.web_guidance`): force the web-capability block instead of deriving
+   *  it from the two flags above. Absent/'auto' → unchanged. */
+  webGuidance?: WebGuidanceMode;
+  /** Where the household is — `family.zipCode` (the ZIP SSOT, mirrored to `general.zipCode`), as a
+   *  human string the model can read ("33755", "Clearwater, FL"). Absent/empty → no location line
+   *  at all, which is the pre-2026-09-09 behaviour: the brain simply does not know, rather than
+   *  guessing. Fed by the orchestrator from `account.zipCode`, which was already read on every
+   *  turn and, until need ⑧, consumed by nothing but the headless weather fallback. */
+  userLocation?: string | null;
   // true → this turn IS a scheduled action firing: omit schedule_action from the offered
   // tools list so the replay cannot re-schedule itself (see VoiceRequest.announcement).
   announcement?: boolean;
@@ -303,6 +332,11 @@ export interface CapsSnapshot {
   // distinguishable at write time. Rides tool_trace.caps because every terminal row carries it —
   // no migration, no new column, and no path that can forget to attach it.
   bench_prompt_override?: boolean;
+  // 🔴 SET ONLY when `options.web_guidance` forced a non-'auto' block. Same contamination-control
+  // reasoning as bench_prompt_override above: such a turn was served under a prompt that differs
+  // from what the account's own settings would produce, so any analysis over ai_interactions must
+  // be able to exclude it. Absent on every real turn.
+  web_guidance?: WebGuidanceMode;
 }
 
 export interface Personality {

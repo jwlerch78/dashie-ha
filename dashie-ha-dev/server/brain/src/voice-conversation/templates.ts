@@ -15,6 +15,9 @@
      js/ai/prompts/inquiries/location-events.md
      js/ai/prompts/inquiries/travel-time.md
      js/ai/prompts/inquiries/family-locations.md
+     js/ai/prompts/inquiries/wikipedia.md
+     js/ai/prompts/inquiries/place-search.md
+     js/ai/prompts/inquiries/directions.md
      js/ai/prompts/inquiries/weather.md
      js/ai/prompts/inquiries/sports.md
      js/ai/prompts/inquiries/dashie-help.md
@@ -1549,6 +1552,120 @@ Current date and time: {{DATE_TIME}}
 Now provide a helpful, natural response about where this family member is. Be careful not to assume they're heading home - phrase travel time as "X minutes from home" not "ETA is X".
 `;
 
+export const INQUIRY_WIKIPEDIA = `# Inquiry Context: Wikipedia Lookup
+
+The user asked about a person, place, organisation, event, species or work. A Wikipedia summary has
+been retrieved below. It is the source of truth for this answer — do not supplement it from your own
+knowledge, and do not contradict it.
+
+## Response Guidelines
+
+- **Answer the question that was asked**, not the article. If they asked when someone was born, lead
+  with the date; if they asked who someone was, lead with the one-line identification. The summary is
+  raw material, not a script to read out.
+- **One or two sentences.** This is spoken aloud. No lists, headings, markdown or citations.
+- **Never add facts that are not in the summary** — not dates, not numbers, not relationships. If the
+  summary does not answer the specific question, say what it does tell you and that you do not have
+  the rest.
+- **If \`found\` is false**, say you could not find anything on that. Do NOT fall back on your own
+  recollection — that is the exact failure this lookup exists to prevent.
+- **Do not treat it as current.** Wikipedia lags live events. If the user's question turns out to be
+  about something happening now, say you would need to look it up rather than trusting the article.
+
+## Example Questions and Responses
+
+**"Who was Ada Lovelace?"**
+- Voice: "Ada Lovelace was a 19th-century English mathematician, best known for her work on Charles Babbage's Analytical Engine — she's often called the first computer programmer."
+
+**"How tall is Mount Rainier?"** (summary gives the elevation)
+- Voice: "Mount Rainier is about 14,410 feet tall — it's the highest peak in the Cascade Range."
+
+**"Tell me about Zyzzyx Corp"** (not found)
+- Voice: "I couldn't find anything on that one."
+
+## Retrieved Summary
+
+\`\`\`json
+{{WIKIPEDIA_DATA}}
+\`\`\`
+
+Answer the user's actual question from this summary, in one or two spoken sentences.
+`;
+
+export const INQUIRY_PLACE_SEARCH = `# Inquiry Context: Place Search
+
+The user asked about a real-world place — a business, restaurant, shop, park or landmark. Matching
+places have been retrieved below from a maps provider.
+
+## Response Guidelines
+
+- **Lead with the one they want.** Usually the first result. Give the name, then the useful detail
+  they asked for — address, whether it is open, the rating. Do not read out all three.
+- **Spoken-friendly** — say the address the way a person would ("on Gulf to Bay Boulevard"), not as
+  a postal line. No lists or markdown.
+- **NEVER invent a business name, an address, opening hours or a phone number.** A wrong address
+  sends someone driving to the wrong place; this is the single worst thing this tool can do.
+- **Only say it is open or closed if \`open_now\` is present.** If it is null, do not guess — say you
+  are not sure of the hours.
+- **If \`found\` is false**, say you could not find it. Do not offer a place from memory.
+
+## Example Questions and Responses
+
+**"Where's the nearest coffee shop?"**
+- Voice: "The closest is Blue Bottle Coffee on Main Street — it's open right now."
+
+**"What's the address of Publix on Gulf to Bay?"**
+- Voice: "That one's at 2100 Gulf to Bay Boulevard in Clearwater."
+
+**"Is the hardware store open?"** (\`open_now\` is null)
+- Voice: "I found Ace Hardware on Cleveland Street, but I'm not sure of their hours right now."
+
+## Retrieved Places
+
+\`\`\`json
+{{PLACE_SEARCH_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only these results.
+`;
+
+export const INQUIRY_DIRECTIONS = `# Inquiry Context: Distance and Travel Time
+
+The user asked how far somewhere is, or how long it takes to get there. A maps provider has returned
+the distance and duration below.
+
+## Response Guidelines
+
+- **Answer what was asked.** "How far" wants the distance; "how long" wants the duration. If the
+  question is open ("how far is the airport"), give both in one sentence.
+- **Say the numbers as speech** — "about twenty-two miles, roughly half an hour". Round; nobody
+  wants "22.4 miles, 31 minutes" read out.
+- **Mention traffic only if \`in_traffic\` is true**, and then only briefly ("about forty minutes in
+  traffic right now").
+- **NEVER estimate a distance or a drive time yourself.** If the data is missing, say so — a guessed
+  travel time gets someone somewhere late.
+- **If \`found\` is false**, say you could not work out the route.
+
+## Example Questions and Responses
+
+**"How far is Tampa airport?"**
+- Voice: "It's about twenty-two miles — roughly half an hour's drive right now."
+
+**"How long to walk to the park?"**
+- Voice: "About twelve minutes on foot."
+
+**"How long to drive to Atlanta?"** (not found)
+- Voice: "I couldn't work out a route for that one."
+
+## Retrieved Route
+
+\`\`\`json
+{{DIRECTIONS_DATA}}
+\`\`\`
+
+Answer in one or two spoken sentences, using only this data.
+`;
+
 export const INQUIRY_WEATHER = `# Inquiry Context: Weather Data
 
 You have been provided with weather data below based on the user's weather-related question.
@@ -1803,8 +1920,9 @@ export const AVAILABLE_TOOLS_LIST = `- calendar_events: query: {time_range: "tod
 - home_assistant: query: {command_hint: "transcript"} - Smart home control NOW (lights, thermostat, garage, etc.). If the request has a future time or delay ("turn the porch light off in 5 minutes", "turn on the lights at 9:30"), DO NOT use this — use schedule_action so it runs later, not now.
 - sports: query: {sport: "soccer|football|basketball|baseball|hockey", league: "nfl|nba|mlb|nhl|college-football|world-cup|premier-league|...", team: "team or country name", date: "YYYY-MM-DD (optional)", type: "score|schedule", list: true (for PLURAL "games")} - Live game SCORES and SCHEDULES, and nothing else. MANDATORY for the score, the result, who won, the kickoff time, "what time is the game", WHICH TEAMS are playing, and upcoming fixtures. NEVER answer THOSE from your own knowledge or a web/Google search, not even one you are sure about: this tool is the ONLY source with the user's correct LOCAL time (a web answer comes back in the wrong timezone) and the ONLY way the scorecard appears on screen. Always emit an info_request for this tool instead of replying directly. **This tool returns ONLY fixtures and scores. It has NO roster, lineup, player, stats, standings, or club-history data.** A question about WHO PLAYS or PLAYED a position ("who's starting at striker for Spain", "who's their quarterback"), a player's stats or injuries, the table/standings, or a club's history is NOT a score/schedule question — use web_search for those, even when the user names a team or a specific game. Calling this tool for a roster question hands you back the FIXTURE, and reading that out loud answers nothing (it just repeats the schedule at the user). Set list:true for any MULTI-game ask — "what games are on", "the NEXT games", "upcoming/today's World Cup games" (the plural "games" is the tell); leave it off for one team's score or "the next game" (singular). A FOLLOW-UP asking for MORE about a game already discussed ("tell me more about that game", details, color, highlights, a recap, how a team played) is ALSO not a score/schedule question: use web_search with a SELF-CONTAINED query naming both teams and the date from the conversation (e.g. "Yankees White Sox July 27 2026 recap key plays") — NEVER answer it from conversation memory alone; the score you already gave is exactly what the user wants to go BEYOND
 - get_current_time: query: {} - The CURRENT local date, time, and day of week. Call for "what time is it", "what's the date", "what day is it", AND to anchor any today/tomorrow/this-week/next reasoning. Authoritative — use it instead of your own clock, which is UTC and wrong for the user.
-- calculator: query: {expression: "0.15*80"} - Arithmetic, computed exactly. MANDATORY for any sum, product, division, percentage, bill split or recipe scaling — NEVER do the arithmetic yourself, you get it wrong silently. Write the ask as a plain expression: "15% of 80"→"0.15*80", "split 87 three ways"→"87/3". Supports + - * / % ^ and parentheses. found:false (including divide-by-zero) means say you could not work it out — never guess a number
-- convert_units: query: {value: 350, from: "fahrenheit", to: "celsius"} - Unit conversion: cooking measures (tsp/tbsp/cup/pint/quart/gallon/ml/l), weight, length, temperature, time, speed, area, energy, power, pressure, data, angle. MANDATORY for any "how many X in a Y" or "what is N X in Y" — never convert yourself. Pass fractions as decimals (two thirds of a cup → value 0.667, from "cup"). found:false means the unit is unknown or the two measure different things (cups to miles) — say you could not convert it, never invent a number
+- wikipedia: query: {query: "Ada Lovelace"} - STABLE encyclopaedic facts: a person, place, organisation, historical event, species, work. Use for "who is/was X", "what is X", "tell me about X" when the answer does not change day to day. NEVER for anything CURRENT — news, prices, scores, who currently holds an office or job, this week's anything — those go to web_search, because Wikipedia lags live events invisibly. Free and one call, so prefer it over web_search for settled facts. found:false means say you could not find it
+- place_search: query: {query: "coffee shop near me"} - Find a REAL PLACE: business, restaurant, shop, park, landmark. Returns name, address, rating, open-now. Use for "where's the nearest X", "what's the address of X", "find a X nearby", "is X open". Pass the user's own words. NOT for family members' locations - that's family_locations. found:false means say you could not find it: NEVER invent a business name, address or opening hours
+- directions: query: {origin: "home", destination: "Tampa airport", mode: "driving|walking|bicycling|transit"} - How FAR somewhere is and how LONG it takes, in current traffic. Use for "how far is X", "how long to drive to X". NOT for "when should I leave for <calendar event>" - that's travel_time. found:false means say you could not work it out: NEVER estimate a distance or drive time yourself
 - music: query: {action: "now_playing|search|play|pause|resume|stop|next|previous|volume_up|volume_down", query?: "song/artist/album text (for search or play)", uri?: "exact uri from a prior search result (for play)", speaker?: "speaker name, ONLY if the user names one"} - Music: what's playing now (action "now_playing" — "what song is this", "who sings this"), find music ("search" — returns matches to disambiguate), play it ("play" with the chosen uri, or a query), and transport — "stop the music"→stop, "pause"→pause, "turn it up/down"→volume_up/volume_down, "next/skip"→next. NEVER use "search" for a transport phrase
 - video_feeds: query: {action: "show|hide|show_all|hide_all|playback", camera?: "the camera name the user said, e.g. \\"pool\\" or \\"front door\\"", time?: "for playback ONLY — the user's own words for WHEN, e.g. \\"10 minutes ago\\", \\"at 10:30pm\\", \\"last night\\""} - Cameras: show a live feed ("show" + camera), hide it ("hide"), all of them ("show_all"/"hide_all"), or play back RECORDED footage from a past moment ("playback" + camera + time — "what happened at the front door around 3pm", "show me the pool camera 10 minutes ago"). Pass the user's own words through as "time" — the device resolves them in its own timezone. Use "show" (live) when no past time is mentioned
 - open_app: query: {app: "the app name the user said, e.g. \\"Netflix\\", \\"YouTube TV\\", \\"Prime Video\\", \\"Spotify\\""} - Open/launch a whole app on this screen: "open Netflix", "put on YouTube TV", "launch Spotify", "go to Prime Video". Pass the app name the user said through as "app"; the device matches it against installed apps. Use ONLY for opening an app — NOT for playing a specific song (use music) or showing cameras (use video_feeds)

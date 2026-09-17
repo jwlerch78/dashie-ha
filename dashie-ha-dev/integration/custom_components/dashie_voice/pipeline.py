@@ -175,9 +175,9 @@ async def _apply_wake_to_pipeline(
     already chose a wake entity (never override that). False means keep watching.
     """
     try:
-        from homeassistant.components.assist_pipeline import async_get_pipelines
-        from homeassistant.components.assist_pipeline.pipeline import (
-            async_setup_pipeline_store,
+        from homeassistant.components.assist_pipeline import (
+            async_get_pipelines,
+            async_update_pipeline,
         )
     except ImportError:
         return False
@@ -191,10 +191,10 @@ async def _apply_wake_to_pipeline(
         if pipeline.wake_word_entity:
             return True  # already has wake (ours or the user's) — stop watching
         try:
-            store_data = await async_setup_pipeline_store(hass)
-            await store_data.pipeline_store.async_update_item(
-                pipeline.id,
-                {"wake_word_entity": wake_entity, "wake_word_id": wake_id},
+            # The store replaces the whole pipeline on update (every field is required),
+            # so a dict of just the wake keys fails. HA's helper carries the rest over.
+            await async_update_pipeline(
+                hass, pipeline, wake_word_entity=wake_entity, wake_word_id=wake_id
             )
         except Exception as err:  # noqa: BLE001 — best-effort, never crash a callback
             _LOGGER.warning(

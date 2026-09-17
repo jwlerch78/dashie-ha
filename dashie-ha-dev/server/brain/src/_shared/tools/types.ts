@@ -23,8 +23,27 @@ export interface ToolContext {
   userId?: string;
   /** IANA timezone, e.g. "America/New_York" — tools format times in the user's zone. */
   timezone?: string;
-  /** "City, ST" or zip — for location-aware tools. */
-  location?: string;
+  /**
+   * Where the user is — "City, ST" or a zip, as a human string.
+   *
+   * 🔴 THIS FIELD WAS A SILENT NO-OP UNTIL 2026-09-09, and the shape of the failure is worth
+   * keeping. The type said `string`; its ONLY reader (`places.ts`) cast it to `{lat, lng}` and
+   * required both to be numbers. Two producers were faithfully passing strings —
+   * `tools/index.ts` (the HTTP gateway) and `conversation-relay/index.ts` (`?loc=`) — and the
+   * relay's caller is real shipping code: `GeminiLiveEngine.kt:178` appends `&loc=` from the
+   * device's own prefs. So an Android device on the realtime path went to the trouble of sending
+   * its location every session, and `place_search` threw it away. Nothing errored; the search was
+   * just always unbiased, which reads as the model being bad at local questions.
+   *
+   * ⇒ The contract is now what it always claimed to be: a STRING, and the reader honours it. A
+   * `{lat, lng}` object is still accepted for a future coordinate producer, but nothing produces
+   * one today — so a change here must keep the string path working or it re-breaks the only
+   * producers that exist.
+   *
+   * ⚠️ The CASCADE path (voice-conversation) is a separate question and still supplies this only
+   * where noted — see the ToolContext casts there.
+   */
+  location?: string | { lat?: number; lng?: number };
   /** Conversation/turn id — billed tools forward it so usage rows group with the turn. */
   sessionId?: string | null;
 }
