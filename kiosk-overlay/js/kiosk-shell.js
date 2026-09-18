@@ -32,6 +32,7 @@ import { initKioskSessionBridge, armKioskSyncTripwire } from './kiosk-settings-s
 // exactly this (webapp only — MISSING from kiosk bundle) rather than it reaching a device.
 import '../../js/data/sports/sports-bridge.js';
 
+import { focusSidebarFromBack } from './sidebar-back-focus.js';
 let onboarding = null;
 
 /**
@@ -1512,17 +1513,24 @@ window.dashieHandleBack = function() {
     }
   }
 
-  // 4. Fallback: reveal the native Kotlin sidebar. If we got here, Kotlin's
-  //    dispatchKeyEvent already chose NOT to focus the sidebar itself (e.g.
-  //    overlayHasKeyboardFocus stuck true after a tip flow). Without this
-  //    fallback BACK would dead-end and the user couldn't reach the sidebar
-  //    or control center.
-  console.log('[KioskShell] Back → reveal native sidebar (fallback)');
+  // 4. Fallback: hand BACK to the native Kotlin sidebar, FOCUSING it.
+  //
+  // ✏️ CORRECTED 2026-09-17 (D-067). This comment used to say Kotlin's dispatchKeyEvent
+  //    "already chose NOT to focus the sidebar itself (e.g. overlayHasKeyboardFocus stuck
+  //    true)". That is false, and it sent investigators at `overlayHasKeyboardFocus` for a
+  //    bug that is not there. `MainInputHandler.kt:399-420` forwards d-pad to JS on EVERY
+  //    branch — onboarding, overlay-has-focus, and the default — so **Kotlin never focuses
+  //    the sidebar for a d-pad key and makes no such choice**. It forwards; it does not decide.
+  //
+  //    The real defect: this branch called `revealNativeSidebar()`, which lands on
+  //    `revealForOnboardingTip()` — strip VISIBLE, `isVisible = true`, and no focus. On a TV
+  //    that is a strip the remote cannot steer, which is exactly what was reported.
+  //    `focusSidebarFromBack` prefers `DashieNative.focusSidebar()` and keeps reveal as the
+  //    old-APK fallback. See sidebar-back-focus.js for why this was never a regression.
+  console.log('[KioskShell] Back → focus native sidebar (fallback)');
   try {
-    if (typeof DashieNative !== 'undefined' && DashieNative.revealNativeSidebar) {
-      DashieNative.revealNativeSidebar();
-    }
-  } catch(e) { console.warn('[KioskShell] revealNativeSidebar failed:', e); }
+    focusSidebarFromBack(typeof DashieNative !== 'undefined' ? DashieNative : undefined);
+  } catch(e) { console.warn('[KioskShell] focusSidebarFromBack failed:', e); }
 };
 
 /**
