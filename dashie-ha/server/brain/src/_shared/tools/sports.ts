@@ -33,6 +33,8 @@ export interface SportsResult {
 /** A loose view of the gateway's game object. */
 export interface Game {
   league?: string; status?: string; detail?: string; startTime?: string; venue?: string;
+  /** ESPN's `venue.indoor`, carried by the gateway. `undefined` = not measured, never `false`. */
+  indoorVenue?: boolean;
   home?: string; away?: string; homeScore?: number | null; awayScore?: number | null;
   winner?: 'home' | 'away' | null;
   // Penalty-shootout result of a knockout game that ended level after regulation/ET.
@@ -76,6 +78,9 @@ export interface SportsCard {
   state: State;
   detail?: string;
   venue?: string;
+  /** Indoor venue ⇒ a kickoff forecast is meaningless. The ONE reader is `showsKickoffWeather()`
+   *  (`js/data/sports/kickoff-weather-rule.js`); `undefined` means not measured and keeps the weather. */
+  indoorVenue?: boolean;
   home: SportsTeam;
   away: SportsTeam;
   winner?: 'home' | 'away' | null;
@@ -397,6 +402,7 @@ function card(g: Game, state: State, tz?: string): SportsCard {
     state,
     detail,
     venue: g.venue,
+    indoorVenue: g.indoorVenue,
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)

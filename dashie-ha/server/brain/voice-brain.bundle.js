@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 00cde296c9676dc2571e6d464c11a6f8336f5497
+   Source git SHA: 6b77052650de93f22cdd2e0e7c34f24cad74d33f
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -3208,6 +3208,7 @@ function card(g, state, tz) {
     state,
     detail,
     venue: g.venue,
+    indoorVenue: g.indoorVenue,
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)
@@ -6206,4 +6207,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "00cde296c9676dc2571e6d464c11a6f8336f5497";
+module.exports.BRAIN_SOURCE_SHA = "6b77052650de93f22cdd2e0e7c34f24cad74d33f";
