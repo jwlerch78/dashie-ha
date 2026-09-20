@@ -220,6 +220,16 @@ node "$ADDON_ROOT/scripts/check-personalities.mjs"
 echo "==> Checking the device-setup surface (account-gated rows · no emptied card)"
 node "$ADDON_ROOT/scripts/check-device-setup-surface.mjs"
 
+# Per-device voice overrides: a per-device override must be offered ONLY where it can
+# take effect. Two traps, both invisible in review — "HA mode" is the ha_assist PRESET
+# and not the keys with `ha` in their name, and `tts.available` is NEWER THAN THE FLEET,
+# so an absent key means "this APK predates the field" and NOT "this device is mute".
+# Absent and empty are both falsy, and the devices carrying the field are the ones being
+# tested on, so the collapse renders perfectly in review and empties the picker on the
+# rest of the fleet.
+echo "==> Checking per-device voice overrides (preset gate · absent-vs-empty · affordability)"
+node "$ADDON_ROOT/scripts/check-voice-override-gating.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:
