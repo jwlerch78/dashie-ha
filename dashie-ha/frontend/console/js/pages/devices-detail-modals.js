@@ -313,6 +313,140 @@ const DevicesDetailModals = {
     },
 
     /**
+     * What this device can SPEAK with — the TTS counterpart of voiceCapabilityState.
+     *
+     * 🔴 THE STATE THAT DOES NOT EXIST ON THE STT SIDE, AND THE REASON THIS IS A
+     * SEPARATE FUNCTION RATHER THAN A PARAMETER: `tts.available` is NEWER THAN THE
+     * FLEET. It landed 2026-09-20, and on that day exactly ONE device of seven
+     * published it — the other six publish a `tts` block carrying `resolved` ONLY,
+     * because their APKs predate the field. `stt.registered` has no equivalent era.
+     *
+     * So ABSENT and EMPTY are different facts and must not collapse:
+     *   • the key is MISSING  → the device never had the chance to answer. Follow
+     *     CONTRACTS #78 state A: pre-capability behavior, exactly as if there were
+     *     no record at all.
+     *   • the key is an EMPTY ARRAY → the device answered, and the answer is none.
+     *
+     * ⚠️ An empty array and a missing key are BOTH falsy, so a truthiness test
+     * silently reads "your APK is old" as "this device can speak with nothing" —
+     * and, because the only device carrying the field is the only device anyone is
+     * testing on, that bug renders perfectly in review and empties the picker on
+     * every other device in the fleet. `check-voice-override-gating.mjs` pins both
+     * halves with the absent leg paired against a present control.
+     *
+     * A non-array value lands in 'no-field' too, deliberately: like a missing key it
+     * means the record does not TELL us what this device can speak with, which is a
+     * different claim from the device reporting none.
+     */
+    ttsCapabilityState(device) {
+        // Same reasoning as voiceCapabilityState: names come from the generated
+        // shape, and no shape means we cannot know what to read — report no-record
+        // rather than guess, so the failure direction is the account default.
+        const F = (typeof CAPABILITY_FIELDS !== 'undefined') ? CAPABILITY_FIELDS : null;
+        if (!F) return { state: 'no-record', record: null, offerable: [] };
+        const rec = device?.settings?.aiVoice?.voiceCapabilities;
+        if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return { state: 'no-record', record: null, offerable: [] };
+        if (rec[F.stackUp] !== true) return { state: 'stack-down', record: rec, offerable: [] };
+
+        const ttsBlock = rec[F.tts._self];
+        const block = (ttsBlock && typeof ttsBlock === 'object' && !Array.isArray(ttsBlock)) ? ttsBlock : {};
+        const raw = block[F.tts.available];
+        if (!Array.isArray(raw)) return { state: 'no-field', record: rec, offerable: [] };
+
+        // The device answered "none" — a real negative, and NOT the same as silence.
+        if (raw.length === 0) return { state: 'nothing-available', record: rec, offerable: [] };
+
+        // Offered ∩ device-available, same superset discipline as the STT side: the
+        // device's vocabulary may legitimately name engines this console no longer
+        // offers, and naming one here would re-introduce it through the back door.
+        const offeredIds = new Set((window.VoiceAiOptions?.TTS || []).map((o) => o.id));
+        const offerable = raw.filter((id) => offeredIds.has(id));
+        if (offerable.length === 0) return { state: 'unofferable', record: rec, offerable: [] };
+        return { state: 'ok', record: rec, offerable };
+    },
+
+    /**
+     * Can this ACCOUNT pay for a billed cloud voice? THREE states, not two.
+     *
+     * 🔴 UNKNOWN IS PERMISSIVE, and that is the ruling rather than a defensive
+     * default (O, 2026-09-20). Intersect only when spend state is KNOWN; when it is
+     * null, offer the device's list unmodified.
+     *
+     * Why: `devices` is in FeatureGate.LOCAL_MODE_PAGES, so this picker renders on an
+     * ACCOUNT-LESS box, where tier and balance are null BY DESIGN and permanently —
+     * not by a slow fetch. Treat absent as "cannot spend" and the add-on's local mode
+     * (the free edition) hides the cloud voice on every device in the household,
+     * WHILE THAT DEVICE'S OWN `tts.available` SAYS IT IS FINE — so it reads as a
+     * device capability bug. That is precisely the misattribution that put
+     * affordability on the console in the first place, just moved one layer up.
+     *
+     * ⚠️ Not only the local-mode path: CreditsService's boot seed gives up after a
+     * bounded retry and logs `DROP: CreditsService gave up seeding the balance`, so an
+     * account box reaches unknown too.
+     */
+    _ttsAffordability() {
+        const svc = (typeof CreditsService !== 'undefined') ? CreditsService : window.CreditsService;
+        const bal = (typeof svc?.balance === 'function') ? svc.balance() : null;
+        if (!bal || typeof bal.balance !== 'number') return { known: false, canSpend: true };
+        return { known: true, canSpend: bal.balance > 0 };
+    },
+
+    /**
+     * The per-device text-to-speech row. Hidden unless the device has published a
+     * usable `tts.available` — the same "never offer an override we cannot validate"
+     * posture the STT picker takes.
+     */
+    _renderTtsProviderRow(device) {
+        // §6c: per-device overrides do not apply under the ha_assist preset, where the
+        // HA pipeline owns TTS and a Dashie-side choice has nothing to act on.
+        if (!this.voiceOverridesApply()) return '';
+        const { state, offerable } = this.ttsCapabilityState(device);
+        if (state !== 'ok') {
+            const note = this.ttsCapabilityNote(state);
+            return note ? `<div class="form-group" style="font-size: var(--font-size-sm); color: var(--text-muted);">${this._escape(note)}</div>` : '';
+        }
+
+        // Billed-ness comes from the option list's own `locality`, not a hardcoded id
+        // here — one less place for the cloud engine's name to be written down.
+        const opts = new Map((window.VoiceAiOptions?.TTS || []).map((o) => [o.id, o]));
+        const afford = this._ttsAffordability();
+        const current = this._voiceSetupValue(device, 'ttsProvider');
+
+        const rows = offerable.map((id) => {
+            const opt = opts.get(id);
+            const billed = opt?.locality === 'cloud';
+            const blocked = billed && afford.known && !afford.canSpend;
+            const label = opt?.label || id;
+            return `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''} ${blocked ? 'disabled' : ''}>` +
+                `${this._escape(label)}${blocked ? ' — no credits on this account' : ''}</option>`;
+        }).join('');
+
+        return `
+            <div class="form-group">
+                <label class="form-label">Voice on this device</label>
+                <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('ttsProvider', this.value)">
+                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    ${rows}
+                </select>
+            </div>`;
+    },
+
+    /** The one-line explanation shown under a device whose TTS override is hidden. */
+    ttsCapabilityNote(state) {
+        switch (state) {
+            // ⚠️ Must NOT say the device has no voices — it has not reported on the
+            // question. Saying a false thing about the user's own device is worse
+            // than a vaguer true one (the STT note carries the same rule).
+            case 'no-field':   return 'Update this device to choose its own voice.';
+            case 'no-record':  return 'Update this device to choose its own voice.';
+            case 'stack-down': return "This device hasn't started its voice stack yet — its voices will appear after it runs voice once.";
+            case 'nothing-available': return 'This device has no voices it can use, so it follows the account setup.';
+            case 'unofferable': return 'This device uses a voice this console no longer offers, so it follows the account setup.';
+            default: return '';
+        }
+    },
+
+    /**
      * Human label for an STT id, from the console's OWN option list.
      *
      * ⚠️ Falls back to the raw id rather than to "Unknown", and that is A's
@@ -548,6 +682,7 @@ const DevicesDetailModals = {
                     ${rows}
                 </select>
             </div>
+            ${this._renderTtsProviderRow(device)}
             ${this._renderHaEngineRows(device)}
             <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
                 Only engines this device has actually registered are listed.

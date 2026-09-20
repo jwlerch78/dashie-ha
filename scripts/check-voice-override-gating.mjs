@@ -43,15 +43,18 @@ import vm from 'node:vm';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const SUBJECT = 'dashie-ha/frontend/console/js/pages/devices-detail-modals.js';
+const SHAPE = 'dashie-ha/frontend/console/js/lib/voice-capability-shape.generated.js';
 
 const src = fs.readFileSync(path.join(ROOT, SUBJECT), 'utf8');
 const ctx = {
     console, window: {}, document: {},
     App: { renderPage() {} }, DevicesPage: {}, Toast: {},
-    CAPABILITY_FIELDS: { stt: { _self: 'stt' } },
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
+// The REAL generated shape, not a hand stub: a stub would drift from the Kotlin
+// producer silently, and the field names are the whole point of CONTRACTS #79.
+vm.runInContext(fs.readFileSync(path.join(ROOT, SHAPE), 'utf8'), ctx);
 vm.runInContext(src, ctx);
 
 const M = ctx.window.DevicesDetailModals || ctx.DevicesDetailModals;
@@ -124,6 +127,99 @@ M._setVoiceSetupPending('haSttEngineId', 'engine.1');
 leg('two leaves stage independently', Object.keys(M._voiceSetupPending).length, 2);
 M._setVoiceSetupPending('haTtsVoiceId', '');
 leg("a staged '' (inherit) beats the stored value", M._voiceSetupValue({ settings: { voice: { haTtsVoiceId: 'x' } } }, 'haTtsVoiceId'), '');
+
+// ── Gate 7: the TTS capability record, and the ABSENT-vs-EMPTY collapse ──
+//
+// 🔴 THE TRAP THIS SECTION EXISTS FOR, and it is invisible in the only configuration
+// anyone reviews. As of 2026-09-20 exactly ONE device of seven publishes `tts.available`;
+// the other six publish `tts` with `resolved` ONLY, because their APKs predate the field.
+// An empty array and a missing key both read falsy, so a picker that tests truthiness
+// treats "your APK is old" as "this device can speak with nothing" — and renders
+// perfectly on the one device it is tested against while showing an empty picker on
+// every other device in the fleet.
+//
+// ⇒ ABSENT and EMPTY must resolve to DIFFERENT states. Absent follows CONTRACTS #78
+// state A (pre-capability behavior, same as no record at all); empty is a real negative.
+const TTS_VOCAB = [{ id: 'dashie_cloud' }, { id: 'local_url' }, { id: 'ha_engine' }, { id: 'android_voice' }];
+const withTts = (tts, stackUp = true) => ({ settings: { aiVoice: { voiceCapabilities: { stackUp, lane: 'cascade', tts } } } });
+
+if (typeof M.ttsCapabilityState !== 'function') {
+    leg('ttsCapabilityState exists', false, true);
+} else {
+    ctx.window.VoiceAiOptions = { STT: [], TTS: TTS_VOCAB };
+
+    // 🔴 THE LEG THIS GATE WAS WRITTEN FOR — written RED, before the implementation.
+    leg("tts.available ABSENT (old APK) → 'no-field', NOT an empty-capability verdict",
+        M.ttsCapabilityState(withTts({ resolved: 'android_voice: …' })).state, 'no-field');
+
+    // CONTROL for the leg above: the SAME call on a record that HAS the field must
+    // reach 'ok'. Without this, a function returning 'no-field' unconditionally passes.
+    const okState = M.ttsCapabilityState(withTts({ resolved: 'x', available: ['dashie_cloud', 'ha_engine'] }));
+    leg("CONTROL: tts.available PRESENT → 'ok'", okState.state, 'ok');
+    leg('CONTROL: and it offers the two ids', okState.offerable.join(','), 'dashie_cloud,ha_engine');
+
+    // EMPTY is a real negative and must NOT collapse into the absent case.
+    leg("tts.available EMPTY → 'nothing-available' (a real negative, distinct from absent)",
+        M.ttsCapabilityState(withTts({ resolved: 'x', available: [] })).state, 'nothing-available');
+
+    // Present but nothing this console offers — the STT side's 'unofferable' precedent.
+    leg("tts.available holds only ids this console does not offer → 'unofferable'",
+        M.ttsCapabilityState(withTts({ resolved: 'x', available: ['some_retired_engine'] })).state, 'unofferable');
+
+    // The states inherited from the STT reader must behave identically.
+    leg("stackUp false → 'stack-down'",
+        M.ttsCapabilityState(withTts({ resolved: 'x', available: ['dashie_cloud'] }, false)).state, 'stack-down');
+    leg("no record at all → 'no-record'", M.ttsCapabilityState({ settings: {} }).state, 'no-record');
+
+    // The note must not tell a user something false about their own device. An old APK
+    // has not reported that it can speak with nothing — it has not reported at all.
+    const note = M.ttsCapabilityNote ? M.ttsCapabilityNote('no-field') : '';
+    leg("the 'no-field' note does not claim the device has no voices",
+        /no voices|nothing|cannot speak/i.test(note), false);
+    leg("the 'no-field' note is non-empty (it must explain the absence)", note.length > 0, true);
+}
+
+// ── Gate 8: affordability is the CONSOLE's, and UNKNOWN is PERMISSIVE ──
+//
+// 🔴 The ruling (O, 2026-09-20): intersect only when spend state is KNOWN; when it is null,
+// offer the device's list unmodified. `devices` is in LOCAL_MODE_PAGES, so this renders on an
+// account-less box where balance is null BY DESIGN and permanently — treating absent as
+// "cannot spend" would hide the cloud voice across the whole household in the free edition
+// while the device's own tts.available says it is fine.
+if (typeof M._renderTtsProviderRow === 'function') {
+    ctx.window.VoiceAiOptions = {
+        STT: [],
+        TTS: [{ id: 'dashie_cloud', label: 'Cloud TTS', locality: 'cloud' },
+              { id: 'android_voice', label: 'On-Device', locality: 'local' }],
+    };
+    acct({ pipelinePreset: 'local' });
+    const dev = withTts({ resolved: 'x', available: ['dashie_cloud', 'android_voice'] });
+    const rowWith = (bal) => { ctx.CreditsService = { balance: () => bal }; M._voiceSetupPending = {}; return M._renderTtsProviderRow(dev); };
+
+    // THE LEG THE RULING EXISTS FOR: no balance seeded (account-less box, or the seed gave up).
+    const unknown = rowWith(null);
+    leg('spend UNKNOWN → the cloud voice is still OFFERED (permissive)', /dashie_cloud/.test(unknown) && !/disabled/.test(unknown), true);
+
+    // CONTROLS: the same call must be able to BOTH offer and withhold, or the leg above is vacuous.
+    const funded = rowWith({ balance: 250 });
+    leg('CONTROL: spend KNOWN and funded → offered', /dashie_cloud/.test(funded) && !/disabled/.test(funded), true);
+    const broke = rowWith({ balance: 0 });
+    leg('spend KNOWN and empty → the cloud voice is WITHHELD with a readable reason',
+        /disabled/.test(broke) && /no credits/.test(broke), true);
+    leg('CONTROL: the free on-device voice is offered in ALL THREE states',
+        [unknown, funded, broke].every((h) => /android_voice/.test(h)), true);
+
+    // The preset gate still wins over everything in this row.
+    acct({ pipelinePreset: 'ha_assist' });
+    leg('ha_assist → no TTS row at all', rowWith({ balance: 250 }) === '', true);
+    acct({ pipelinePreset: 'local' });
+
+    // An old APK must not render an empty picker — it renders the explanatory note instead.
+    const oldApk = (() => { ctx.CreditsService = { balance: () => null }; return M._renderTtsProviderRow(withTts({ resolved: 'x' })); })();
+    leg('old APK (no tts.available) → a note, not a <select>', !/<select/.test(oldApk) && oldApk.length > 0, true);
+} else {
+    leg('_renderTtsProviderRow exists', false, true);
+}
 
 console.log(fail === 0 ? `\nALL PASS (${pass} legs)` : `\n${fail} FAILED of ${pass + fail}`);
 process.exit(fail ? 1 : 0);
