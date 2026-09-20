@@ -289,14 +289,20 @@ const ConsoleAiClient = {
      *    canonical `type: 'info_request', tool: 'web_search'`. Both
      *    Gemini and OpenAI hit this when conversation history primes
      *    them to think the tool is the response type. Rewrite to
-     *    canonical shape so our dispatch code finds it. */
+     *    canonical shape so our dispatch code finds it.
+     *
+     *  KNOWN_TOOLS below MIRRORS the brain's parse.ts set. A tool added to one
+     *  side only means that surface recovers a malformed call and the other
+     *  drops it, so keep the two identical when adding a tool. */
     _normalizeParsedShape(parsed) {
         if (!parsed || typeof parsed !== 'object') return parsed;
         const KNOWN_TOOLS = new Set([
             'web_search', 'calendar_events', 'family_members', 'chores', 'rewards',
             'location_events', 'travel_time', 'family_locations', 'weather_data',
             'home_assistant', 'get_current_time', 'dashie_help', 'music',
-            'schedule_action',
+            'schedule_action', 'personalities',
+            'calculator', 'convert_units', 'wikipedia', 'place_search', 'directions',
+            'sports',
         ]);
         if (parsed.type && KNOWN_TOOLS.has(parsed.type) && parsed.type !== 'info_request') {
             return {

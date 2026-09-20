@@ -83,6 +83,9 @@
     <script src="js/lib/engine-resolution.js?v=20260716a"></script>
     <script src="js/lib/engines-store.js?v=20260716a"></script>
     <script src="js/lib/voice-ai-options.js?v=20260728d"></script>
+    <!-- HA engine detection, shared by the Voice & AI page and the per-device voice modal.
+         Must load AFTER voice-ai-options.js: haOption() reads window.VoiceAiOptions. -->
+    <script src="js/lib/ha-engines.js?v=20260920a"></script>
     <script src="js/components/voice-ai-cards.js?v=20260712a"></script>
     <script src="js/components/voice-ai-preset-picker.js?v=20260730b"></script>
     <script src="js/components/voice-ai-defaults-cards.js?v=20260804b"></script>
