@@ -120,39 +120,18 @@ const DevicesDetailModals = {
     // ── Account-settings cache (for ai.wakeWord and other account-wide
     //    fields we surface read/edit from the device detail page) ─────
 
-    _accountSettings: null,     // populated by ensureAccountSettings()
-    _accountLoading: false,
+    // 🔴 NOT a field any more — an accessor over AccountSettingsStore, so the CARD
+    // and this MODAL read ONE cache. Two copies of the household on one page drift
+    // the moment one refreshes, and the visible symptom is the card's diff dot
+    // being wrong, which gets hunted in the renderer instead of the state.
+    // The name is kept because ~10 call sites and the gate read it.
+    get _accountSettings() { return window.AccountSettingsStore?.get() ?? null; },
+    set _accountSettings(v) { window.AccountSettingsStore?.set(v); },
 
     /** Lazy-load user_settings the first time something on this page needs
      *  an account-level field. Re-render when the load resolves so the
      *  Voice section's Wake Word row swaps from "—" to the real value. */
-    ensureAccountSettings() {
-        if (this._accountSettings || this._accountLoading) return;
-        // 🔴 Feature-detect, because this is now called from a RENDER path.
-        // `loadUserSettings` does not exist on every DashieAuth: the ACCOUNT-LESS
-        // add-on console runs a local shim with no user_settings to load at all.
-        // Before 2026-08-25 this function had ZERO callers, so the gap was
-        // invisible; the first render-path caller turned it into a throw that
-        // takes out the whole Devices detail page on the published HA edition.
-        // Caught by `lint:devices-surface` leg 3, which renders the page for real.
-        //
-        // Absent → cache an empty object, exactly like the .catch() below. An
-        // account-less box HAS no account defaults, so "{}" is the true answer
-        // there, not a degraded one.
-        if (typeof DashieAuth?.loadUserSettings !== 'function') {
-            this._accountSettings = {};
-            return;
-        }
-        this._accountLoading = true;
-        DashieAuth.loadUserSettings().then(s => {
-            this._accountSettings = s || {};
-            this._accountLoading = false;
-            App.renderPage();
-        }).catch(() => {
-            this._accountSettings = {};
-            this._accountLoading = false;
-        });
-    },
+    ensureAccountSettings() { window.AccountSettingsStore?.ensure(); },
 
     /**
      * The household's default wake word — what a device with no override follows.

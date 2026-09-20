@@ -54,19 +54,111 @@ const DevicesCard = {
      * device's hardware telemetry. Smaller control set: reload, screen
      * on/off, light/dark, volume — no lock, no camera, no screenshot.
      */
+    /**
+     * The COMPACT SETTINGS CARD (P4a, 2026-09-20) — the mock-up's device card.
+     *
+     * Design of record: artifact EA6Jig35Q57HhXi115YTqB. A theme gradient bar, a
+     * header carrying the device's identity and its theme swatch, a two-column
+     * grid of tappable value tiles, and a footer link into the full detail page.
+     *
+     * ⚠️ TWO DELIBERATE DEVIATIONS FROM THE MOCK, both because the mock draws a
+     * product we have not built rather than because it is wrong:
+     *
+     * 1. **No Status/Settings tabs.** The mock splits this page in two and puts
+     *    the control pills on a Status tab. This console has no such tabs (the
+     *    nearest thing is the `_techView` toggle), so the pills STAY on this card
+     *    — removing them would delete working capability to chase a layout.
+     * 2. **No "Voice pipeline" tile.** The mock shows the pipeline preset as a
+     *    per-device value with a household fallback. On this product the preset
+     *    is ACCOUNT-WIDE by ruling (John, 2026-09-20: it is house philosophy and
+     *    simplifies the UI) — no device can hold its own. A tile that can never
+     *    differ would carry a dot that can never light, so it belongs on the
+     *    household card, not here.
+     */
     _renderSimple(device, idAttr, live, conflict, m, statusBadge) {
-        const offlineStyle = !live ? 'opacity: 0.4; pointer-events: none;' : '';
+        // The mock dims an offline card rather than hiding it, and keeps it
+        // inert. 0.66 is the mock's value; the old card used 0.4.
+        const offlineStyle = !live ? 'opacity: 0.66; pointer-events: none;' : '';
         return `
-            <div class="card card-clickable" onclick="DevicesPage.showDetail('${idAttr}')">
-                <div class="card-body" style="padding: 12px;">
-                    ${this._renderSimpleHeader(device, idAttr, conflict)}
-                    <div style="${offlineStyle}">
-                        ${this._renderSimpleSettings(device, m)}
-                        ${this._renderSimpleControls(device, idAttr, m)}
-                    </div>
+            <div class="dcard card-clickable" onclick="DevicesPage.showDetail('${idAttr}')">
+                ${this._renderThemeBar(device)}
+                <div style="padding: 10px 12px 2px;">
+                    ${this._renderCompactHeader(device, idAttr, conflict, live)}
+                </div>
+                <div style="${offlineStyle}">
+                    ${this._renderSimpleSettings(device, m)}
+                    <div style="padding: 0 12px;">${this._renderSimpleControls(device, idAttr, m)}</div>
+                </div>
+                <div class="dcard-foot">
+                    <span style="flex:1"></span>
+                    <button type="button" class="dcard-link"
+                            onclick="event.stopPropagation(); DevicesPage.showDetail('${idAttr}')">All settings ›</button>
                 </div>
             </div>
         `;
+    },
+
+    /** The 4px theme-colored bar across the top of a card. */
+    _renderThemeBar(device) {
+        const fam = (device.settings?.display?.themeFamily || 'default').toLowerCase();
+        return `<div class="dcard-bar theme-${DevicesPage._escape(fam)}"></div>`;
+    },
+
+    /**
+     * Header: icon · name (+ HA-name conflict · offline pill) · model line · theme swatch.
+     * The swatch doubles as the Theme control, which is why Theme has no tile below.
+     */
+    _renderCompactHeader(device, idAttr, conflict, live) {
+        const icon = DevicesPage._deviceIcon(device.device_type);
+        const fam = (device.settings?.display?.themeFamily || 'default').toLowerCase();
+        const dark = device.settings?.display?.displayMode === 'dark';
+        const conflictChip = conflict
+            ? `<span title="HA: ${DevicesPage._escape(conflict)}" style="color: var(--accent); font-size: 11px;">⚠</span>`
+            : '';
+        const offlineChip = live ? '' : '<span class="dcard-off">offline</span>';
+        // Local mode has no account route, so the theme editor is not offered there.
+        const swatch = DevicesPage._localMode === true ? '' : `
+            <button type="button" class="dcard-swatch theme-${DevicesPage._escape(fam)}${dark ? ' is-dark' : ''}"
+                    title="Theme: ${DevicesPage._escape(this._prettify(fam))}"
+                    aria-label="Theme: ${DevicesPage._escape(this._prettify(fam))}"
+                    onclick="event.stopPropagation(); DevicesDetailModals.openTheme('${idAttr}')"></button>`;
+        return `
+            <div style="display: flex; align-items: flex-start; gap: 10px;">
+                <div class="device-card-icon" style="flex-shrink: 0;">${icon}</div>
+                <div style="flex: 1; min-width: 0;">
+                    <div class="dcard-name">
+                        <span>${DevicesPage._escape(device.device_name || 'Unnamed Device')}</span>
+                        ${conflictChip}${offlineChip}
+                    </div>
+                    <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(DevicesPage._typeLabel(device))}</div>
+                </div>
+                <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
+                    ${swatch}${this._buildLockChip(device, idAttr)}
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * One tile in the card's grid.
+     *
+     * `diff` lights the mock's orange dot: this device holds its own value and
+     * the household default is something else.
+     * ⚠️ Only passed where BOTH sides are known. `AccountSettingsStore.get()`
+     * returns null until it loads, and a falsy test there would mark every
+     * device as matching the household — the dots would silently never appear.
+     */
+    _tile(label, value, openCall, opts = {}) {
+        const cls = ['dtile', opts.diff ? 'is-diff' : ''].join(' ');
+        const title = opts.diff && opts.household
+            ? `${label} — household uses ${opts.household}`
+            : label;
+        return `
+            <button type="button" class="${cls}" title="${DevicesPage._escape(title)}"
+                    onclick="event.stopPropagation(); ${openCall}">
+                <span class="dtile-l">${DevicesPage._escape(label)}</span>
+                <span class="dtile-v">${DevicesPage._escape(value)}</span>
+            </button>`;
     },
 
     /**
@@ -168,10 +260,9 @@ const DevicesCard = {
         const aiVoice = settings.aiVoice || {};
         const photos = settings.photos || {};
 
-        // Theme — the FAMILY only. Dark/Light mode is a separate control (the
-        // Quick Controls light/dark pill), deliberately NOT folded into the
-        // theme name (2026-07-06, per user).
-        const theme = display.themeFamily ? this._prettify(display.themeFamily) : 'Default';
+        // Theme is no longer a tile — the header's swatch owns it (P4a). The
+        // FAMILY-only rule still holds there: dark/light is a separate control and
+        // is deliberately NOT folded into the theme name (2026-07-06, per user).
 
         // AI Personality — the device blob stores personalityId (template key or
         // custom uuid); resolve it to the catalog's display name.
@@ -191,18 +282,7 @@ const DevicesCard = {
             ? `${this._formatTime12(sleep.sleepTime)} – ${this._formatTime12(sleep.wakeTime)}`
             : 'Off';
 
-        // Each row opens the matching editor modal. stopPropagation keeps the
-        // card's click-to-detail navigation from also firing. The ‹edit› chevron
-        // signals the row is tappable.
         const id = device.device_id;
-        const row = (label, value, openCall) => `
-            <div onclick="event.stopPropagation(); ${openCall}"
-                 style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: var(--font-size-sm); cursor: pointer;"
-                 onmouseover="this.style.opacity=0.65" onmouseout="this.style.opacity=1">
-                <span style="color: var(--text-secondary);">${label}</span>
-                <span style="font-weight: 500; color: var(--text-primary); text-align: right; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${DevicesPage._escape(value)}<span style="color: var(--text-muted); margin-left: 6px;">›</span></span>
-            </div>
-        `;
         const leaseLine = this._renderLeaseLine(device);
         // 🔴 Local mode: none of the rows. Every one opens an editor that
         // persists via DevicesPage._onSettingChange → update_device_settings —
@@ -215,13 +295,37 @@ const DevicesCard = {
                 ? `<div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">${leaseLine}</div>`
                 : '';
         }
+        // ── The household comparison, for the mock's orange "differs" dot ──
+        // One shared cache (AccountSettingsStore); the modal reads the same one.
+        // Asking for it here is what triggers the lazy load on a card-only render.
+        DevicesDetailModals.ensureAccountSettings();
+        const account = window.AccountSettingsStore?.get();
+
+        // 🔴 WAKE WORD is the only tile that can carry a dot today, and that is a
+        // fact about the DATA, not a shortcut. It is the one value where a
+        // device-scoped key (`aiVoice.wakeWord`, D5) and a household default
+        // (`ai.defaultWakeWord`) both exist and are both already in the console's
+        // hands. Theme/sleep/photos are device-scoped with no household default to
+        // differ FROM, and the pipeline preset is account-wide so no device can
+        // hold its own. Adding a dot to those would mean inventing a comparison.
+        //
+        // ⚠️ `account` is null until the store resolves. Compare only when it is
+        // loaded — a falsy test here reads "not known yet" as "matches the
+        // household" and the dots silently never appear.
+        const deviceWake = aiVoice.wakeWord || '';
+        const houseWake = account?.ai?.defaultWakeWord || '';
+        const wakeKnown = account !== null && !!houseWake;
+        const wakeDiffers = wakeKnown && !!deviceWake && deviceWake !== houseWake;
+        const wakeShown = deviceWake || houseWake || '—';
+
         return `
-            <div style="margin-top: 12px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 4px;">
-                ${leaseLine}
-                ${row('Theme', theme, `DevicesDetailModals.openTheme('${id}')`)}
-                ${row('Sleep / Wake', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`)}
-                ${row('AI Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`)}
-                ${row('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`)}
+            ${leaseLine ? `<div style="padding: 0 12px;">${leaseLine}</div>` : ''}
+            <div class="dtiles">
+                ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`)}
+                ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`)}
+                ${this._tile('Wake word', this._prettify(wakeShown), `DevicesDetailModals.openWakeWord('${id}')`,
+                             { diff: wakeDiffers, household: houseWake })}
+                ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`)}
             </div>
         `;
     },

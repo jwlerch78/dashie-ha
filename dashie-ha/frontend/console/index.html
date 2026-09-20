@@ -44,6 +44,10 @@
     <script src="js/lib/provider-auth-renderers.js?v=20260801a"></script>
     <script src="js/lib/provider-availability.js?v=20260804a"></script>
     <script src="js/lib/console-state.js?v=20260712a"></script>
+    <!-- ONE cache of the household's account settings, shared by the device CARD
+         (diff dots) and the device MODAL. Must load before either. Two caches on
+         one page drift, and the visible symptom is a wrong dot. -->
+    <script src="js/lib/account-settings-store.js?v=20260920a"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
     <script src="js/lib/ai-models-catalog.js?v=20260712a"></script>

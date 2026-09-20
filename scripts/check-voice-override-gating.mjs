@@ -44,6 +44,7 @@ import vm from 'node:vm';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const SUBJECT = 'dashie-ha/frontend/console/js/pages/devices-detail-modals.js';
 const SHAPE = 'dashie-ha/frontend/console/js/lib/voice-capability-shape.generated.js';
+const STORE = 'dashie-ha/frontend/console/js/lib/account-settings-store.js';
 
 const src = fs.readFileSync(path.join(ROOT, SUBJECT), 'utf8');
 const ctx = {
@@ -55,6 +56,9 @@ vm.createContext(ctx);
 // The REAL generated shape, not a hand stub: a stub would drift from the Kotlin
 // producer silently, and the field names are the whole point of CONTRACTS #79.
 vm.runInContext(fs.readFileSync(path.join(ROOT, SHAPE), 'utf8'), ctx);
+// The real shared household store: `_accountSettings` on the subject is an ACCESSOR over
+// it, so a stub here would test the accessor against something that is not the store.
+vm.runInContext(fs.readFileSync(path.join(ROOT, STORE), 'utf8'), ctx);
 vm.runInContext(src, ctx);
 
 const M = ctx.window.DevicesDetailModals || ctx.DevicesDetailModals;
