@@ -19,7 +19,7 @@ const CAPABILITY_FIELDS = Object.freeze({
   stackUp: 'stackUp',
   lane: 'lane',
   stt: Object.freeze({ _self: 'stt', registered: 'registered', available: 'available', priority: 'priority', running: 'running' }),
-  tts: Object.freeze({ _self: 'tts', resolved: 'resolved' }),
+  tts: Object.freeze({ _self: 'tts', resolved: 'resolved', available: 'available' }),
   unmappedTypes: 'unmappedTypes',
   note: 'note',
 });
