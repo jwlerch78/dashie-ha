@@ -382,15 +382,11 @@ const VoiceAiPage = {
      *  installing an engine is just the normal refresh. `cache:'no-store'` stops
      *  the browser/ingress serving a stale response (mirrors _probeAddonMode). */
     async _fetchEngines(force = false) {
-        if (!DashieAuth.isAddonMode) { this._engines = null; return; }
-        try {
-            const url = DashieAuth._addonUrl('/api/voice/engines' + (force ? '?refresh=1' : ''));
-            const r = await fetch(url, { cache: 'no-store' });
-            this._engines = r.ok ? await r.json() : null;
-        } catch (e) {
-            console.warn('[VoiceAiPage] engine detection unavailable:', e?.message || e);
-            this._engines = null;
-        }
+        // Delegates to the shared loader (js/lib/ha-engines.js). The Devices page needs the SAME
+        // lists to offer a per-device HA engine / Piper voice, and a second fetcher of this
+        // endpoint would be a hand-mirror. Behaviour is unchanged: add-on mode only, `no-store`,
+        // `?refresh=1` on force, and null on any failure.
+        this._engines = await HaEngines.load(force);
     },
 
     /** Which BYO providers have a key on the box (booleans only, never the

@@ -335,38 +335,90 @@ const DevicesDetailModals = {
     _voiceSetupPending: null,
     _voiceSetupSaving: false,
 
+    /**
+     * Presets under which a per-device voice override means anything.
+     *
+     * 🔴 John, 2026-09-20: *"we don't need per device in HA mode. Only in local, cloud, and hybrid."*
+     * Under `ha_assist` the HA Assist PIPELINE owns STT, agent and TTS, so a Dashie-side override
+     * has nothing to act on — you would configure it in HA. And the one thing you WOULD vary per
+     * device there, which Assist pipeline this device uses, is already per-device: `voice_pipeline_id`
+     * is SYNC_EXEMPT `local-only (HA pipeline)` and never leaves the device.
+     *
+     * ⚠️ "HA mode" is the ha_assist PRESET, not the keys with `ha` in their name. `haTtsEngineId` /
+     * `haSttEngineId` are what the LOCAL preset uses (`VoicePresetSeeder`: TTS_HA_ENGINE when an
+     * engine id is known), so they belong to a preset that DOES get per-device overrides. Gating on
+     * the key name instead of the preset would remove per-device engines from `local`.
+     */
+    VOICE_OVERRIDE_PRESETS: ['cloud', 'hybrid', 'local'],
+
+    /** Is this household on a preset where per-device voice overrides apply at all? */
+    voiceOverridesApply() {
+        const preset = this._accountSettings?.voice?.pipelinePreset;
+        // Unknown preset (account settings not loaded yet) ⇒ do NOT offer. Same posture as an
+        // empty capability list: fail toward the account default, never toward a guess.
+        return this.VOICE_OVERRIDE_PRESETS.includes(String(preset || ''));
+    },
+
     openVoiceSetup(deviceId) {
         this._voiceSetupOpen = true;
         this._voiceSetupDeviceId = deviceId;
-        this._voiceSetupPending = null;
+        this._voiceSetupPending = {};
+        this.ensureAccountSettings();
+        // The HA engine / Piper voice lists come from the add-on, not from the device. Null in
+        // account mode, which renders those rows away rather than empty.
+        if (window.HaEngines && !HaEngines.loaded) HaEngines.load().then(() => App.renderPage());
         App.renderPage();
     },
 
     closeVoiceSetup() {
         this._voiceSetupOpen = false;
         this._voiceSetupDeviceId = null;
-        this._voiceSetupPending = null;
+        this._voiceSetupPending = {};
         App.renderPage();
     },
 
-    _setVoiceSetupPending(value) { this._voiceSetupPending = value; },
+    /**
+     * Stage one leaf's pending value.
+     *
+     * ⚠️ Keyed, not a single slot: the modal now edits up to four leaves and a shared slot would
+     * make the last picker touched the only one saved.
+     */
+    _setVoiceSetupPending(key, value) {
+        if (!this._voiceSetupPending) this._voiceSetupPending = {};
+        this._voiceSetupPending[key] = value;
+    },
+
+    /** The value a picker should show: the staged edit if any, else the device's stored override. */
+    _voiceSetupValue(device, key) {
+        const pending = this._voiceSetupPending || {};
+        if (Object.prototype.hasOwnProperty.call(pending, key)) return pending[key];
+        const v = device?.settings?.voice?.[key];
+        return typeof v === 'string' ? v : '';
+    },
 
     async submitVoiceSetup() {
         if (this._voiceSetupSaving) return;
         const deviceId = this._voiceSetupDeviceId;
-        const value = this._voiceSetupPending;
-        // null = the user opened and saved without touching the select. '' IS a
-        // value here (the inherit sentinel), so test for null explicitly — a falsy
-        // test would silently turn "follow the account" into "no change".
-        if (!deviceId || value === null) { this.closeVoiceSetup(); return; }
+        const pending = this._voiceSetupPending || {};
+        const keys = Object.keys(pending);
+        // No key touched = the user opened and saved without changing anything. Note '' IS a value
+        // here (the inherit sentinel), so this tests which KEYS were touched rather than whether
+        // any value is truthy — a falsy test would silently turn "follow the account" into "no change".
+        if (!deviceId || keys.length === 0) { this.closeVoiceSetup(); return; }
         this._voiceSetupSaving = true;
         App.renderPage();
         try {
-            // Per-device override at user_devices.voice.sttProvider. '' is the
-            // INHERIT sentinel the patch writers use because they cannot delete
-            // keys — the device clears its mirror and follows the account again.
-            await DevicesPage._onSettingChange(deviceId, 'voice', 'sttProvider', value);
-            Toast.success(value === '' ? 'This device now follows the account setup' : 'Voice engine saved for this device');
+            // Per-device overrides at user_devices.voice.<key>. '' is the INHERIT sentinel the patch
+            // writers use because they cannot delete keys — the device clears its mirror and follows
+            // the account again. Sequential, not Promise.all: each is its own update_device_settings
+            // RPC on the same row, and concurrent jsonb_set merges on one row can drop a write.
+            for (const key of keys) {
+                await DevicesPage._onSettingChange(deviceId, 'voice', key, pending[key]);
+            }
+            const allInherit = keys.every((k) => pending[k] === '');
+            Toast.success(allInherit
+                ? 'This device now follows the account setup'
+                : `Voice setup saved for this device (${keys.length} change${keys.length === 1 ? '' : 's'})`);
             this.closeVoiceSetup();
         } catch (e) {
             Toast.error(`Save failed: ${e?.message || e}`);
@@ -388,6 +440,74 @@ const DevicesDetailModals = {
      *     reason: it is not a choice anyone may make, though it is still NAMED in the
      *     running line so the card does not go blank on those devices.
      */
+    /**
+     * The three HA-sourced leaves: which Whisper, which Piper, and which Piper VOICE this device
+     * uses. Rendered only when they can actually take effect.
+     *
+     * TWO GATES, and both matter:
+     *
+     * 1. **Preset** — `voiceOverridesApply()`. Nothing here is offered under `ha_assist`.
+     *
+     * 2. **Effective provider** — an engine id is only read when that stage's provider is
+     *    `ha_engine` (`VoiceAiPage._selectProvider` pins the id alongside that selection). A device
+     *    inheriting a cloud TTS provider would otherwise carry a Piper voice nothing reads, which is
+     *    worse than not offering it: a setting that visibly saves and silently does nothing.
+     *    The provider checked is the EFFECTIVE one — this device's override if it has one, else the
+     *    account's — because that is what the device will actually run.
+     *
+     * Empty option list ⇒ the row is omitted, never rendered empty. In account (non-add-on) mode
+     * there is no add-on to ask, so all three disappear. Same posture as an empty capability list:
+     * fail toward the account default rather than toward a guess.
+     */
+    _renderHaEngineRows(device) {
+        if (!this.voiceOverridesApply()) return '';
+        // Bind once rather than reaching for the bare global per call: if ha-engines.js did not
+        // load (a missing script tag in a vendored tree, a 404), this is undefined and every row
+        // is omitted — instead of a ReferenceError mid-render that takes the whole modal down.
+        const HE = window.HaEngines;
+        if (!HE?.raw) return '';
+
+        const acct = this._accountSettings?.voice || {};
+        const effective = (key) => {
+            const own = device?.settings?.voice?.[key];
+            // '' is the inherit sentinel, not a value — an inheriting device carries it explicitly.
+            return (typeof own === 'string' && own !== '') ? own : (acct[key] || '');
+        };
+        const sttIsHa = effective('sttProvider') === 'ha_engine';
+        const ttsIsHa = effective('ttsProvider') === 'ha_engine';
+
+        const row = (key, label, options, hint) => {
+            if (!options.length) return '';
+            const current = this._voiceSetupValue(device, key);
+            const opts = options.map((o) => {
+                const value = typeof o === 'string' ? o : (o.value ?? o.id ?? '');
+                const text = typeof o === 'string' ? o : (o.label ?? o.name ?? value);
+                return `<option value="${this._escape(value)}" ${value === current ? 'selected' : ''}>${this._escape(text)}</option>`;
+            }).join('');
+            return `
+            <div class="form-group">
+                <label class="form-label">${this._escape(label)}</label>
+                <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('${this._escape(key)}', this.value)">
+                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    ${opts}
+                </select>
+                ${hint ? `<div style="font-size: var(--font-size-sm); color: var(--text-muted); margin-top: 4px;">${this._escape(hint)}</div>` : ''}
+            </div>`;
+        };
+
+        return [
+            sttIsHa ? row('haSttEngineId', 'Speech-to-text engine (Home Assistant)',
+                HE.configOptions('stt', 'voice.haSttEngineId'),
+                '') : '',
+            ttsIsHa ? row('haTtsEngineId', 'Text-to-speech engine (Home Assistant)',
+                HE.configOptions('tts', 'voice.haTtsEngineId'),
+                '') : '',
+            ttsIsHa ? row('haTtsVoiceId', 'Voice',
+                HE.configOptions('tts', 'voice.haTtsVoiceId'),
+                'Give each room its own voice — the usual reason to set this per device.') : '',
+        ].join('');
+    },
+
     renderVoiceSetupModal() {
         if (!this._voiceSetupOpen) return '';
         const device = DevicesPage._findDevice(this._voiceSetupDeviceId);
@@ -410,9 +530,7 @@ const DevicesDetailModals = {
         const { offerable } = this.voiceCapabilityState(device);
         const sttBlock = record[F.stt._self] || {};
         const available = new Set(Array.isArray(sttBlock[F.stt.available]) ? sttBlock[F.stt.available] : []);
-        const current = this._voiceSetupPending != null
-            ? this._voiceSetupPending
-            : (typeof device?.settings?.voice?.sttProvider === 'string' ? device.settings.voice.sttProvider : '');
+        const current = this._voiceSetupValue(device, 'sttProvider');
 
         const rows = offerable.map((id) => {
             const usable = available.has(id);
@@ -425,11 +543,12 @@ const DevicesDetailModals = {
         const body = `
             <div class="form-group">
                 <label class="form-label">Speech-to-text on this device</label>
-                <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending(this.value)">
+                <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('sttProvider', this.value)">
                     <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
                     ${rows}
                 </select>
             </div>
+            ${this._renderHaEngineRows(device)}
             <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
                 Only engines this device has actually registered are listed.
                 ${running ? `It is running <strong>${this._escape(this._sttLabel(running))}</strong> right now.` : ''}
