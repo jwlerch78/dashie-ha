@@ -317,11 +317,13 @@ const DevicesDetailModals = {
      *
      * 🔴 THE STATE THAT DOES NOT EXIST ON THE STT SIDE, AND THE REASON THIS IS A
      * SEPARATE FUNCTION RATHER THAN A PARAMETER: `tts.available` is NEWER THAN THE
-     * FLEET. It landed 2026-09-20, and on that day only 4 of the 16 staging devices
-     * publishing a capability record carried it — the other 12 publish a `tts` block
-     * with `resolved` ONLY, because their APKs predate the field. (Measured, not
-     * estimated: a read-only count over `user_devices`, 39 rows, 16 with a record.)
-     * `stt.registered` has no equivalent era.
+     * FLEET. `stt.registered` has no equivalent era. Measured on staging the day it
+     * landed (read-only count over `user_devices`, 39 rows): 23 publish no capability
+     * record at all, 11 have not started their voice stack, 1 publishes a `tts` block
+     * WITHOUT `available`, and 4 carry it. ⚠️ So only ONE device exercises the
+     * absent-key branch TODAY — the thin one is the dangerous one. As those 11 start
+     * their stacks on APKs that predate the field they land in it too, and every one
+     * of them is a device whose picker would empty if absent collapsed into empty.
      *
      * So ABSENT and EMPTY are different facts and must not collapse:
      *   • the key is MISSING  → the device never had the chance to answer. Follow
