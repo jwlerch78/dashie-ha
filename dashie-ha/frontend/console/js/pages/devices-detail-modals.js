@@ -317,9 +317,11 @@ const DevicesDetailModals = {
      *
      * 🔴 THE STATE THAT DOES NOT EXIST ON THE STT SIDE, AND THE REASON THIS IS A
      * SEPARATE FUNCTION RATHER THAN A PARAMETER: `tts.available` is NEWER THAN THE
-     * FLEET. It landed 2026-09-20, and on that day exactly ONE device of seven
-     * published it — the other six publish a `tts` block carrying `resolved` ONLY,
-     * because their APKs predate the field. `stt.registered` has no equivalent era.
+     * FLEET. It landed 2026-09-20, and on that day only 4 of the 16 staging devices
+     * publishing a capability record carried it — the other 12 publish a `tts` block
+     * with `resolved` ONLY, because their APKs predate the field. (Measured, not
+     * estimated: a read-only count over `user_devices`, 39 rows, 16 with a record.)
+     * `stt.registered` has no equivalent era.
      *
      * So ABSENT and EMPTY are different facts and must not collapse:
      *   • the key is MISSING  → the device never had the chance to answer. Follow
@@ -327,11 +329,23 @@ const DevicesDetailModals = {
      *     no record at all.
      *   • the key is an EMPTY ARRAY → the device answered, and the answer is none.
      *
+     * 📌 KEEP THIS SPLIT AFTER THE FLEET CATCHES UP, and this paragraph is why —
+     * the "one of seven" fact above is the thing that will age out, and once every
+     * device publishes the field a reader will find two near-identical functions
+     * and be tempted to merge them behind a flag. The reason to refuse is not the
+     * count, which is temporary, but the RELATIONSHIP, which is permanent: this
+     * field and `stt.registered` do not stand in the same relation to the fleet, and
+     * folding them into one function with a parameter asserts that they do. Any
+     * field added to the capability record from here on gets its own era of partial
+     * adoption, and the next one will be read through whatever this function taught
+     * the next author. Merging costs nothing on the day it happens and reintroduces
+     * the absent-vs-empty collapse the first time a new field lands.
+     *
      * ⚠️ An empty array and a missing key are BOTH falsy, so a truthiness test
      * silently reads "your APK is old" as "this device can speak with nothing" —
-     * and, because the only device carrying the field is the only device anyone is
-     * testing on, that bug renders perfectly in review and empties the picker on
-     * every other device in the fleet. `check-voice-override-gating.mjs` pins both
+     * and, because the devices carrying the field are the ones being tested on, that
+     * bug renders perfectly in review and empties the picker on the majority of the
+     * fleet that is still on an older APK. `check-voice-override-gating.mjs` pins both
      * halves with the absent leg paired against a present control.
      *
      * A non-array value lands in 'no-field' too, deliberately: like a missing key it
