@@ -203,6 +203,21 @@ else
     echo "    The generated field list in this tree is therefore UNVERIFIED against its producer."
 fi
 
+# The THEME end (John, 2026-09-21). The device card paints a theme swatch and a
+# gradient bar, and the family list feeds the console's Theme picker. Both are
+# GENERATED from js/ui/themes/theme-registry.js — the same registry the app and
+# the Kotlin picker answer to. Hand-edited, they drift silently: the console
+# shows a colour no theme uses, or offers a shorter list than the app supports
+# (it carried 4 of 7 families for months, so marigold/fern/orchid could not be
+# set from here at all).
+if [ -f "$ADDON_ROOT/../dashieapp_staging/scripts/gen-console-theme-swatches.mjs" ]; then
+    echo "==> Checking console theme swatches + family list (generated vs the JS registry)"
+    (cd "$ADDON_ROOT/../dashieapp_staging" && node scripts/gen-console-theme-swatches.mjs --check)
+else
+    echo "⚠️  Console theme-swatch check SKIPPED — dashieapp_staging not checked out beside this repo."
+    echo "    The theme colours and family list in this tree are therefore UNVERIFIED."
+fi
+
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"

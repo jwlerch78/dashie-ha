@@ -2166,10 +2166,18 @@
 /* The 4px theme bar. Families map to the console's own theme tokens; an
    unknown family falls through to --default, never to a blank bar. */
 .dcard-bar { height: 4px; background: linear-gradient(90deg, var(--t1, #9ca3af), var(--t2, #cbd5e1)); }
-.theme-default   { --t1: #9ca3af; --t2: #cbd5e1; }
-.theme-blue      { --t1: #2563eb; --t2: #60a5fa; }
-.theme-halloween { --t1: #ea580c; --t2: #7c3aed; }
-.theme-christmas { --t1: #dc2626; --t2: #16a34a; }
+/* BEGIN GENERATED theme-swatches — gen-console-theme-swatches.mjs */
+/* Swatch + card-bar colours per theme family. --t1 is the family's primaryColor,
+   --t2 its accentColor, both from the LIGHT variant. Hand-editing these puts the
+   console back to showing a colour the app does not use. */
+.theme-default    { --t1: #2196f3; --t2: #ff9800; }
+.theme-marigold   { --t1: #8A5200; --t2: #C97B00; }
+.theme-fern       { --t1: #1B5E20; --t2: #43A047; }
+.theme-orchid     { --t1: #6A1B7A; --t2: #9B2FAE; }
+.theme-blue       { --t1: #1F4D7A; --t2: #3D6B9A; }
+.theme-halloween  { --t1: #228B22; --t2: #FF6B1A; }
+.theme-christmas  { --t1: #DC3545; --t2: #FFD700; }
+/* END GENERATED theme-swatches */
 
 .dcard-name { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
 .dcard-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
