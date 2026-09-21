@@ -874,7 +874,20 @@ const DevicesDetailModals = {
             wakeTime: s.wakeTime || '07:00',
             resleepTimeout: s.resleepTimeout ?? 15,
             inactivityTimeout: s.inactivityTimeout ?? 120,
+            // The three switches. `=== true` is the render path's own test, so an
+            // absent key is FALSE — resolving them here means "apply this dialog"
+            // copies the switch positions you can see, not only the ones that
+            // happen to be stored.
+            sleepShowClock: s.sleepShowClock === true,
+            reduceBrightnessOnSleep: s.reduceBrightnessOnSleep === true,
+            motionWakeForSleep: s.motionWakeForSleep === true,
         };
+    },
+
+    /** The Sleep dialog's "Options" row lives in DISPLAY, not sleep. Same default
+     *  as buildSleepSummary uses, kept beside it so the two cannot drift. */
+    screenOffEffective(display) {
+        return (display && (display.screenOffBehavior || display['display.screenOffBehavior'])) || 'black_overlay';
     },
 
     sleepModeOf(sleep) {
@@ -1928,7 +1941,10 @@ const DevicesDetailModals = {
                        keys: [['display', 'themeFamily'], ['display', 'darkMode']],
                        now: (d) => DevicesDetailModals.buildThemeSummary(d?.settings?.display || {}) },
         sleep:       { idKey: '_sleepDeviceId',       label: 'sleep schedule',
-                       keys: [['sleep', 'enabled'], ['sleep', 'sleepMethod'], ['sleep', 'sleepTime'], ['sleep', 'wakeTime'], ['sleep', 'resleepTimeout'], ['sleep', 'inactivityTimeout']],
+                       keys: [['sleep', 'enabled'], ['sleep', 'sleepMethod'], ['sleep', 'sleepTime'], ['sleep', 'wakeTime'],
+                              ['sleep', 'resleepTimeout'], ['sleep', 'inactivityTimeout'],
+                              ['sleep', 'sleepShowClock'], ['sleep', 'reduceBrightnessOnSleep'], ['sleep', 'motionWakeForSleep'],
+                              ['display', 'screenOffBehavior']],
                        now: (d) => DevicesDetailModals._sleepNow(d) },
         personality: { idKey: '_personalityDeviceId', label: 'personality',
                        keys: [['aiVoice', 'personalityId'], ['aiVoice', 'voiceKey']],
@@ -1996,10 +2012,18 @@ const DevicesDetailModals = {
         // device never configured for sleep) used to skip every key and fan out
         // an empty payload — the user checked the box and nothing happened,
         // with no error. See sleepEffective().
-        const resolved = { sleep: this.sleepEffective(src.settings?.sleep) };
+        const resolved = {
+            sleep: this.sleepEffective(src.settings?.sleep),
+            display: { screenOffBehavior: this.screenOffEffective(src.settings?.display) },
+        };
         const byCat = {};
         for (const [cat, key] of spec.keys) {
-            const val = resolved[cat] ? resolved[cat][key] : src.settings?.[cat]?.[key];
+            // Prefer the RESOLVED value, but only where the resolver actually has
+            // one — `display` is resolved for screenOffBehavior alone, and the
+            // Theme dialog writes display.themeFamily through the same category.
+            const r = resolved[cat];
+            const val = (r && Object.prototype.hasOwnProperty.call(r, key))
+                ? r[key] : src.settings?.[cat]?.[key];
             if (val === undefined) continue;
             (byCat[cat] = byCat[cat] || {})[key] = val;
         }

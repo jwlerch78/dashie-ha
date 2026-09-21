@@ -2179,6 +2179,13 @@
 .theme-christmas  { --t1: #DC3545; --t2: #FFD700; }
 /* END GENERATED theme-swatches */
 
+.dcard-model { margin-top: 2px; }
+/* Always occupies a line, even with no version to show — see _modelHeadHtml.
+   Without it, a device that reports no version made its card one line shorter
+   and every tile row in that column sat higher than its neighbours. */
+.dcard-ver { font-size: 11px; line-height: 1.3; min-height: 14px;
+             color: var(--text-muted, #9ca3af); overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
 .dcard-name { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
 .dcard-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dcard-off {
