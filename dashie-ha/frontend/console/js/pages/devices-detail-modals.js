@@ -494,6 +494,7 @@ const DevicesDetailModals = {
     },
 
     openVoiceSetup(deviceId) {
+        this._resetAlso();
         this._voiceSetupOpen = true;
         this._voiceSetupDeviceId = deviceId;
         this._voiceSetupPending = {};
@@ -528,6 +529,31 @@ const DevicesDetailModals = {
         if (Object.prototype.hasOwnProperty.call(pending, key)) return pending[key];
         const v = device?.settings?.voice?.[key];
         return typeof v === 'string' ? v : '';
+    },
+
+    /**
+     * What the Voice setup dialog is SHOWING for every leaf, including the ones the
+     * device has not overridden.
+     *
+     * 🔴 '' is the INHERIT SENTINEL and is a real value here, not an absence. Without
+     * this resolver the fan-out reads `src.settings.voice[key]`, gets `undefined` for
+     * every leaf an inheriting device never wrote, skips them all, and applies NOTHING
+     * — the user picks three devices, presses Apply, and the dialog closes having done
+     * nothing at all. That is the exact defect already fixed once for sleep
+     * (sleepEffective) and once more for the whole-dialog fan-out; this is the same
+     * class arriving through a third door.
+     *
+     * Applying an inheriting source to a target is meaningful and is the point: it puts
+     * the target back on the household setup, which is how a device gets RESET to match
+     * one that was never customised.
+     */
+    voiceEffective(deviceVoice) {
+        const v = deviceVoice || {};
+        const out = {};
+        for (const key of this.VOICE_LEAF_KEYS) {
+            out[key] = typeof v[key] === 'string' ? v[key] : '';
+        }
+        return out;
     },
 
     async submitVoiceSetup() {
@@ -694,7 +720,8 @@ const DevicesDetailModals = {
                 <button class="btn btn-primary" onclick="DevicesDetailModals.submitVoiceSetup()" ${this._voiceSetupSaving ? 'disabled' : ''}>${this._voiceSetupSaving ? 'Saving…' : 'Save'}</button>
             </div>
         `;
-        return this._modal('Voice setup', body, 'DevicesDetailModals.closeVoiceSetup()', null, device);
+        return this._modal('Voice setup', body, 'DevicesDetailModals.closeVoiceSetup()',
+            this._alsoFooter(), device);
     },
 
     // ── Section body ──────────────────────────────────────────
@@ -1955,6 +1982,14 @@ const DevicesDetailModals = {
                        keys: [['aiVoice', 'voiceKey']],
                        now: (d) => { const v = DevicesDetailModals.voiceSetupSummary(d);
                                      return v.custom ? 'Custom (own)' : `Household (${v.label})`; } },
+        // The per-device voice PIPELINE. The five leaves John can set per device --
+        // the thing the whole mixed-fleet ruling exists for -- and until now the one
+        // dialog with no way to apply itself to a second device.
+        voiceSetup:  { idKey: '_voiceSetupDeviceId',  label: 'voice setup',
+                       keys: [['voice', 'sttProvider'], ['voice', 'ttsProvider'],
+                              ['voice', 'haSttEngineId'], ['voice', 'haTtsEngineId'],
+                              ['voice', 'haTtsVoiceId']],
+                       now: (d) => DevicesDetailModals.voiceSetupSummary(d).label },
         photos:      { idKey: '_photosDeviceId',      label: 'photo album',
                        keys: [['photos', 'sourceType'], ['photos', 'albumId'], ['photos', 'albumName'], ['photos', 'slideshowInterval']],
                        now: (d) => DevicesDetailModals._photosNow(d) },
@@ -1993,6 +2028,7 @@ const DevicesDetailModals = {
         if (this._personalityOpen) return this._APPLY_ALL_KEYS.personality;
         if (this._voiceOpen)       return this._APPLY_ALL_KEYS.voice;
         if (this._photosOpen)      return this._APPLY_ALL_KEYS.photos;
+        if (this._voiceSetupOpen)  return this._APPLY_ALL_KEYS.voiceSetup;
         return null;
     },
 
@@ -2015,6 +2051,7 @@ const DevicesDetailModals = {
         const resolved = {
             sleep: this.sleepEffective(src.settings?.sleep),
             display: { screenOffBehavior: this.screenOffEffective(src.settings?.display) },
+            voice: this.voiceEffective(src.settings?.voice),
         };
         const byCat = {};
         for (const [cat, key] of spec.keys) {
