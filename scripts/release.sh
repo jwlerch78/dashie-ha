@@ -245,6 +245,9 @@ node "$ADDON_ROOT/scripts/check-device-setup-surface.mjs"
 echo "==> Checking per-device voice overrides (preset gate · absent-vs-empty · affordability)"
 node "$ADDON_ROOT/scripts/check-voice-override-gating.mjs"
 
+echo "==> Checking \"Also apply to\" copies everything each dialog writes"
+node "$ADDON_ROOT/scripts/check-apply-targets.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:

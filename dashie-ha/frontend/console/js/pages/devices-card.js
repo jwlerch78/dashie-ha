@@ -155,7 +155,7 @@ const DevicesCard = {
                         <span>${DevicesPage._escape(device.device_name || 'Unnamed Device')}</span>
                         ${conflictChip}${offlineChip}
                     </div>
-                    <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(this._modelLine(device))}</div>
+                    ${this._modelHeadHtml(device)}
                 </div>
                 <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
                     ${swatch}${this._buildLockChip(device, idAttr)}
@@ -173,10 +173,26 @@ const DevicesCard = {
      * only when the device has reported one: an absent version is left off
      * rather than rendered as "· —", which would look like a fault.
      */
-    _modelLine(device) {
-        const base = DevicesPage._typeLabel(device);
+    /**
+     * Two lines: the MODEL, then the app version under it.
+     *
+     * 🔴 The version line is always rendered, even when empty (John,
+     * 2026-09-21). The category word ("Tablet ·", "TV ·") is gone — it said
+     * little the icon does not — but the real reason for the fixed two-line
+     * header is ALIGNMENT: a one-line header on one card and a wrapped
+     * two-line header on its neighbour pushed every tile row out of step
+     * across the grid. Reserving the line costs nothing and keeps the rows
+     * level whatever a device does or does not report.
+     */
+    _modelHeadHtml(device) {
+        const model = device?.metrics?.app?.device_model
+            || device?.device_metadata?.model
+            || device?.device_type
+            || '';
         const ver = device?.metrics?.app?.app_version || device?.app_version || '';
-        return ver ? `${base} · ${ver}` : base;
+        return `
+            <div class="device-card-type dcard-model">${DevicesPage._escape(model)}</div>
+            <div class="dcard-ver">${ver ? DevicesPage._escape(ver) : '&nbsp;'}</div>`;
     },
 
     /** "10pm", "6:30am" — the card is tight, so the :00 goes. */
