@@ -2199,12 +2199,18 @@
 
 .dtiles { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border-2, #eff0f2); margin-top: 10px; }
 .dtile {
-    display: grid; gap: 1px; padding: 8px 12px; min-width: 0; text-align: left;
+    display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; min-width: 0; text-align: left;
     border: 0; border-bottom: 1px solid var(--border-2, #eff0f2); background: transparent;
     font: inherit; color: inherit; cursor: pointer;
 }
 .dtile:nth-child(odd) { border-right: 1px solid var(--border-2, #eff0f2); }
 .dtile:hover { background: var(--surface-2, #fafafa); }
+/* Tile layout: a muted icon, then the label/value stack. The icon is an <img>
+   of a flat SVG, so it cannot inherit currentColor — opacity is what makes it
+   read as muted next to the secondary-colored label. */
+.dtile-i { flex: none; display: inline-flex; align-items: center; opacity: .42; margin-top: 1px; }
+.dtile-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dtile.is-spacer { pointer-events: none; background: none; cursor: default; }
 .dtile-l { font-size: 11px; color: var(--text-secondary, #6b7280); }
 .dtile-v {
     font-size: 12.5px; font-weight: 500; color: var(--text-primary, #111827);
