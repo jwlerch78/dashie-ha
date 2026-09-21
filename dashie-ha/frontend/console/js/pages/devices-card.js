@@ -219,6 +219,11 @@ const DevicesCard = {
             : label;
         // The icon is decorative: the label says the same thing in words, so it
         // is aria-hidden and the button keeps its text accessible name.
+        // ⚠️ `.dtile-l` is VISUALLY HIDDEN, not absent (see components.css) — the
+        // mock shows icon + value only. It stays in the DOM because it is the
+        // button's accessible name (without it a tile reads as just "10pm-7am"),
+        // and because the card harness locates tiles by that text. Do not delete
+        // it as dead markup.
         const icon = opts.icon
             ? `<span class="dtile-i" aria-hidden="true">${iconImg(opts.icon, 15)}</span>` : '';
         return `
