@@ -174,10 +174,7 @@ const DevicesPage = {
                 <button class="btn ${!on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
                         onclick="DevicesPage.setTechView(false)"
                         title="What's playing on each dashboard — theme, sleep schedule, AI personality, photos">Settings</button>
-            </span>
-            <button type="button" class="dcard-link" style="margin-left:12px; vertical-align:middle;"
-                    onclick="DevicesHousehold.open()"
-                    title="Household defaults — what new screens start from, and what voice devices follow">Edit defaults</button>`;
+            </span>`;
     },
 
     /** Top-bar action buttons — Preview Dashie + (in Status) Screenshot / Camera sub-toggles.
@@ -896,7 +893,6 @@ const DevicesPage = {
             ${DevicesDetailModals.renderVoicePersonalityModal()}
             ${DevicesDetailModals.renderVoiceVoiceModal()}
             ${DevicesDetailModals.renderPhotosModal()}
-            ${DevicesHousehold.render()}
         `;
     },
 
