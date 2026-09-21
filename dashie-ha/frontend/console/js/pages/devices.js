@@ -1079,13 +1079,20 @@ const DevicesPage = {
         // checkbox, which silently reduced the fan-out to just the open
         // device (2026-07-06). Fall back to the DOM box if the modals module
         // isn't present.
-        const applyAll = (typeof DevicesDetailModals !== 'undefined'
-            && DevicesDetailModals._applyAllArmed === true)
-            || (typeof document !== 'undefined'
-                && !!document.getElementById('device-apply-to-all')?.checked);
-        const targets = applyAll
-            ? (this._devices || []).filter(d => d.is_active !== false)
-            : [this._findDevice(deviceId)].filter(Boolean);
+        // 🔴 Reads the TARGET SET, not a boolean (2026-09-21). "Apply to all"
+        // became "Also apply to": all-devices is now just every box ticked, so
+        // there is one concept here instead of two that could disagree. The DOM
+        // fallback is gone with the checkbox it read — and a DOM read was the
+        // 2026-07-06 bug anyway, since a background re-render resets it.
+        const picked = (typeof DevicesDetailModals !== 'undefined'
+            && DevicesDetailModals._alsoTargets instanceof Set)
+            ? DevicesDetailModals._alsoTargets : new Set();
+        const self = [this._findDevice(deviceId)].filter(Boolean);
+        const extra = picked.size
+            ? (this._devices || []).filter(d => d.is_active !== false
+                && d.device_id !== deviceId && picked.has(d.device_id))
+            : [];
+        const targets = [...self, ...extra];
 
         const savingKey = `${deviceId}_${key}`;
         this._saving[savingKey] = true;
