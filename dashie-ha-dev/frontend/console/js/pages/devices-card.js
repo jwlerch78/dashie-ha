@@ -155,13 +155,36 @@ const DevicesCard = {
                         <span>${DevicesPage._escape(device.device_name || 'Unnamed Device')}</span>
                         ${conflictChip}${offlineChip}
                     </div>
-                    <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(DevicesPage._typeLabel(device))}</div>
+                    <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(this._modelLine(device))}</div>
                 </div>
                 <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
                     ${swatch}${this._buildLockChip(device, idAttr)}
                 </div>
             </div>
         `;
+    },
+
+    /**
+     * "Tablet · SM-X210 · 1.1.3" — what the device IS, not just its category.
+     *
+     * `_typeLabel` already composes category + model and falls back to the raw
+     * `device_type` when no model is known, which is why a device with no
+     * `device_metadata.model` reads as a bare "tablet". The version is appended
+     * only when the device has reported one: an absent version is left off
+     * rather than rendered as "· —", which would look like a fault.
+     */
+    _modelLine(device) {
+        const base = DevicesPage._typeLabel(device);
+        const ver = device?.metrics?.app?.app_version || device?.app_version || '';
+        return ver ? `${base} · ${ver}` : base;
+    },
+
+    /** "10pm", "6:30am" — the card is tight, so the :00 goes. */
+    _compactTime(hhmm) {
+        const [h, m] = String(hhmm || '').split(':').map(Number);
+        if (!Number.isFinite(h)) return String(hhmm || '');
+        const ap = h >= 12 ? 'pm' : 'am';
+        return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''}${ap}`;
     },
 
     /**
@@ -178,13 +201,23 @@ const DevicesCard = {
         const title = opts.diff && opts.household
             ? `${label} — household uses ${opts.household}`
             : label;
+        // The icon is decorative: the label says the same thing in words, so it
+        // is aria-hidden and the button keeps its text accessible name.
+        const icon = opts.icon
+            ? `<span class="dtile-i" aria-hidden="true">${iconImg(opts.icon, 15)}</span>` : '';
         return `
             <button type="button" class="${cls}" title="${DevicesPage._escape(title)}"
                     onclick="event.stopPropagation(); ${openCall}">
-                <span class="dtile-l">${DevicesPage._escape(label)}</span>
-                <span class="dtile-v">${DevicesPage._escape(value)}</span>
+                ${icon}
+                <span class="dtile-t">
+                    <span class="dtile-l">${DevicesPage._escape(label)}</span>
+                    <span class="dtile-v">${DevicesPage._escape(value)}</span>
+                </span>
             </button>`;
     },
+
+    /** An empty grid cell so an odd tile count keeps the 2-column rhythm. */
+    _tileSpacer() { return '<span class="dtile is-spacer" aria-hidden="true"></span>'; },
 
     /**
      * Offline card — minimal render for devices in the Offline section.
@@ -309,10 +342,10 @@ const DevicesCard = {
         // device whose own modal said "Schedule · 10:00 PM – 7:00 AM".
         const sleepState = DevicesDetailModals.sleepModeOf(sleep);
         const sleepSchedule = sleepState.mode === 'off'
-            ? 'Off'
+            ? 'No sleep'
             : (sleepState.mode === 'inactivity'
                 ? `${DevicesDetailModals._formatTimeout(Number(sleep.inactivityTimeout ?? 120))} idle`
-                : `${this._formatTime12(sleep.sleepTime || '22:00')} – ${this._formatTime12(sleep.wakeTime || '07:00')}`);
+                : `${this._compactTime(sleep.sleepTime || '22:00')}–${this._compactTime(sleep.wakeTime || '07:00')}`);
 
         const id = device.device_id;
         const leaseLine = this._renderLeaseLine(device);
@@ -366,14 +399,32 @@ const DevicesCard = {
             ? DevicesDetailModals.personalityName(devicePersona)
             : `${DevicesDetailModals.personalityName(housePersona)} (default)`;
 
+        // 🔴 VOICE, and the reasoning I got wrong the first time (2026-09-21).
+        // I left this tile out of P4a arguing "the preset is account-wide, so its
+        // dot could never light". The ruling is real — `pipelinePreset` is NOT a
+        // per-device key (VOICE_LEAF_KEYS excludes it deliberately) — but the
+        // SUMMARY is per-device: voiceSetupSummary compares this device's five
+        // overridden leaves against the household and answers "Custom" or the
+        // household preset's name. That is exactly the dot. The function was in
+        // the file I was editing; I argued from a half-remembered ruling instead
+        // of reading it.
+        const voice = DevicesDetailModals.voiceSetupSummary(device);
+        const voiceShown = voice.custom ? 'Custom' : `${voice.label} (default)`;
+
         return `
             ${leaseLine ? `<div style="padding: 0 12px;">${leaseLine}</div>` : ''}
             <div class="dtiles">
-                ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`)}
-                ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`)}
+                ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`,
+                             { icon: 'icon-moon.svg' })}
+                ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`,
+                             { icon: 'icon-photos.svg' })}
+                ${this._tile('Voice', voiceShown, `DevicesDetailModals.openVoiceSetup('${id}')`,
+                             { icon: 'icon-sliders.svg', diff: voice.custom })}
                 ${this._tile('Wake word', wakeShown, `DevicesDetailModals.openWakeWord('${id}')`,
-                             { diff: wakeDiffers, household: houseWake })}
-                ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`)}
+                             { icon: 'icon-microphone.svg', diff: wakeDiffers, household: houseWake })}
+                ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`,
+                             { icon: 'icon-persona.svg' })}
+                ${this._tileSpacer()}
             </div>
         `;
     },

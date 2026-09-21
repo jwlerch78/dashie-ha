@@ -145,7 +145,7 @@ const DevicesPage = {
             // devices so the count matches what the user actually sees.
             const active = this._devices.filter(d => !this._isArchived(d) && !this._isDismissed(d)).length;
             // Manual refresh now lives in the shared title-bar icon (refresh()).
-            // The Overview/Details view switcher sits right after the count (the subtitle renders
+            // The Status/Settings view switcher sits right after the count (the subtitle renders
             // as HTML in the top bar), not out in the right-hand actions column.
             return `${active} active${this._viewSwitcherHtml()}`;
         }
@@ -153,25 +153,32 @@ const DevicesPage = {
         return device ? this._typeLabel(device) : '';
     },
 
-    /** The Overview/Details view switcher — a segmented control. Lives next to the "N active"
-     *  subtitle (rendered as HTML there), not in the right-hand actions column. Overview = what's
+    /** The Status/Settings view switcher — a segmented control. Lives next to the "N active"
+     *  subtitle (rendered as HTML there), not in the right-hand actions column. Settings = what's
      *  playing on each dashboard; Details = full device diagnostics. Context default (add-on →
-     *  Details, web → Overview); persisted per-browser via setTechView. Uses a <span> wrapper so
+     *  Status, web → Settings); persisted per-browser via setTechView. Uses a <span> wrapper so
      *  it's valid inline inside the subtitle span. */
     _viewSwitcherHtml() {
         const on = this._techView;
+        // STATUS left, SETTINGS right (John, 2026-09-21), matching the mock-up's
+        // own pills. Status is the add-on default (see the _techView getter), and
+        // the default belongs in the leading position.
+        //
+        // ⚠️ The INTERNAL name is still `_techView` / `setTechView(true)` = Status.
+        // Renaming the flag would rewrite a persisted localStorage key and silently
+        // reset every browser's choice; the labels are the product, the flag is not.
         return `<span style="display:inline-flex; margin-left:12px; vertical-align:middle; border:1px solid var(--border,#e5e7eb); border-radius:6px; overflow:hidden;">
-                <button class="btn ${!on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
-                        onclick="DevicesPage.setTechView(false)"
-                        title="What's playing on each dashboard — theme, sleep schedule, AI personality, photos">Overview</button>
                 <button class="btn ${on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
                         onclick="DevicesPage.setTechView(true)"
-                        title="Full device details — battery, RAM, wifi, screenshots, cameras, locks">Details</button>
+                        title="Full device details — battery, RAM, wifi, screenshots, cameras, locks">Status</button>
+                <button class="btn ${!on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
+                        onclick="DevicesPage.setTechView(false)"
+                        title="What's playing on each dashboard — theme, sleep schedule, AI personality, photos">Settings</button>
             </span>`;
     },
 
-    /** Top-bar action buttons — Preview Dashie + (in Details) Screenshot / Camera sub-toggles.
-     *  The Overview/Details switcher moved next to the "N active" subtitle (_viewSwitcherHtml). */
+    /** Top-bar action buttons — Preview Dashie + (in Status) Screenshot / Camera sub-toggles.
+     *  The Status/Settings switcher moved next to the "N active" subtitle (_viewSwitcherHtml). */
     topBarActions() {
         // Only show on the list view, not the detail view.
         if (this._detailDeviceId) return '';
@@ -185,8 +192,8 @@ const DevicesPage = {
                        title="Open the ${BRAND.productName} dashboard in a new browser tab">
                    Preview ${BRAND.productName} in Browser ↗
                </button>`;
-        // Screenshot / Camera sub-toggles are only useful in Details view (Overview
-        // doesn't render those panels at all). Hide them in Overview to keep the header tidy.
+        // Screenshot / Camera sub-toggles are only useful in Status view (Settings
+        // doesn't render those panels at all). Hide them in Settings to keep the header tidy.
         const subToggles = on ? `
             <button class="btn ${this._showScreenshots ? 'btn-primary' : 'btn-secondary'}"
                     onclick="DevicesPage.toggleShowScreenshots()"
@@ -1072,13 +1079,20 @@ const DevicesPage = {
         // checkbox, which silently reduced the fan-out to just the open
         // device (2026-07-06). Fall back to the DOM box if the modals module
         // isn't present.
-        const applyAll = (typeof DevicesDetailModals !== 'undefined'
-            && DevicesDetailModals._applyAllArmed === true)
-            || (typeof document !== 'undefined'
-                && !!document.getElementById('device-apply-to-all')?.checked);
-        const targets = applyAll
-            ? (this._devices || []).filter(d => d.is_active !== false)
-            : [this._findDevice(deviceId)].filter(Boolean);
+        // 🔴 Reads the TARGET SET, not a boolean (2026-09-21). "Apply to all"
+        // became "Also apply to": all-devices is now just every box ticked, so
+        // there is one concept here instead of two that could disagree. The DOM
+        // fallback is gone with the checkbox it read — and a DOM read was the
+        // 2026-07-06 bug anyway, since a background re-render resets it.
+        const picked = (typeof DevicesDetailModals !== 'undefined'
+            && DevicesDetailModals._alsoTargets instanceof Set)
+            ? DevicesDetailModals._alsoTargets : new Set();
+        const self = [this._findDevice(deviceId)].filter(Boolean);
+        const extra = picked.size
+            ? (this._devices || []).filter(d => d.is_active !== false
+                && d.device_id !== deviceId && picked.has(d.device_id))
+            : [];
+        const targets = [...self, ...extra];
 
         const savingKey = `${deviceId}_${key}`;
         this._saving[savingKey] = true;

@@ -846,6 +846,37 @@ const DevicesDetailModals = {
      *
      * Three call sites read this. None of them may re-derive it.
      */
+    /**
+     * The EFFECTIVE sleep settings — what the modal actually shows on screen,
+     * with every default resolved.
+     *
+     * 🔴 WHY THIS EXISTS (John, 2026-09-21: "i did try apply to all and nothing
+     * happened for sleep"). `_fanOutTo` copied `src.settings[cat][key]`
+     * and skipped anything `undefined`. A device that has never had Sleep
+     * configured has an EMPTY sleep blob — measured: `Dashie SM-X200` has no
+     * sleep keys at all — so every key was skipped, the payload came out empty
+     * and the fan-out wrote nothing, silently. Meanwhile the modal was showing
+     * "Schedule · 10:00 PM – 7:00 AM", because it resolves those defaults for
+     * display. The user applies what they can SEE, so the fan-out has to send
+     * what is SHOWN, not the sparse blob behind it.
+     *
+     * ⚠️ Every default here must match the one the render path uses, which is
+     * why they live together in this one function rather than being repeated at
+     * each `|| '22:00'` site.
+     */
+    sleepEffective(sleep) {
+        const s = sleep || {};
+        const { enabled, method } = this.sleepModeOf(s);
+        return {
+            enabled,
+            sleepMethod: method,
+            sleepTime: s.sleepTime || '22:00',
+            wakeTime: s.wakeTime || '07:00',
+            resleepTimeout: s.resleepTimeout ?? 15,
+            inactivityTimeout: s.inactivityTimeout ?? 120,
+        };
+    },
+
     sleepModeOf(sleep) {
         const s = sleep || {};
         const enabled = s.enabled !== false;
@@ -901,7 +932,7 @@ const DevicesDetailModals = {
     _sleepOpen: false,
     _sleepDeviceId: null,
 
-    openSleep(deviceId) { this._applyAllArmed = false; this._sleepOpen = true; this._sleepDeviceId = deviceId; App.renderPage(); },
+    openSleep(deviceId) { this._resetAlso(); this._sleepOpen = true; this._sleepDeviceId = deviceId; App.renderPage(); },
     closeSleep() { this._sleepOpen = false; this._sleepDeviceId = null; App.renderPage(); },
 
     renderSleepModal() {
@@ -960,7 +991,7 @@ const DevicesDetailModals = {
                 ` : ''}
             </div>
         `;
-        return this._modal('Sleep / Wake', body, 'DevicesDetailModals.closeSleep()', this._applyToAllFooter(), device);
+        return this._modal('Sleep / Wake', body, 'DevicesDetailModals.closeSleep()', this._alsoFooter(), device);
     },
 
     _onSleepModeChange(value) {
@@ -980,7 +1011,7 @@ const DevicesDetailModals = {
     _themeOpen: false,
     _themeDeviceId: null,
 
-    openTheme(deviceId) { this._applyAllArmed = false; this._themeOpen = true; this._themeDeviceId = deviceId; App.renderPage(); },
+    openTheme(deviceId) { this._resetAlso(); this._themeOpen = true; this._themeDeviceId = deviceId; App.renderPage(); },
     closeTheme() { this._themeOpen = false; this._themeDeviceId = null; App.renderPage(); },
 
     /**
@@ -1018,7 +1049,7 @@ const DevicesDetailModals = {
                 </div>
             </div>
         `;
-        return this._modal('Theme', body, 'DevicesDetailModals.closeTheme()', this._applyToAllFooter(), device);
+        return this._modal('Theme', body, 'DevicesDetailModals.closeTheme()', this._alsoFooter(), device);
     },
 
     // ── Generic single-picker modal ───────────────────────────
@@ -1341,7 +1372,7 @@ const DevicesDetailModals = {
     _personalityDeviceId: null,
 
     async openVoicePersonality(deviceId) {
-        this._applyAllArmed = false;
+        this._resetAlso();
         this._personalityOpen = true;
         this._personalityDeviceId = deviceId;
         App.renderPage();
@@ -1380,7 +1411,7 @@ const DevicesDetailModals = {
                 “Account default” follows the personality set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice & AI</a> page; picking one here overrides it for this device only.
             </div>
         `;
-        return this._modal('Personality', body, 'DevicesDetailModals.closeVoicePersonality()', this._applyToAllFooter(), device);
+        return this._modal('Personality', body, 'DevicesDetailModals.closeVoicePersonality()', this._alsoFooter(), device);
     },
 
     // ── Voice picker (device-level aiVoice.voiceKey — WS-G) ───────
@@ -1393,7 +1424,7 @@ const DevicesDetailModals = {
     _voiceDeviceId: null,
 
     async openVoiceVoice(deviceId) {
-        this._applyAllArmed = false;
+        this._resetAlso();
         this._voiceOpen = true;
         this._voiceDeviceId = deviceId;
         App.renderPage();
@@ -1447,7 +1478,7 @@ const DevicesDetailModals = {
                 “Account default” follows the voice set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page; picking one here overrides it for this device only.
                 Premium voices cost about 4× the default ${BRAND.assistantName} voice per reply.
             </div>`;
-        return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', this._applyToAllFooter(), device);
+        return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', this._alsoFooter(), device);
     },
 
     // ── Photos picker (device-level photos.sourceType + album) ────
@@ -1463,7 +1494,7 @@ const DevicesDetailModals = {
     _photosAlbums: null,        // cached list_albums result this session
 
     async openPhotos(deviceId) {
-        this._applyAllArmed = false;
+        this._resetAlso();
         this._photosOpen = true;
         this._photosDeviceId = deviceId;
         const device = DevicesPage._findDevice(deviceId);
@@ -1549,7 +1580,7 @@ const DevicesDetailModals = {
                     </div>` : ''}
             </div>
         `;
-        return this._modal('Photos', body, 'DevicesDetailModals.closePhotos()', this._applyToAllFooter(), device);
+        return this._modal('Photos', body, 'DevicesDetailModals.closePhotos()', this._alsoFooter(), device);
     },
 
     // ── Immich albums (multi-select) ──────────────────────────────
@@ -1781,8 +1812,8 @@ const DevicesDetailModals = {
      * fans the same (category, key, value) out to every active device instead of
      * just the one being edited. Stateless — the checkbox IS the state, so there
      * is nothing to reset on close (only one settings modal is open at a time).
-     * Checking it first asks for confirmation (see _confirmApplyToAll) so it
-     * can't be armed by accident.
+     * Superseded 2026-09-21 by "Also apply to" (_alsoFooter) — kept as the
+     * record of why the fan-out reads MODULE state rather than a DOM checkbox.
      */
     // Module-state, NOT the DOM checkbox (2026-07-06 fix): a background
     // re-render (the device_settings realtime consumer) rebuilt the modal and
@@ -1790,31 +1821,153 @@ const DevicesDetailModals = {
     // open device. Render the box from this flag; read the flag at write
     // time (DevicesPage._onSettingChange). Reset to false whenever an
     // apply-to-all modal opens so it never leaks across devices/dialogs.
-    _applyAllArmed: false,
 
-    _applyToAllFooter() {
-        return `
-            <div class="modal-footer" style="padding: 12px 16px; border-top: 1px solid var(--border, #e5e7eb);">
-                <label class="setting-row" style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 10px;">
-                    <input type="checkbox" id="device-apply-to-all" ${this._applyAllArmed ? 'checked' : ''}
-                           onchange="DevicesDetailModals._confirmApplyToAll(this)">
-                    <span class="setting-row-label" style="font-size: var(--font-size-sm);">Apply to all devices</span>
-                </label>
-            </div>
-        `;
+    /**
+     * "Also apply to" — the mock's multi-select, replacing the old
+     * "Apply to all devices" checkbox (John, 2026-09-21: "we didn't want apply
+     * to all - we wanted a multi select / apply to selected version").
+     *
+     * 🔴 "All" is not a separate mode, it is Select all. The old design had two
+     * states (armed / not) and no way to express "these three"; this has one
+     * state — a target set — of which all-devices and no-devices are just the
+     * extremes. That is why _onSettingChange now reads the SET rather than a
+     * boolean: one concept, not two that can disagree.
+     *
+     * Each row shows what that device is on RIGHT NOW, resolved (inherit vs
+     * own), because the question a mixed fleet owner is actually asking before
+     * ticking a box is "what am I about to overwrite?".
+     */
+    _alsoOpen: false,
+    _alsoTargets: new Set(),
+
+    /** Called by every modal opener. One place, so a new modal cannot forget. */
+    _resetAlso() { this._alsoOpen = false; this._alsoTargets = new Set(); },
+
+    /** The devices this dialog could also write to — everything active but the open one. */
+    _alsoCandidates() {
+        const spec = this._openApplyAllSpec();
+        if (!spec) return [];
+        const srcId = this[spec.idKey];
+        return (DevicesPage._devices || []).filter(d => d.is_active !== false && d.device_id !== srcId);
     },
 
-    // The keys each apply-to-all modal manages — used to retro-apply the open
-    // device's CURRENT values to all others the moment apply-to-all is armed,
-    // so "change the setting, THEN check apply to all" works (the common
-    // order). Without this, arming only affects FUTURE changes and the change
-    // the user already made never fanned out (2026-07-06 christmas repro).
+    _alsoFooter() {
+        const spec = this._openApplyAllSpec();
+        if (!spec) return '';
+        const others = this._alsoCandidates();
+        if (others.length === 0) return '';
+        const n = this._alsoTargets.size;
+        const rows = !this._alsoOpen ? '' : `
+            <div class="also-actions">
+                <button type="button" class="also-link" onclick="DevicesDetailModals._alsoAll(true)">Select all</button>
+                <button type="button" class="also-link" onclick="DevicesDetailModals._alsoAll(false)">Clear all</button>
+            </div>
+            <div class="also-list">
+                ${others.map((d) => {
+                    const on = this._alsoTargets.has(d.device_id);
+                    let now = '';
+                    try { now = spec.now ? spec.now(d) : ''; } catch { now = ''; }
+                    return `
+                    <button type="button" class="also-row" role="checkbox" aria-checked="${on}"
+                            onclick="DevicesDetailModals._alsoToggle('${DevicesPage._escape(d.device_id)}')">
+                        <span class="also-box${on ? ' is-on' : ''}" aria-hidden="true">${on ? '✓' : ''}</span>
+                        <span class="also-name">${DevicesPage._escape(d.device_name || 'Unnamed Device')}</span>
+                        ${now ? `<span class="also-now">now: ${DevicesPage._escape(now)}</span>` : ''}
+                    </button>`;
+                }).join('')}
+            </div>`;
+        return `
+            <div class="modal-footer also-foot">
+                <button type="button" class="also-head" onclick="DevicesDetailModals._alsoToggleOpen()"
+                        aria-expanded="${this._alsoOpen}">
+                    <span class="also-caret">${this._alsoOpen ? '▾' : '▸'}</span> Also apply to
+                    <span class="also-count">${n ? `${n} selected` : `${others.length} available`}</span>
+                </button>
+                ${rows}
+                ${n ? `<div class="also-save">
+                    <button type="button" class="btn btn-primary btn-sm" ${this._alsoBusy ? 'disabled' : ''}
+                            onclick="DevicesDetailModals._alsoApply()">
+                        ${this._alsoBusy ? 'Applying…' : `Apply ${DevicesPage._escape(spec.label)} to ${n} device${n === 1 ? '' : 's'}`}
+                    </button>
+                </div>` : ''}
+            </div>`;
+    },
+
+    _alsoToggleOpen() { this._alsoOpen = !this._alsoOpen; App.renderPage(); },
+    _alsoToggle(id) {
+        if (this._alsoTargets.has(id)) this._alsoTargets.delete(id);
+        else this._alsoTargets.add(id);
+        App.renderPage();
+    },
+    _alsoAll(on) {
+        this._alsoTargets = on ? new Set(this._alsoCandidates().map(d => d.device_id)) : new Set();
+        App.renderPage();
+    },
+
+    _alsoBusy: false,
+    /** Copy the open device's CURRENT values for this dialog to the selected devices. */
+    async _alsoApply() {
+        if (this._alsoBusy || this._alsoTargets.size === 0) return;
+        this._alsoBusy = true; App.renderPage();
+        const spec = this._openApplyAllSpec();
+        const n = this._alsoTargets.size;
+        try {
+            await this._fanOutTo([...this._alsoTargets]);
+            Toast?.success?.(`Applied ${spec?.label || 'settings'} to ${n} device${n === 1 ? '' : 's'}`);
+            this._alsoTargets = new Set();
+        } finally {
+            this._alsoBusy = false; App.renderPage();
+        }
+    },
+
+    // The keys each dialog manages — used both to retro-apply the open device's
+    // CURRENT values to the devices you tick, and to say what each of those is
+    // on right now so you can see what you are about to overwrite.
     _APPLY_ALL_KEYS: {
-        theme:       { idKey: '_themeDeviceId',       keys: [['display', 'themeFamily'], ['display', 'darkMode']] },
-        sleep:       { idKey: '_sleepDeviceId',       keys: [['sleep', 'enabled'], ['sleep', 'sleepMethod'], ['sleep', 'sleepTime'], ['sleep', 'wakeTime'], ['sleep', 'resleepTimeout'], ['sleep', 'inactivityTimeout']] },
-        personality: { idKey: '_personalityDeviceId', keys: [['aiVoice', 'personalityId'], ['aiVoice', 'voiceKey']] },
-        voice:       { idKey: '_voiceDeviceId',       keys: [['aiVoice', 'voiceKey']] },
-        photos:      { idKey: '_photosDeviceId',      keys: [['photos', 'sourceType'], ['photos', 'albumId'], ['photos', 'albumName'], ['photos', 'slideshowInterval']] },
+        theme:       { idKey: '_themeDeviceId',       label: 'theme',
+                       keys: [['display', 'themeFamily'], ['display', 'darkMode']],
+                       now: (d) => DevicesDetailModals.buildThemeSummary(d?.settings?.display || {}) },
+        sleep:       { idKey: '_sleepDeviceId',       label: 'sleep schedule',
+                       keys: [['sleep', 'enabled'], ['sleep', 'sleepMethod'], ['sleep', 'sleepTime'], ['sleep', 'wakeTime'], ['sleep', 'resleepTimeout'], ['sleep', 'inactivityTimeout']],
+                       now: (d) => DevicesDetailModals._sleepNow(d) },
+        personality: { idKey: '_personalityDeviceId', label: 'personality',
+                       keys: [['aiVoice', 'personalityId'], ['aiVoice', 'voiceKey']],
+                       now: (d) => DevicesDetailModals._inheritNow(d?.settings?.aiVoice?.personalityId,
+                                       (v) => DevicesDetailModals.personalityName(v),
+                                       DevicesDetailModals._accountSettings?.ai?.defaultPersonalityId) },
+        voice:       { idKey: '_voiceDeviceId',       label: 'voice',
+                       keys: [['aiVoice', 'voiceKey']],
+                       now: (d) => { const v = DevicesDetailModals.voiceSetupSummary(d);
+                                     return v.custom ? 'Custom (own)' : `Household (${v.label})`; } },
+        photos:      { idKey: '_photosDeviceId',      label: 'photo album',
+                       keys: [['photos', 'sourceType'], ['photos', 'albumId'], ['photos', 'albumName'], ['photos', 'slideshowInterval']],
+                       now: (d) => DevicesDetailModals._photosNow(d) },
+    },
+
+    /** "10pm–6am" / "No sleep" — the same resolver the card and the modal use. */
+    _sleepNow(device) {
+        const eff = this.sleepEffective(device?.settings?.sleep);
+        if (!eff.enabled) return 'No sleep';
+        if (eff.sleepMethod === 'inactivity') return `${this._formatTimeout(Number(eff.inactivityTimeout))} idle`;
+        const t = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number);
+            return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''}${h >= 12 ? 'pm' : 'am'}`; };
+        return `${t(eff.sleepTime)}–${t(eff.wakeTime)}`;
+    },
+
+    _photosNow(device) {
+        const ph = device?.settings?.photos || {};
+        if (ph.sourceType === 'immich') return this.immichAlbumSummary(ph);
+        return ph.albumName || ph.sourceType || 'Default';
+    },
+
+    /**
+     * "Okay Nabu (own)" vs "Household (Hey Dashie)" — for a leaf a device may
+     * OVERRIDE. `''` is the inherit sentinel, not a value, so it reads as
+     * following the household exactly like an absent key.
+     */
+    _inheritNow(deviceValue, label, householdValue) {
+        if (deviceValue) return `${label(deviceValue)} (own)`;
+        return householdValue ? `Household (${label(householdValue)})` : 'Household';
     },
 
     /** Which apply-to-all modal is currently open → its key spec. */
@@ -1830,19 +1983,32 @@ const DevicesDetailModals = {
     /** Fan the open device's CURRENT values for the modal's managed keys out
      *  to every other active device. Called on arm so the setting the user
      *  already picked propagates immediately, not only on the next change. */
-    async _fanOutCurrentOnArm() {
+    async _fanOutTo(targetIds) {
         const spec = this._openApplyAllSpec();
         if (!spec) return;
         const src = DevicesPage._findDevice(this[spec.idKey]);
         if (!src) return;
+        const wanted = new Set(targetIds || []);
         const others = (DevicesPage._devices || [])
-            .filter(d => d.is_active !== false && d.device_id !== src.device_id);
+            .filter(d => d.is_active !== false && d.device_id !== src.device_id && wanted.has(d.device_id));
         // Group by category so we write each category once per device.
+        // 🔴 Resolve the SHOWN values, not the stored ones. A sparse blob (a
+        // device never configured for sleep) used to skip every key and fan out
+        // an empty payload — the user checked the box and nothing happened,
+        // with no error. See sleepEffective().
+        const resolved = { sleep: this.sleepEffective(src.settings?.sleep) };
         const byCat = {};
         for (const [cat, key] of spec.keys) {
-            const val = src.settings?.[cat]?.[key];
+            const val = resolved[cat] ? resolved[cat][key] : src.settings?.[cat]?.[key];
             if (val === undefined) continue;
             (byCat[cat] = byCat[cat] || {})[key] = val;
+        }
+        // A fan-out that writes nothing is a silent no-op; say so rather than
+        // returning quietly (CLAUDE.md: no silent drops).
+        if (Object.keys(byCat).length === 0) {
+            console.warn(`DROP: apply-to-all found no values to copy for ${JSON.stringify(spec.keys)} on ${src.device_id}`);
+            Toast?.error?.('Nothing to apply — this device has no values set for that dialog.');
+            return;
         }
         for (const device of others) {
             for (const [cat, vals] of Object.entries(byCat)) {
@@ -1865,18 +2031,6 @@ const DevicesDetailModals = {
      *  dialog fans out to all active devices. Confirm intent before arming;
      *  on confirm we ALSO retro-apply the current values (so the change the
      *  user just made propagates). Unchecking never needs confirmation. */
-    async _confirmApplyToAll(checkbox) {
-        if (!checkbox.checked) { this._applyAllArmed = false; return; }
-        const count = (DevicesPage._devices || []).filter(d => d.is_active !== false).length;
-        const ok = await ConfirmModal.confirm({
-            title: 'Apply to all devices?',
-            message: `This applies the current settings in this dialog to all ${count} devices, and keeps applying any further changes here while it stays checked.`,
-            confirmLabel: 'Apply to all',
-        });
-        this._applyAllArmed = !!ok;
-        if (!ok) { checkbox.checked = false; return; }
-        await this._fanOutCurrentOnArm();
-    },
 
     _onBackdrop(event, onClose) {
         if (event.target.classList.contains('modal-backdrop')) {
