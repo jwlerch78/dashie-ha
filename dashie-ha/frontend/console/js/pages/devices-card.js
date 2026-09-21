@@ -116,12 +116,37 @@ const DevicesCard = {
             ? `<span title="HA: ${DevicesPage._escape(conflict)}" style="color: var(--accent); font-size: 11px;">⚠</span>`
             : '';
         const offlineChip = live ? '' : '<span class="dcard-off">offline</span>';
-        // Local mode has no account route, so the theme editor is not offered there.
-        const swatch = DevicesPage._localMode === true ? '' : `
-            <button type="button" class="dcard-swatch theme-${DevicesPage._escape(fam)}${dark ? ' is-dark' : ''}"
-                    title="Theme: ${DevicesPage._escape(this._prettify(fam))}"
-                    aria-label="Theme: ${DevicesPage._escape(this._prettify(fam))}"
-                    onclick="event.stopPropagation(); DevicesDetailModals.openTheme('${idAttr}')"></button>`;
+        // 🔴 THE SWATCH IS ONLY A BUTTON WHERE THE THEME EDITOR EXISTS.
+        //
+        // `display.themeFamily` is FAMILY-ONLY (FeatureGate.FAMILY_ONLY_OPTIONS,
+        // decided 2026-07-06), so in the PUBLISHED build renderThemeModal()
+        // returns '' — the control is deliberately absent from this edition.
+        // Rendering a clickable swatch anyway gives a control that opens
+        // nothing: you click a colour and the page does not react, which reads
+        // as a broken console rather than an absent feature. John hit exactly
+        // this on a device holding `fern` (2026-09-21).
+        //
+        // ⚠️ NOT introduced by P4a — the row this replaced was ungated too, and
+        // renderThemeModal's own comment claims "the row that opens this is
+        // already gated", which was never true. P4a only made it look more
+        // clickable. Fixed here rather than left as a prettier version of the
+        // same dead control.
+        //
+        // Absent editor ⇒ still SHOW the colour (it is real status about the
+        // device) but as a plain span: no button, no cursor, no promise.
+        const themeLabel = DevicesPage._escape(this._prettify(fam));
+        const swatchCls = `dcard-swatch theme-${DevicesPage._escape(fam)}${dark ? ' is-dark' : ''}`;
+        const themeEditable = (typeof FeatureGate === 'undefined')
+            || FeatureGate.optionAllowed('display.themeFamily');
+        const swatch = DevicesPage._localMode === true ? '' : (themeEditable ? `
+            <button type="button" class="${swatchCls}"
+                    title="Theme: ${themeLabel}"
+                    aria-label="Theme: ${themeLabel}"
+                    onclick="event.stopPropagation(); DevicesDetailModals.openTheme('${idAttr}')"></button>`
+            : `
+            <span class="${swatchCls} is-static" role="img"
+                  title="Theme: ${themeLabel} — set on the device, in Settings › Display"
+                  aria-label="Theme: ${themeLabel}"></span>`);
         return `
             <div style="display: flex; align-items: flex-start; gap: 10px;">
                 <div class="device-card-icon" style="flex-shrink: 0;">${icon}</div>

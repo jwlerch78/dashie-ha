@@ -2194,6 +2194,7 @@
     box-shadow: 0 0 0 1px var(--border, #e5e7eb);
     background: linear-gradient(135deg, var(--t1) 0 50%, var(--t2) 50% 100%);
 }
+.dcard-swatch.is-static { cursor: default; }
 .dcard-swatch.is-dark { box-shadow: 0 0 0 1px var(--border, #e5e7eb), inset 0 0 0 5px rgba(17, 24, 39, .55); }
 
 .dtiles { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border-2, #eff0f2); margin-top: 10px; }

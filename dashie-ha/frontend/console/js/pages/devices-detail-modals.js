@@ -985,9 +985,12 @@ const DevicesDetailModals = {
 
     renderThemeModal() {
         if (!this._themeOpen) return '';
-        // Belt and braces: the row that opens this is already gated, but the
-        // modal is reachable by any other caller and this is a family-only
-        // control (seasonal theme families).
+        // 🔴 THIS IS THE ONLY GATE, not "belt and braces". The comment here used
+        // to say "the row that opens this is already gated" — it never was
+        // (devices-card.js rendered the Theme row unconditionally), so in the
+        // published build the row opened a modal that returned '' and the page
+        // simply did not react. Corrected 2026-09-21; the card now asks
+        // FeatureGate before rendering the swatch as a button at all.
         if (!FeatureGate.optionAllowed('display.themeFamily')) return '';
         const device = DevicesPage._findDevice(this._themeDeviceId);
         if (!device) return '';
