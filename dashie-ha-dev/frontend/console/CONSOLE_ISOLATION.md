@@ -35,16 +35,34 @@ Dashie). It is the same boundary; it is now named for what it actually is — an
 `FAMILY_ONLY_OPTIONS`, which removes individual **options** from sections that
 belong in both editions — the case publishing the Devices pages surfaced:
 
-| Setting | Published build |
+🔴 **AMENDED 2026-09-21 (John): the axis is the ACCOUNT, not the build.** The
+add-on console can sign in to a Dashie account and manage that household's
+devices — *"the console can still manage a family instance, it shouldn't limit
+the family options. it should show both."* Keying these off `isPublishedBuild()`
+hid the options of the very account being managed: a family customer running the
+HA add-on could not set their own device's theme, and the swatch did not react.
+
+| Setting | Account-less console |
 |---|---|
-| `display.themeFamily` | whole control hidden (seasonal families are family-only) |
+| `display.themeFamily` | whole control hidden |
 | `display.layoutMode` | `widgets` dropped — that option *is* the family dashboard |
 | `photos.sourceType` | `supabase` (cloud albums) and `google_drive` dropped |
 
-`google_drive` is worth its own note: it needs the Google **Drive** OAuth scope,
-and the HA edition's sign-in brand (`dashie_ha`) requests identity only. So it is
-not merely withheld — it could not work here. If that scope decision is ever
-revisited, this option comes back with it.
+⚠️ **`CLOSED_DELTA_PAGES` / I1 are unaffected and stay on the BUILD axis.** Those
+pages are not in this source tree at all — that is source isolation. This table
+only ever governed options inside pages *both* editions ship, which is a
+visibility choice, and the right question for one is "whose devices am I looking
+at", not "which zip was I built from".
+
+📌 **The `google_drive` note that used to sit here was wrong, and worth recording.**
+It claimed Drive "needs the Google **Drive** OAuth scope, and the HA edition's
+sign-in brand (`dashie_ha`) requests identity only". That is not merely stale, it
+is structurally impossible: sign-in does not vary by edition at all —
+`js/lib/console-auth.js` contains **zero** `BRAND.` references, both editions
+share it, and it requests one fixed scope string including `drive.file`
+(`console-auth.js:839`). There is no per-edition OAuth client here to differ.
+A justification nobody could have checked is how a product decision acquires a
+technical-sounding reason it never had.
 
 Applied at the two chokepoints rather than per caller: `renderPickerModal()`
 filters every picker by `category.key`, and `_photoSourceOptions()` filters the
@@ -63,8 +81,8 @@ source list. A new picker is gated automatically.
 - **I5 — Config for user-owned engines never persists to Dashie cloud.**
 - **I6 — Shared-shell edits are made in this tree and flow downstream.** The
   family console never hand-edits its vendored copy of a shared file.
-- **I7 — No `FAMILY_ONLY_OPTIONS` entry is reachable in a published build.** The
-  option-level counterpart of I1. Two halves, and the second is the one that
+- **I7 — No `FAMILY_ONLY_OPTIONS` entry is reachable WITHOUT AN ACCOUNT.**
+  (Amended 2026-09-21; was "in a published build".) Two halves, and the second is the one that
   bites: the gate must **refuse** the option, *and* some render path must
   actually **ask** it. Registering a key in `FAMILY_ONLY_OPTIONS` does not gate
   it — a fourth entry with no chokepoint reads as protected and renders anyway.

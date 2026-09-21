@@ -45,10 +45,15 @@ const DevicesDetailModals = {
     ],
 
     THEME_FAMILIES: [
+        // BEGIN GENERATED theme-families — gen-console-theme-swatches.mjs
         ['default', 'Default'],
+        ['marigold', 'Marigold'],
+        ['fern', 'Fern'],
+        ['orchid', 'Orchid'],
         ['blue', 'Blue'],
         ['halloween', 'Halloween'],
         ['christmas', 'Christmas'],
+        // END GENERATED theme-families
     ],
 
     ANIMATION_LEVELS: [
@@ -120,39 +125,18 @@ const DevicesDetailModals = {
     // ── Account-settings cache (for ai.wakeWord and other account-wide
     //    fields we surface read/edit from the device detail page) ─────
 
-    _accountSettings: null,     // populated by ensureAccountSettings()
-    _accountLoading: false,
+    // 🔴 NOT a field any more — an accessor over AccountSettingsStore, so the CARD
+    // and this MODAL read ONE cache. Two copies of the household on one page drift
+    // the moment one refreshes, and the visible symptom is the card's diff dot
+    // being wrong, which gets hunted in the renderer instead of the state.
+    // The name is kept because ~10 call sites and the gate read it.
+    get _accountSettings() { return window.AccountSettingsStore?.get() ?? null; },
+    set _accountSettings(v) { window.AccountSettingsStore?.set(v); },
 
     /** Lazy-load user_settings the first time something on this page needs
      *  an account-level field. Re-render when the load resolves so the
      *  Voice section's Wake Word row swaps from "—" to the real value. */
-    ensureAccountSettings() {
-        if (this._accountSettings || this._accountLoading) return;
-        // 🔴 Feature-detect, because this is now called from a RENDER path.
-        // `loadUserSettings` does not exist on every DashieAuth: the ACCOUNT-LESS
-        // add-on console runs a local shim with no user_settings to load at all.
-        // Before 2026-08-25 this function had ZERO callers, so the gap was
-        // invisible; the first render-path caller turned it into a throw that
-        // takes out the whole Devices detail page on the published HA edition.
-        // Caught by `lint:devices-surface` leg 3, which renders the page for real.
-        //
-        // Absent → cache an empty object, exactly like the .catch() below. An
-        // account-less box HAS no account defaults, so "{}" is the true answer
-        // there, not a degraded one.
-        if (typeof DashieAuth?.loadUserSettings !== 'function') {
-            this._accountSettings = {};
-            return;
-        }
-        this._accountLoading = true;
-        DashieAuth.loadUserSettings().then(s => {
-            this._accountSettings = s || {};
-            this._accountLoading = false;
-            App.renderPage();
-        }).catch(() => {
-            this._accountSettings = {};
-            this._accountLoading = false;
-        });
-    },
+    ensureAccountSettings() { window.AccountSettingsStore?.ensure(); },
 
     /**
      * The household's default wake word — what a device with no override follows.
@@ -317,11 +301,13 @@ const DevicesDetailModals = {
      *
      * 🔴 THE STATE THAT DOES NOT EXIST ON THE STT SIDE, AND THE REASON THIS IS A
      * SEPARATE FUNCTION RATHER THAN A PARAMETER: `tts.available` is NEWER THAN THE
-     * FLEET. It landed 2026-09-20, and on that day only 4 of the 16 staging devices
-     * publishing a capability record carried it — the other 12 publish a `tts` block
-     * with `resolved` ONLY, because their APKs predate the field. (Measured, not
-     * estimated: a read-only count over `user_devices`, 39 rows, 16 with a record.)
-     * `stt.registered` has no equivalent era.
+     * FLEET. `stt.registered` has no equivalent era. Measured on staging the day it
+     * landed (read-only count over `user_devices`, 39 rows): 23 publish no capability
+     * record at all, 11 have not started their voice stack, 1 publishes a `tts` block
+     * WITHOUT `available`, and 4 carry it. ⚠️ So only ONE device exercises the
+     * absent-key branch TODAY — the thin one is the dangerous one. As those 11 start
+     * their stacks on APKs that predate the field they land in it too, and every one
+     * of them is a device whose picker would empty if absent collapsed into empty.
      *
      * So ABSENT and EMPTY are different facts and must not collapse:
      *   • the key is MISSING  → the device never had the chance to answer. Follow
@@ -671,7 +657,7 @@ const DevicesDetailModals = {
                 <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
                     <button class="btn btn-secondary" onclick="DevicesDetailModals.closeVoiceSetup()">Close</button>
                 </div>
-            `, 'DevicesDetailModals.closeVoiceSetup()');
+            `, 'DevicesDetailModals.closeVoiceSetup()', null, device);
         }
 
         const F = CAPABILITY_FIELDS;
@@ -708,7 +694,7 @@ const DevicesDetailModals = {
                 <button class="btn btn-primary" onclick="DevicesDetailModals.submitVoiceSetup()" ${this._voiceSetupSaving ? 'disabled' : ''}>${this._voiceSetupSaving ? 'Saving…' : 'Save'}</button>
             </div>
         `;
-        return this._modal('Voice setup', body, 'DevicesDetailModals.closeVoiceSetup()');
+        return this._modal('Voice setup', body, 'DevicesDetailModals.closeVoiceSetup()', null, device);
     },
 
     // ── Section body ──────────────────────────────────────────
@@ -848,15 +834,33 @@ const DevicesDetailModals = {
 
     // ── Summary builders (mirror Kotlin control center) ────────
 
+    /**
+     * THE one derivation of sleep mode from the device blob.
+     *
+     * 🔴 `enabled` ABSENT means ON — that is the app's default, and a falsy test
+     * (`sleep.enabled && …`) reads a never-configured device as "Off". That is
+     * exactly how the P4a card came to say "Off" for a device whose own Sleep
+     * modal said "Schedule · 10:00 PM – 7:00 AM" (John, 2026-09-21). The same
+     * class of bug was fixed in buildSleepSummary once before, for the
+     * `sleep.`-prefixed keys; re-deriving the predicate is what let it return.
+     *
+     * Three call sites read this. None of them may re-derive it.
+     */
+    sleepModeOf(sleep) {
+        const s = sleep || {};
+        const enabled = s.enabled !== false;
+        const method = s.sleepMethod || 'schedule';
+        return { enabled, method, mode: enabled ? method : 'off' };
+    },
+
     /** "22:00 / 07:00 (Black Overlay)" / "2 min timeout (Black Overlay)" / "Inactive" */
     buildSleepSummary(sleep, display) {
         // Blob keys are UNPREFIXED (native-settings-listener.js writes enabled,
         // sleepMethod, sleepTime, wakeTime, inactivityTimeout). Mode is derived:
         // off when disabled, else the method. (Was reading sleep['sleep.enabled']
         // etc. — always undefined, so the summary rendered defaults forever.)
-        const enabled = sleep.enabled !== false;
+        const { enabled, method } = this.sleepModeOf(sleep);
         if (!enabled) return 'Inactive';
-        const method = sleep.sleepMethod || 'schedule';
         let timeStr;
         if (method === 'inactivity') {
             const seconds = Number(sleep.inactivityTimeout ?? 120);
@@ -912,9 +916,7 @@ const DevicesDetailModals = {
         // sleepShowClock, reduceBrightnessOnSleep, motionWakeForSleep. There is
         // NO `sleep.*`-prefixed key and NO stored sleepMode — the mode is derived
         // from enabled + sleepMethod (off / schedule / inactivity).
-        const enabled = sleep.enabled !== false;
-        const method = sleep.sleepMethod || 'schedule';
-        const sleepMode = !enabled ? 'off' : method;
+        const { enabled, method, mode: sleepMode } = this.sleepModeOf(sleep);
         const scheduleVisible = sleepMode === 'schedule';
         const inactivityVisible = sleepMode === 'inactivity';
         const optionsVisible = sleepMode !== 'off';
@@ -958,7 +960,7 @@ const DevicesDetailModals = {
                 ` : ''}
             </div>
         `;
-        return this._modal('Sleep / Wake', body, 'DevicesDetailModals.closeSleep()', this._applyToAllFooter());
+        return this._modal('Sleep / Wake', body, 'DevicesDetailModals.closeSleep()', this._applyToAllFooter(), device);
     },
 
     _onSleepModeChange(value) {
@@ -981,11 +983,21 @@ const DevicesDetailModals = {
     openTheme(deviceId) { this._applyAllArmed = false; this._themeOpen = true; this._themeDeviceId = deviceId; App.renderPage(); },
     closeTheme() { this._themeOpen = false; this._themeDeviceId = null; App.renderPage(); },
 
+    /**
+     * 🔴 THIS IS THE ONLY GATE, and until 2026-09-21 the comment inside claimed
+     * otherwise — "the row that opens this is already gated". It never was:
+     * devices-card.js rendered the Theme row unconditionally, so the row opened
+     * a modal that returned '' and the page simply did not react. John hit it
+     * on a device holding `fern`. The card now asks FeatureGate before drawing
+     * the swatch as a button, and this stays as the second half.
+     *
+     * ⚠️ The early return must stay within a few lines of the function head —
+     * `check-family-only-options.test.ts` asserts it returns EARLY, not merely
+     * that the call appears somewhere in the body. Explanations go here, above.
+     */
     renderThemeModal() {
         if (!this._themeOpen) return '';
-        // Belt and braces: the row that opens this is already gated, but the
-        // modal is reachable by any other caller and this is a family-only
-        // control (seasonal theme families).
+        // Gated on the ACCOUNT (see the note above renderThemeModal).
         if (!FeatureGate.optionAllowed('display.themeFamily')) return '';
         const device = DevicesPage._findDevice(this._themeDeviceId);
         if (!device) return '';
@@ -1006,7 +1018,7 @@ const DevicesDetailModals = {
                 </div>
             </div>
         `;
-        return this._modal('Theme', body, 'DevicesDetailModals.closeTheme()', this._applyToAllFooter());
+        return this._modal('Theme', body, 'DevicesDetailModals.closeTheme()', this._applyToAllFooter(), device);
     },
 
     // ── Generic single-picker modal ───────────────────────────
@@ -1046,7 +1058,7 @@ const DevicesDetailModals = {
                 ${DevicesDetail._settingSelectRaw(device, ctx.category, ctx.key, String(current), options)}
             </div>
         `;
-        return this._modal(ctx.label, body, 'DevicesDetailModals.closePicker()');
+        return this._modal(ctx.label, body, 'DevicesDetailModals.closePicker()', null, device);
     },
 
     // ── Screensaver modal ─────────────────────────────────────
@@ -1087,7 +1099,7 @@ const DevicesDetailModals = {
                 ` : ''}
             </div>
         `;
-        return this._modal('Screensaver', body, 'DevicesDetailModals.closeScreensaver()');
+        return this._modal('Screensaver', body, 'DevicesDetailModals.closeScreensaver()', null, device);
     },
 
     // ── Advanced Display Options modal ────────────────────────
@@ -1157,7 +1169,7 @@ const DevicesDetailModals = {
                     'Auto Brightness', display.autoBrightnessEnabled === true)}
             </div>
         `;
-        return this._modal('Advanced Display Options', body, 'DevicesDetailModals.closeAdvancedDisplay()');
+        return this._modal('Advanced Display Options', body, 'DevicesDetailModals.closeAdvancedDisplay()', null, device);
     },
 
     // ── Wake Word modal (DEVICE-level user_devices.aiVoice.wakeWord — D5) ──
@@ -1230,7 +1242,7 @@ const DevicesDetailModals = {
                 <button class="btn btn-primary" onclick="DevicesDetailModals.submitWakeWord()" ${this._wakeWordSaving ? 'disabled' : ''}>${this._wakeWordSaving ? 'Saving…' : 'Save'}</button>
             </div>
         `;
-        return this._modal('Wake Word', body, 'DevicesDetailModals.closeWakeWord()');
+        return this._modal('Wake Word', body, 'DevicesDetailModals.closeWakeWord()', null, device);
     },
 
     // ── Personality catalog (shared) ──────────────────────────────
@@ -1368,7 +1380,7 @@ const DevicesDetailModals = {
                 “Account default” follows the personality set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice & AI</a> page; picking one here overrides it for this device only.
             </div>
         `;
-        return this._modal('Personality', body, 'DevicesDetailModals.closeVoicePersonality()', this._applyToAllFooter());
+        return this._modal('Personality', body, 'DevicesDetailModals.closeVoicePersonality()', this._applyToAllFooter(), device);
     },
 
     // ── Voice picker (device-level aiVoice.voiceKey — WS-G) ───────
@@ -1407,7 +1419,7 @@ const DevicesDetailModals = {
                     ${DevicesPage._escape(p.name || 'This personality')} always speaks in this voice.
                     Choose a voice-flexible personality (here or on the Voice &amp; AI page) to pick a voice.
                 </div>`;
-            return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()');
+            return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', null, device);
         }
         // '' / unset = follow the account default voice (itself '' = the
         // personality's preferred voice). Same inherit sentinel as personality.
@@ -1435,7 +1447,7 @@ const DevicesDetailModals = {
                 “Account default” follows the voice set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page; picking one here overrides it for this device only.
                 Premium voices cost about 4× the default ${BRAND.assistantName} voice per reply.
             </div>`;
-        return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', this._applyToAllFooter());
+        return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', this._applyToAllFooter(), device);
     },
 
     // ── Photos picker (device-level photos.sourceType + album) ────
@@ -1537,7 +1549,7 @@ const DevicesDetailModals = {
                     </div>` : ''}
             </div>
         `;
-        return this._modal('Photos', body, 'DevicesDetailModals.closePhotos()', this._applyToAllFooter());
+        return this._modal('Photos', body, 'DevicesDetailModals.closePhotos()', this._applyToAllFooter(), device);
     },
 
     // ── Immich albums (multi-select) ──────────────────────────────
@@ -1725,17 +1737,35 @@ const DevicesDetailModals = {
                 </div>
             </div>
         `;
-        return this._modal(this._pinHadPin ? 'Change PIN' : 'Set PIN', body, 'DevicesDetailModals.closePinModal()');
+        return this._modal(this._pinHadPin ? 'Change PIN' : 'Set PIN', body, 'DevicesDetailModals.closePinModal()', null, DevicesPage._findDevice(this._pinDeviceId));
     },
 
     // ── Modal shell + helpers ─────────────────────────────────
 
-    _modal(title, bodyHtml, onClose, footerHtml) {
+    /**
+     * The shared device-modal shell.
+     *
+     * 🔴 `device` is not decoration. EVERY modal here edits ONE device, and the
+     * header used to name only the SETTING — so "Sleep / Wake" looked identical
+     * whichever card you opened it from. With N cards on a page that is a modal
+     * you can confidently save into the wrong device (John, 2026-09-21). The
+     * name is rendered from the same row the body is reading, so it cannot
+     * disagree with what the controls are about to write.
+     *
+     * ⚠️ Passing no `device` renders no subtitle rather than a placeholder — an
+     * empty line is honest, "Unknown device" would be an invented claim.
+     */
+    _modal(title, bodyHtml, onClose, footerHtml, device) {
+        const deviceName = device?.device_name
+            ? `<span class="modal-subtitle">${this._escape(device.device_name)}</span>` : '';
         return `
             <div class="modal-backdrop" onclick="DevicesDetailModals._onBackdrop(event, '${onClose}')">
                 <div class="modal" style="max-width: 480px; width: 92vw;">
                     <div class="modal-header">
-                        <span class="modal-title">${this._escape(title)}</span>
+                        <span class="modal-title-group">
+                            <span class="modal-title">${this._escape(title)}</span>
+                            ${deviceName}
+                        </span>
                         <button class="modal-close" onclick="${onClose}">✕</button>
                     </div>
                     <div class="modal-body">${bodyHtml}</div>

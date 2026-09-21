@@ -284,7 +284,7 @@
 
 .modal-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     padding: 18px 24px;
     border-bottom: 1px solid var(--border-subtle);
@@ -294,6 +294,17 @@
     font-size: var(--font-size-lg);
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* Device-modal header: the setting name, and UNDER it the device the modal is
+   about. `align-items: center` on .modal-header would centre the ✕ against the
+   two-line group; flex-start keeps it pinned to the title line. */
+.modal-title-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.modal-title-group .modal-title { line-height: 1.2; }
+.modal-subtitle {
+    font-size: var(--font-size-sm, 13px);
+    color: var(--text-secondary, #6b7280);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .modal-close {
@@ -2135,3 +2146,78 @@
     color: var(--status-error, #c00);
     background: rgba(204, 0, 0, 0.10);
 }
+
+/* ============================================================
+   P4a — compact device settings card (mock EA6Jig35Q57HhXi115YTqB)
+   A theme bar, an identity header with a theme swatch, a two-column
+   grid of value tiles, and a footer link into the detail page.
+   ============================================================ */
+.dcard {
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.dcard.card-clickable { cursor: pointer; }
+.dcard.card-clickable:hover { border-color: var(--accent, #f97316); }
+
+/* The 4px theme bar. Families map to the console's own theme tokens; an
+   unknown family falls through to --default, never to a blank bar. */
+.dcard-bar { height: 4px; background: linear-gradient(90deg, var(--t1, #9ca3af), var(--t2, #cbd5e1)); }
+/* BEGIN GENERATED theme-swatches — gen-console-theme-swatches.mjs */
+/* Swatch + card-bar colours per theme family. --t1 is the family's primaryColor,
+   --t2 its accentColor, both from the LIGHT variant. Hand-editing these puts the
+   console back to showing a colour the app does not use. */
+.theme-default    { --t1: #2196f3; --t2: #ff9800; }
+.theme-marigold   { --t1: #8A5200; --t2: #C97B00; }
+.theme-fern       { --t1: #1B5E20; --t2: #43A047; }
+.theme-orchid     { --t1: #6A1B7A; --t2: #9B2FAE; }
+.theme-blue       { --t1: #1F4D7A; --t2: #3D6B9A; }
+.theme-halloween  { --t1: #228B22; --t2: #FF6B1A; }
+.theme-christmas  { --t1: #DC3545; --t2: #FFD700; }
+/* END GENERATED theme-swatches */
+
+.dcard-name { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
+.dcard-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcard-off {
+    font-size: 10px; padding: 1px 6px; border-radius: 999px;
+    background: var(--surface-2, #f3f4f6); color: var(--text-muted, #9ca3af); font-weight: 500;
+}
+
+/* The swatch is the Theme control. `is-dark` sets the inset ring the mock uses
+   to say "this device is in dark mode" WITHOUT folding mode into the theme name. */
+.dcard-swatch {
+    width: 22px; height: 22px; border-radius: 50%; padding: 0; flex: none; cursor: pointer;
+    border: 2px solid var(--surface, #fff);
+    box-shadow: 0 0 0 1px var(--border, #e5e7eb);
+    background: linear-gradient(135deg, var(--t1) 0 50%, var(--t2) 50% 100%);
+}
+.dcard-swatch.is-static { cursor: default; }
+.dcard-swatch.is-dark { box-shadow: 0 0 0 1px var(--border, #e5e7eb), inset 0 0 0 5px rgba(17, 24, 39, .55); }
+
+.dtiles { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border-2, #eff0f2); margin-top: 10px; }
+.dtile {
+    display: grid; gap: 1px; padding: 8px 12px; min-width: 0; text-align: left;
+    border: 0; border-bottom: 1px solid var(--border-2, #eff0f2); background: transparent;
+    font: inherit; color: inherit; cursor: pointer;
+}
+.dtile:nth-child(odd) { border-right: 1px solid var(--border-2, #eff0f2); }
+.dtile:hover { background: var(--surface-2, #fafafa); }
+.dtile-l { font-size: 11px; color: var(--text-secondary, #6b7280); }
+.dtile-v {
+    font-size: 12.5px; font-weight: 500; color: var(--text-primary, #111827);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The mock's "differs from the household default" dot. Only rendered where BOTH
+   sides of the comparison are known — see _renderSimpleSettings. */
+.dtile.is-diff .dtile-v::after {
+    content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent, #f97316); margin-left: 5px; vertical-align: 1px;
+}
+.dcard-foot { display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 12px; }
+.dcard-link { border: 0; background: transparent; color: var(--accent, #f97316); font-weight: 500; font-size: 12px; padding: 0; cursor: pointer; }
+.dcard-link:hover { text-decoration: underline; }
+
+@media (max-width: 420px) { .dtiles { grid-template-columns: 1fr; } .dtile:nth-child(odd) { border-right: 0; } }
