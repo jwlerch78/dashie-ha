@@ -1,4 +1,12 @@
-// I7 — no FAMILY_ONLY_OPTIONS entry is reachable in a published build.
+// I7 — no FAMILY_ONLY_OPTIONS entry is reachable WITHOUT AN ACCOUNT.
+//
+// 🔴 AMENDED 2026-09-21 (John): the axis is the ACCOUNT, not the build. The
+// add-on console can sign in to a Dashie account and manage that household's
+// devices; keying these options off `isPublishedBuild()` hid the options of the
+// very account being managed. I1/CLOSED_DELTA_PAGES stay on the BUILD axis —
+// those pages are not in this source tree at all. This file tests the option
+// half only, and it now tests the account axis, because a gate still asserting
+// the old axis would go green on a claim the product no longer makes.
 //
 // Why this file exists
 // ────────────────────
@@ -35,25 +43,30 @@ const CONSOLE = Deno.env.get('I7_CONSOLE_DIR') || `${ROOT}dashie-ha/frontend/con
 // It is a classic script (a top-level `const FeatureGate = {…}`, no exports), so
 // evaluate it with the globals it reads injected as parameters. `typeof X` still
 // works on a declared parameter, which is the form the gate uses.
-function loadFeatureGate(build: string | null) {
+function loadFeatureGate(build: string | null, auth: unknown = { isLocalMode: true }) {
     const src = Deno.readTextFileSync(`${CONSOLE}/js/lib/feature-gate.js`);
     const warnings: string[] = [];
     const fakeConsole = { warn: (m: string) => warnings.push(m), log: () => {}, error: () => {} };
     const BRAND = build === null ? undefined : { build };
     // deno-lint-ignore no-explicit-any
     const factory = new Function('BRAND', 'DashieAuth', 'console', `${src}\nreturn FeatureGate;`) as any;
-    return { gate: factory(BRAND, undefined, fakeConsole), warnings };
+    return { gate: factory(BRAND, auth, fakeConsole), warnings };
 }
 
-const PUBLISHED = () => loadFeatureGate('published').gate;
-const FULL = () => loadFeatureGate('full').gate;
+// The two states that now decide an option: an account-less add-on console, and
+// one managing a Dashie account. Build is varied separately, and deliberately:
+// the point of the amendment is that it no longer decides these.
+const NO_ACCOUNT = (build = 'published') => loadFeatureGate(build, { isLocalMode: true }).gate;
+const WITH_ACCOUNT = (build = 'published') => loadFeatureGate(build, { isLocalMode: false }).gate;
+const PUBLISHED = NO_ACCOUNT;
+const FULL = () => WITH_ACCOUNT('full');
 
 // ── I7.1 — every registered family-only option is refused in the published build ──
 //
 // Data-driven off FAMILY_ONLY_OPTIONS itself rather than a hardcoded list, so an
 // entry added later is covered the moment it is registered.
-Deno.test('I7: every FAMILY_ONLY_OPTIONS entry is refused in the published build', () => {
-    const gate = PUBLISHED();
+Deno.test('I7: every FAMILY_ONLY_OPTIONS entry is refused with NO account', () => {
+    const gate = NO_ACCOUNT();
     const entries = Object.entries(gate.FAMILY_ONLY_OPTIONS) as [string, string | string[]][];
     assert(entries.length > 0, 'FAMILY_ONLY_OPTIONS is empty — did the gate get gutted?');
 
@@ -81,22 +94,27 @@ Deno.test('I7: every FAMILY_ONLY_OPTIONS entry is refused in the published build
     }
 });
 
-// ── I7.2 — the gate only ever REMOVES, and only from the published build ──────
-Deno.test('I7: the full build keeps every option (the gate is subtractive only)', () => {
-    const gate = FULL();
+// ── I7.2 — the gate only ever REMOVES, and only from an account-less console ──
+//
+// 🔴 Asserted in BOTH builds on purpose. The defect this amendment fixes was a
+// PUBLISHED build refusing options for an account it was managing, so a version
+// of this test that only ever loaded the full build could not have seen it.
+Deno.test('I7: a console MANAGING AN ACCOUNT keeps every option, in both builds', () => {
+    for (const gate of [WITH_ACCOUNT('published'), WITH_ACCOUNT('full')]) {
     for (const [key, rule] of Object.entries(gate.FAMILY_ONLY_OPTIONS) as [string, string | string[]][]) {
-        assertEquals(gate.optionAllowed(key), true, `${key}: full build must keep the control`);
+        assertEquals(gate.optionAllowed(key), true, `${key}: an account keeps the control`);
         const values: string[] = rule === '*' ? ['anything'] : rule as string[];
         for (const value of values) {
-            assertEquals(gate.optionAllowed(key, value), true, `${key}=${value}: full build must keep it`);
+            assertEquals(gate.optionAllowed(key, value), true, `${key}=${value}: an account keeps it`);
         }
         const pairs = values.map(v => [v, `label:${v}`]);
-        assertEquals(gate.filterOptions(key, pairs).length, pairs.length, `${key}: full build must not filter`);
+        assertEquals(gate.filterOptions(key, pairs).length, pairs.length, `${key}: an account must not filter`);
+    }
     }
 });
 
-Deno.test('I7: an unregistered key is untouched in both builds', () => {
-    for (const gate of [PUBLISHED(), FULL()]) {
+Deno.test('I7: an unregistered key is untouched in every state', () => {
+    for (const gate of [NO_ACCOUNT(), WITH_ACCOUNT(), FULL()]) {
         assertEquals(gate.optionAllowed('display.orientationLock'), true);
         assertEquals(gate.optionAllowed('display.orientationLock', 'portrait'), true);
         assertEquals(gate.filterOptions('display.orientationLock', [['auto', 'Auto']]).length, 1);
@@ -112,7 +130,11 @@ Deno.test('I7: unknown/missing BRAND.build is treated as PUBLISHED, with a loud 
     for (const build of [null, '', 'chickadee', 'nonsense']) {
         const { gate, warnings } = loadFeatureGate(build);
         assertEquals(gate.isPublishedBuild(), true, `build=${JSON.stringify(build)} must fail closed`);
-        assertEquals(gate.optionAllowed('display.themeFamily'), false);
+        // The OPTION axis is the account now, so this asserts the account half
+        // fails closed too: no DashieAuth at all ⇒ assume no account.
+        const blind = loadFeatureGate(build, undefined).gate;
+        assertEquals(blind.hasAccount(), false, 'a console with no DashieAuth must not claim an account');
+        assertEquals(blind.optionAllowed('display.themeFamily'), false);
         assert(warnings.some(w => w.includes('DROP: unknown BRAND.build')),
             `build=${JSON.stringify(build)} must log a DROP marker (CLAUDE.md: no silent drops)`);
     }

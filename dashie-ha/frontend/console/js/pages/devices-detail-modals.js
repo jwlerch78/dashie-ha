@@ -983,14 +983,21 @@ const DevicesDetailModals = {
     openTheme(deviceId) { this._applyAllArmed = false; this._themeOpen = true; this._themeDeviceId = deviceId; App.renderPage(); },
     closeTheme() { this._themeOpen = false; this._themeDeviceId = null; App.renderPage(); },
 
+    /**
+     * 🔴 THIS IS THE ONLY GATE, and until 2026-09-21 the comment inside claimed
+     * otherwise — "the row that opens this is already gated". It never was:
+     * devices-card.js rendered the Theme row unconditionally, so the row opened
+     * a modal that returned '' and the page simply did not react. John hit it
+     * on a device holding `fern`. The card now asks FeatureGate before drawing
+     * the swatch as a button, and this stays as the second half.
+     *
+     * ⚠️ The early return must stay within a few lines of the function head —
+     * `check-family-only-options.test.ts` asserts it returns EARLY, not merely
+     * that the call appears somewhere in the body. Explanations go here, above.
+     */
     renderThemeModal() {
         if (!this._themeOpen) return '';
-        // 🔴 THIS IS THE ONLY GATE, not "belt and braces". The comment here used
-        // to say "the row that opens this is already gated" — it never was
-        // (devices-card.js rendered the Theme row unconditionally), so in the
-        // published build the row opened a modal that returned '' and the page
-        // simply did not react. Corrected 2026-09-21; the card now asks
-        // FeatureGate before rendering the swatch as a button at all.
+        // Gated on the ACCOUNT (see the note above renderThemeModal).
         if (!FeatureGate.optionAllowed('display.themeFamily')) return '';
         const device = DevicesPage._findDevice(this._themeDeviceId);
         if (!device) return '';

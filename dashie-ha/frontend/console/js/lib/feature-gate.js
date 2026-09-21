@@ -290,8 +290,26 @@ const FeatureGate = {
      * branches, for the same reason CLOSED_DELTA_PAGES is a Set and not four
      * scattered checks — one place to read, one place to audit.
      *
-     *   '*'      → the whole control is family-only
-     *   [values] → those option values are family-only; the rest stay
+     *   '*'      → the whole control needs an account
+     *   [values] → those option values need an account; the rest stay
+     *
+     * 🔴 THE AXIS IS THE ACCOUNT, NOT THE BUILD (John, 2026-09-21):
+     *   "the console can still manage a family instance, it shouldn't limit the
+     *    family options. it should show both."
+     *
+     * This table used to key off `isPublishedBuild()`, which was wrong in the
+     * case that actually matters: the add-on console can SIGN IN to a Dashie
+     * account and manage that household's devices. Keying on the build hid the
+     * options of the very account it was managing — a family customer running
+     * the HA add-on could not set their own device's theme, and the control
+     * simply did not react.
+     *
+     * ⚠️ This is NOT the page-level contract. `CLOSED_DELTA_PAGES` / I1 stay on
+     * the BUILD axis, because those pages are not in this source tree at all —
+     * that is source isolation and it is not negotiable here. This table only
+     * ever governed options inside pages BOTH editions ship, which is a
+     * visibility choice, and the right question for a visibility choice is
+     * "whose devices am I looking at", not "which zip was I built from".
      */
     FAMILY_ONLY_OPTIONS: {
         // Seasonal theme families (Halloween, Christmas). Decided family-only
@@ -301,21 +319,45 @@ const FeatureGate = {
         // 'widgets' IS the family dashboard — calendar/chores/photos widgets.
         // The Layout row itself stays: the HA edition uses single_panel/kiosk.
         'display.layoutMode': ['widgets'],
-        // supabase = Dashie Cloud photo albums (family product).
-        // google_drive = needs the Google Drive OAuth scope, which the HA
-        // edition deliberately does NOT request (brand `dashie_ha` asks for
-        // identity only) — so it could not work here even if offered.
+        // supabase = Dashie Cloud photo albums; google_drive = Drive albums.
+        // Both need an account; neither needs a particular BUILD.
+        //
+        // 📌 CORRECTED 2026-09-21. This entry used to say google_drive "needs
+        // the Google Drive OAuth scope, which the HA edition deliberately does
+        // NOT request (brand `dashie_ha` asks for identity only)". That is not
+        // merely stale, it is structurally impossible: sign-in does not vary by
+        // edition at all — `console-auth.js` contains ZERO `BRAND.` references
+        // and both editions share it, requesting one fixed scope string that
+        // includes `drive.file` (console-auth.js:839). There is no per-edition
+        // OAuth client here to differ. A justification nobody could have
+        // checked is how a product decision acquires a technical-sounding
+        // reason it never had.
         // HA Media / Immich / Unsplash stay: screensaver albums are core here.
         'photos.sourceType': ['supabase', 'google_drive'],
     },
 
     /**
-     * Is `value` of setting `key` offered in this build? `value` omitted asks
-     * about the whole control. True in the family build always — this gate only
-     * ever REMOVES options from the published one.
+     * Is `value` of setting `key` offered here? `value` omitted asks about the
+     * whole control. True whenever an account is being managed — this gate only
+     * ever REMOVES options from an account-less console.
      */
+    /**
+     * Is this console managing a Dashie ACCOUNT?
+     *
+     * FAILS CLOSED, for the same reason isPublishedBuild() does: if we cannot
+     * tell, assume there is no account and keep the account-only options out.
+     * `isLocalMode` is DashieAuth's one definition of "add-on, published build,
+     * genuinely nobody signed in" — deliberately reused rather than re-derived,
+     * since a second hand-rolled copy of a three-part predicate is exactly the
+     * seam rule's failure mode (console-auth.js says so at its own definition).
+     */
+    hasAccount() {
+        if (typeof DashieAuth === 'undefined') return false;
+        return DashieAuth.isLocalMode !== true;
+    },
+
     optionAllowed(key, value) {
-        if (!this.isPublishedBuild()) return true;
+        if (this.hasAccount()) return true;
         const rule = this.FAMILY_ONLY_OPTIONS[key];
         if (rule === undefined) return true;
         if (rule === '*') return false;

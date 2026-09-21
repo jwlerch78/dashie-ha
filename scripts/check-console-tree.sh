@@ -11,7 +11,7 @@
 #   3. Delta globals referenced ONLY in guarded form (window.X?. / typeof X)
 #   4. Every <script src> in index.html + login/index.html resolves
 #   5. The DELTA-SCRIPTS block is empty
-#   6. I7 — no FAMILY_ONLY_OPTIONS entry is reachable in a published build
+#   6. I7 — no FAMILY_ONLY_OPTIONS entry is reachable without an account
 #
 # 1–5 are FILE and STRING checks. They cannot see a BEHAVIOURAL leak: a family
 # feature reachable in the published build through a runtime branch passes all of
@@ -109,7 +109,7 @@ if ! command -v deno >/dev/null 2>&1; then
        BEHAVIOURAL leak of a family option into the published build."
 else
   if deno test --quiet --allow-read --allow-env "$ROOT/scripts/check-family-only-options.test.ts"; then
-    say "✅ I7 — no FAMILY_ONLY_OPTIONS entry reachable in a published build"
+    say "✅ I7 — no FAMILY_ONLY_OPTIONS entry reachable without an account"
   else
     bad "I7 FAILED — a family-only option is reachable in the published build (see above)"
   fi
