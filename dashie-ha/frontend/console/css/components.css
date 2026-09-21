@@ -284,7 +284,7 @@
 
 .modal-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     padding: 18px 24px;
     border-bottom: 1px solid var(--border-subtle);
@@ -294,6 +294,17 @@
     font-size: var(--font-size-lg);
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* Device-modal header: the setting name, and UNDER it the device the modal is
+   about. `align-items: center` on .modal-header would centre the ✕ against the
+   two-line group; flex-start keeps it pinned to the title line. */
+.modal-title-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.modal-title-group .modal-title { line-height: 1.2; }
+.modal-subtitle {
+    font-size: var(--font-size-sm, 13px);
+    color: var(--text-secondary, #6b7280);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .modal-close {

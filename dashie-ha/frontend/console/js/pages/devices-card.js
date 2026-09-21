@@ -266,7 +266,7 @@ const DevicesCard = {
 
         // AI Personality — the device blob stores personalityId (template key or
         // custom uuid); resolve it to the catalog's display name.
-        const aiPersonality = DevicesDetailModals.personalityName(aiVoice.personalityId);
+        // Personality is resolved BELOW, once the household store is in hand.
 
         // Photos — show the album, not the source: Immich → its selected-album
         // summary; Dashie Cloud → the named album; otherwise fall back to the
@@ -278,9 +278,16 @@ const DevicesCard = {
                 : (photos.sourceType ? this._prettify(photos.sourceType) : 'Default'));
 
         // Sleep / Wake — only a live schedule when enabled and both times set.
-        const sleepSchedule = (sleep.enabled && sleep.sleepTime && sleep.wakeTime)
-            ? `${this._formatTime12(sleep.sleepTime)} – ${this._formatTime12(sleep.wakeTime)}`
-            : 'Off';
+        // 🔴 Sleep mode comes from DevicesDetailModals.sleepModeOf — the SAME
+        // derivation the Sleep modal uses. Do not re-derive it here: `enabled`
+        // absent means ON, and a falsy test made this tile say "Off" for a
+        // device whose own modal said "Schedule · 10:00 PM – 7:00 AM".
+        const sleepState = DevicesDetailModals.sleepModeOf(sleep);
+        const sleepSchedule = sleepState.mode === 'off'
+            ? 'Off'
+            : (sleepState.mode === 'inactivity'
+                ? `${DevicesDetailModals._formatTimeout(Number(sleep.inactivityTimeout ?? 120))} idle`
+                : `${this._formatTime12(sleep.sleepTime || '22:00')} – ${this._formatTime12(sleep.wakeTime || '07:00')}`);
 
         const id = device.device_id;
         const leaseLine = this._renderLeaseLine(device);
@@ -316,14 +323,30 @@ const DevicesCard = {
         const houseWake = account?.ai?.defaultWakeWord || '';
         const wakeKnown = account !== null && !!houseWake;
         const wakeDiffers = wakeKnown && !!deviceWake && deviceWake !== houseWake;
-        const wakeShown = deviceWake || houseWake || '—';
+        // 📌 A card is a STATUS surface: it answers "what will this device do",
+        // not "which scope holds the value". So an inherited leaf shows the
+        // RESOLVED value with a "(default)" qualifier — never the bare word
+        // "Account default", which names the scope and hides the behavior.
+        const wakeShown = deviceWake
+            ? this._prettify(deviceWake)
+            : (houseWake ? `${this._prettify(houseWake)} (default)` : '—');
+
+        // Personality, same rule. `VoiceAiApi.DEFAULTS` is the fallback the
+        // modal's own _loadAccountDefaults() uses, so the two cannot disagree
+        // about what the household default IS while the store is still loading.
+        const devicePersona = aiVoice.personalityId || '';
+        const housePersona = account?.ai?.defaultPersonalityId
+            || (window.VoiceAiApi?.DEFAULTS?.['ai.defaultPersonalityId'] ?? 'dashie');
+        const aiPersonality = devicePersona
+            ? DevicesDetailModals.personalityName(devicePersona)
+            : `${DevicesDetailModals.personalityName(housePersona)} (default)`;
 
         return `
             ${leaseLine ? `<div style="padding: 0 12px;">${leaseLine}</div>` : ''}
             <div class="dtiles">
                 ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`)}
                 ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`)}
-                ${this._tile('Wake word', this._prettify(wakeShown), `DevicesDetailModals.openWakeWord('${id}')`,
+                ${this._tile('Wake word', wakeShown, `DevicesDetailModals.openWakeWord('${id}')`,
                              { diff: wakeDiffers, household: houseWake })}
                 ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`)}
             </div>
