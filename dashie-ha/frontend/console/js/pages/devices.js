@@ -160,13 +160,16 @@ const DevicesPage = {
      *  it's valid inline inside the subtitle span. */
     _viewSwitcherHtml() {
         const on = this._techView;
+        // Order: Details LEFT, Overview RIGHT (John, 2026-09-21). Details is the
+        // add-on default (see the _techView getter), and the default belongs in
+        // the leading position rather than being the one you tab to second.
         return `<span style="display:inline-flex; margin-left:12px; vertical-align:middle; border:1px solid var(--border,#e5e7eb); border-radius:6px; overflow:hidden;">
-                <button class="btn ${!on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
-                        onclick="DevicesPage.setTechView(false)"
-                        title="What's playing on each dashboard — theme, sleep schedule, AI personality, photos">Overview</button>
                 <button class="btn ${on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
                         onclick="DevicesPage.setTechView(true)"
                         title="Full device details — battery, RAM, wifi, screenshots, cameras, locks">Details</button>
+                <button class="btn ${!on ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border:none; border-radius:0;"
+                        onclick="DevicesPage.setTechView(false)"
+                        title="What's playing on each dashboard — theme, sleep schedule, AI personality, photos">Overview</button>
             </span>`;
     },
 

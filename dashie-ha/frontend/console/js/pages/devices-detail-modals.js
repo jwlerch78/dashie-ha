@@ -846,6 +846,37 @@ const DevicesDetailModals = {
      *
      * Three call sites read this. None of them may re-derive it.
      */
+    /**
+     * The EFFECTIVE sleep settings — what the modal actually shows on screen,
+     * with every default resolved.
+     *
+     * 🔴 WHY THIS EXISTS (John, 2026-09-21: "i did try apply to all and nothing
+     * happened for sleep"). `_fanOutCurrentOnArm` copied `src.settings[cat][key]`
+     * and skipped anything `undefined`. A device that has never had Sleep
+     * configured has an EMPTY sleep blob — measured: `Dashie SM-X200` has no
+     * sleep keys at all — so every key was skipped, the payload came out empty
+     * and the fan-out wrote nothing, silently. Meanwhile the modal was showing
+     * "Schedule · 10:00 PM – 7:00 AM", because it resolves those defaults for
+     * display. The user applies what they can SEE, so the fan-out has to send
+     * what is SHOWN, not the sparse blob behind it.
+     *
+     * ⚠️ Every default here must match the one the render path uses, which is
+     * why they live together in this one function rather than being repeated at
+     * each `|| '22:00'` site.
+     */
+    sleepEffective(sleep) {
+        const s = sleep || {};
+        const { enabled, method } = this.sleepModeOf(s);
+        return {
+            enabled,
+            sleepMethod: method,
+            sleepTime: s.sleepTime || '22:00',
+            wakeTime: s.wakeTime || '07:00',
+            resleepTimeout: s.resleepTimeout ?? 15,
+            inactivityTimeout: s.inactivityTimeout ?? 120,
+        };
+    },
+
     sleepModeOf(sleep) {
         const s = sleep || {};
         const enabled = s.enabled !== false;
@@ -1838,11 +1869,23 @@ const DevicesDetailModals = {
         const others = (DevicesPage._devices || [])
             .filter(d => d.is_active !== false && d.device_id !== src.device_id);
         // Group by category so we write each category once per device.
+        // 🔴 Resolve the SHOWN values, not the stored ones. A sparse blob (a
+        // device never configured for sleep) used to skip every key and fan out
+        // an empty payload — the user checked the box and nothing happened,
+        // with no error. See sleepEffective().
+        const resolved = { sleep: this.sleepEffective(src.settings?.sleep) };
         const byCat = {};
         for (const [cat, key] of spec.keys) {
-            const val = src.settings?.[cat]?.[key];
+            const val = resolved[cat] ? resolved[cat][key] : src.settings?.[cat]?.[key];
             if (val === undefined) continue;
             (byCat[cat] = byCat[cat] || {})[key] = val;
+        }
+        // A fan-out that writes nothing is a silent no-op; say so rather than
+        // returning quietly (CLAUDE.md: no silent drops).
+        if (Object.keys(byCat).length === 0) {
+            console.warn(`DROP: apply-to-all found no values to copy for ${JSON.stringify(spec.keys)} on ${src.device_id}`);
+            Toast?.error?.('Nothing to apply — this device has no values set for that dialog.');
+            return;
         }
         for (const device of others) {
             for (const [cat, vals] of Object.entries(byCat)) {
