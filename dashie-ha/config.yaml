@@ -126,7 +126,24 @@ schema:
   lease_ttl_minutes: int(5,240)?
   # dev|prod are the current names; the rest are accepted legacy aliases and are
   # listed ONLY so a box already storing one stays valid (server/config.js
-  # ENV_ALIASES maps them). Narrow this once the estate has converged.
+  # ENV_ALIASES maps them).
+  #
+  # 🔴 THE DEV CHANNEL IS ALREADY NARROWED TO list(dev|prod) and this one is NOT.
+  # John, 2026-09-22: "we need to simplify this to be dev and prd". It is done on
+  # dev, where the population is one test box, and deliberately NOT done here.
+  #
+  # Home Assistant validates a STORED option against this list at add-on start,
+  # so removing a value stops any box already holding it from starting — before
+  # any add-on code of ours runs and could migrate it. This channel is at 0.8.6,
+  # which PREDATES the dev|prod rename (0.9.21), so every field box was configured
+  # when `beta`/`stable`/`development`/`production` were the only names on offer.
+  # Narrowing here would brick them on the next promotion.
+  #
+  # What has to happen first: ship a release that still ACCEPTS the legacy values
+  # and rewrites a stored one to its canonical name (Supervisor self-options —
+  # server/supervisor.js already holds add-on self-config). Once boxes have
+  # restarted on that release, narrow this line. The order is not negotiable: the
+  # migration must ship in a version whose schema still accepts what it migrates.
   cloud_env: list(dev|prod|beta|stable|development|production)
   install_integration: bool?
   stt_url: str?

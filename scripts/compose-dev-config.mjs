@@ -78,6 +78,33 @@ const DEV_OVERLAY = {
     '  lease_ttl_seconds: 0',
   ],
   schema: ['  lease_ttl_seconds: int(0,14400)?'],
+
+  /**
+   * Lines the DEV channel REPLACES rather than adds. Key → per-block lines.
+   *
+   * 🔴 `cloud_env` is narrowed to `dev|prod` HERE and not in canonical, and the
+   * asymmetry is the point. The list is the Configuration-tab UI, and Home
+   * Assistant validates a STORED option against it at add-on start — so removing
+   * a value from the list stops any box already storing it from starting at all.
+   * The prod channel is at 0.8.6, which predates the dev|prod rename (0.9.21), so
+   * field boxes there still store `stable` / `production` / `beta`. Narrowing
+   * canonical would brick them on the next promotion, before any add-on code of
+   * ours runs and could migrate anything.
+   *
+   * The dev channel has no such population — it is the test box — so it gets the
+   * clean two-value list now. Canonical stays wide until a release has normalised
+   * the stored values in the field; see the note beside `cloud_env` there.
+   *
+   * John, 2026-09-22: *"we need to simplify this to be dev and prd"* and *"we need
+   * dev to point to dev by default"*. Both are pinned here rather than inherited,
+   * so a future canonical edit cannot quietly widen the dev channel again.
+   */
+  replace: {
+    cloud_env: {
+      options: ['  cloud_env: dev'],
+      schema: ['  cloud_env: list(dev|prod)'],
+    },
+  },
 };
 
 /** Canonical's options+schema surface: from the `options:` line to EOF. */
@@ -91,12 +118,24 @@ function canonicalSurface() {
 /** Insert the overlay lines at the end of `blockName`'s block. */
 function withOverlay(lines) {
   const out = [];
+  // Which block we are in decides which replacement applies: the same key
+  // appears once under `options:` (a value) and once under `schema:` (a type).
+  let block = 'options';
+  const replaced = new Set();
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // A block ends at the next top-level key (or EOF).
     const isTopLevel = (s) => s.length > 0 && !s.startsWith(' ') && !s.startsWith('#');
     if (line === 'schema:') {
       out.push(...DEV_OVERLAY.options, line);
+      block = 'schema';
+      continue;
+    }
+    const key = /^ {2}([A-Za-z_][A-Za-z0-9_]*):/.exec(line)?.[1];
+    const sub = key && DEV_OVERLAY.replace?.[key]?.[block];
+    if (sub) {
+      out.push(...sub);
+      replaced.add(`${block}.${key}`);
       continue;
     }
     out.push(line);
@@ -104,6 +143,28 @@ function withOverlay(lines) {
     else if (isTopLevel(lines[i + 1]) && !isTopLevel(line) && out.includes('schema:')) {
       // defensive: a future top-level key after schema
       out.push(...DEV_OVERLAY.schema);
+    }
+  }
+  // 🔴 A replacement that matched NOTHING is a silent no-op that leaves the dev
+  // channel inheriting canonical's wide list while this file claims otherwise —
+  // the exact shape of a gate that certifies a tree it never touched. Fail loudly.
+  // Both blocks are REQUIRED, not merely checked-if-present. An entry that
+  // declares `options` but not `schema` replaces the dev channel's VALUE while
+  // silently inheriting canonical's TYPE — so `cloud_env` would read `dev` in
+  // the options while the picker still offered all six legacy names, and this
+  // file would compose, print ✓ and be wrong about the only thing it exists to
+  // do. Caught by fault injection on 2026-09-22; the first version of this
+  // guard skipped an undeclared block and passed that mutation.
+  for (const key of Object.keys(DEV_OVERLAY.replace || {})) {
+    for (const b of ['options', 'schema']) {
+      if (!DEV_OVERLAY.replace[key][b]) {
+        throw new Error(`DEV_OVERLAY.replace.${key} declares no '${b}' lines — a replacement `
+          + `must cover BOTH blocks, or the dev channel inherits canonical's ${b} for '${key}'.`);
+      }
+      if (!replaced.has(`${b}.${key}`)) {
+        throw new Error(`DEV_OVERLAY.replace.${key}.${b} matched no line in canonical — `
+          + `the dev channel would silently inherit canonical's value for '${key}'.`);
+      }
     }
   }
   return out;
