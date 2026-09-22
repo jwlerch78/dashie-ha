@@ -248,6 +248,11 @@ node "$ADDON_ROOT/scripts/check-voice-override-gating.mjs"
 echo "==> Checking \"Also apply to\" copies everything each dialog writes"
 node "$ADDON_ROOT/scripts/check-apply-targets.mjs"
 
+# Every dialog a device card can OPEN must be RENDERED on the page that draws the
+# card. Two hand-maintained lists in different files; the join is where a tile goes
+# dead while every other check stays green.
+node "$ADDON_ROOT/scripts/check-card-dialogs.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:

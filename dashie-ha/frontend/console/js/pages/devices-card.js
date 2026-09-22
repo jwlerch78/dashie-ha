@@ -435,7 +435,7 @@ const DevicesCard = {
         return `
             ${leaseLine ? `<div style="padding: 0 12px;">${leaseLine}</div>` : ''}
             <div class="dtiles">
-                ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}')`,
+                ${this._tile('Sleep', sleepSchedule, `DevicesDetailModals.openSleep('${id}', true)`,
                              { icon: 'icon-moon.svg' })}
                 ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`,
                              { icon: 'icon-photos.svg' })}

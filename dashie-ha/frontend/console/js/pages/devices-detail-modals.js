@@ -972,7 +972,21 @@ const DevicesDetailModals = {
     _sleepOpen: false,
     _sleepDeviceId: null,
 
-    openSleep(deviceId) { this._resetAlso(); this._sleepOpen = true; this._sleepDeviceId = deviceId; App.renderPage(); },
+    /**
+     * `compact` is the CARD's entry. John, 2026-09-21: *"From the cards, let's not have
+     * sleep / wake open the full modal with all settings. Let's only show sleep mode,
+     * sleep time, and wake time. Everything else below that should only be set from the
+     * full settings menu."* The card is a glance-and-adjust surface; the full dialog
+     * still lives on the device's own settings page, unchanged.
+     */
+    openSleep(deviceId, compact = false) {
+        this._resetAlso();
+        this._sleepOpen = true;
+        this._sleepCompact = compact === true;
+        this._sleepDeviceId = deviceId;
+        App.renderPage();
+    },
+    _sleepCompact: false,
     closeSleep() { this._sleepOpen = false; this._sleepDeviceId = null; App.renderPage(); },
 
     renderSleepModal() {
@@ -988,6 +1002,17 @@ const DevicesDetailModals = {
         // NO `sleep.*`-prefixed key and NO stored sleepMode — the mode is derived
         // from enabled + sleepMethod (off / schedule / inactivity).
         const { enabled, method, mode: sleepMode } = this.sleepModeOf(sleep);
+        // The card opens this dialog COMPACT: mode + the chosen mode's own times, and
+        // nothing else. Every write below still exists in this function in both branches,
+        // so check-apply-targets still sees the full set.
+        //
+        // ⚠️ "Also apply to" from the compact dialog still copies the device's WHOLE sleep
+        // configuration, including the rows hidden here. That is deliberate and is what
+        // John asked for on 2026-09-21 ("is it going to apply all of the sleep settings?"):
+        // the fan-out means "make these devices sleep like this one", and copying three of
+        // nine would leave targets in a state matching no device. Compact limits what you
+        // may EDIT here, not what copying a device's sleep setup means.
+        const compact = this._sleepCompact === true;
         const scheduleVisible = sleepMode === 'schedule';
         const inactivityVisible = sleepMode === 'inactivity';
         const optionsVisible = sleepMode !== 'off';
@@ -1009,7 +1034,7 @@ const DevicesDetailModals = {
                         'Sleep Time', sleep.sleepTime || '22:00', OptionCatalog.sleepTimes())}
                     ${D.settingSelect(device, 'sleep', 'wakeTime',
                         'Wake Time', sleep.wakeTime || '07:00', OptionCatalog.wakeTimes())}
-                    ${D.settingSelect(device, 'sleep', 'resleepTimeout',
+                    ${compact ? '' : D.settingSelect(device, 'sleep', 'resleepTimeout',
                         'Re-sleep Delay (min)', String(sleep.resleepTimeout ?? 15), OptionCatalog.resleepDelays())}
                 ` : ''}
                 ${inactivityVisible ? `
@@ -1017,7 +1042,7 @@ const DevicesDetailModals = {
                     ${D.settingSelect(device, 'sleep', 'inactivityTimeout',
                         'Sleep After (sec)', String(sleep.inactivityTimeout ?? 120), OptionCatalog.inactivityTimeouts())}
                 ` : ''}
-                ${optionsVisible ? `
+                ${optionsVisible && !compact ? `
                     ${this._divider('Options')}
                     ${D._settingSelectRaw(device, 'display', 'screenOffBehavior', screenOff, this.SCREEN_OFF_BEHAVIORS)}
                     ${notPowerOff ? `
@@ -1883,6 +1908,35 @@ const DevicesDetailModals = {
     /** Called by every modal opener. One place, so a new modal cannot forget. */
     _resetAlso() { this._alsoOpen = false; this._alsoTargets = new Set(); },
 
+    /**
+     * Is ANY settings dialog open right now?
+     *
+     * Used by the Devices page's background refreshes. App.renderPage() replaces
+     * #content wholesale, which destroys and rebuilds an open dialog — the user
+     * sees it FLASH, loses focus, and a half-typed value can be thrown away
+     * (John, 2026-09-21: "The modals keep flashing when i have them open").
+     * Only the camera modal was guarded, so every other dialog flashed on the
+     * 30-second poll and again on the screenshot poll.
+     *
+     * 🔴 DERIVED FROM THE OBJECT, not from a list kept by hand. Thirteen `*Open`
+     * flags exist and more will be added; a hand-written list is exactly the
+     * shape that has silently omitted an entry three times in this file's
+     * neighbourhood in one evening (the card's dead tiles, the fan-out RENDERERS
+     * map, the fan-out spec table). A new dialog is covered the moment it
+     * declares its flag, with nobody needing to remember this function.
+     *
+     * `_alsoOpen` is excluded deliberately: it is the "Also apply to" footer's
+     * expansion state, not a dialog. It can only be true while some dialog is
+     * open, so it never needs to block on its own.
+     */
+    anyOpen() {
+        for (const k of Object.keys(this)) {
+            if (k === '_alsoOpen') continue;
+            if (k.endsWith('Open') && this[k] === true) return true;
+        }
+        return false;
+    },
+
     /** The devices this dialog could also write to — everything active but the open one. */
     _alsoCandidates() {
         const spec = this._openApplyAllSpec();
@@ -2080,7 +2134,15 @@ const DevicesDetailModals = {
                     device.settings = device.settings || {};
                     device.settings[cat] = { ...(device.settings[cat] || {}), ...vals };
                     DashieAuth._broadcastDeviceSettingsChanged(
-                        device.device_id, cat, device.settings[cat]).catch(() => {});
+                        device.device_id, cat, device.settings[cat]).catch((err) => {
+                        // Loud, for the same reason as the edit path in devices.js: the DB
+                        // write above succeeded, so this is a DELAY not a lost setting — but
+                        // a swallowed push is why "I applied it to four devices and one did
+                        // not change" had nothing to look at.
+                        console.warn(`DROP: live settings push failed for ${device.device_id} `
+                            + `(${cat}) during fan-out; the value IS saved and will apply on `
+                            + `that device's next sync.`, err?.message || err);
+                    });
                 } catch (e) {
                     console.warn('[DevicesDetailModals] apply-to-all arm fan-out failed:', e.message);
                 }
