@@ -422,6 +422,8 @@ const DevicesDetailModals = {
         const opts = new Map((window.VoiceAiOptions?.TTS || []).map((o) => [o.id, o]));
         const afford = this._ttsAffordability();
         const current = this._voiceSetupValue(device, 'ttsProvider');
+        const acctTts = this._accountSettings?.voice?.ttsProvider || '';
+        const inheritLabel = this._defaultLabel(opts.get(acctTts)?.label || acctTts);
 
         const rows = offerable.map((id) => {
             const opt = opts.get(id);
@@ -437,7 +439,7 @@ const DevicesDetailModals = {
                 <label class="form-label">Voice on this device</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('ttsProvider', this.value)">
                     ${this._offListOption(current, offerable, 'voice.ttsProvider')}
-                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    <option value="" ${current === '' ? 'selected' : ''}>${this._escape(inheritLabel)}</option>
                     ${rows}
                 </select>
             </div>`;
@@ -491,6 +493,29 @@ const DevicesDetailModals = {
      * show a blank on precisely the devices the bridge exists to protect. Runs and
      * is-offered are different questions.
      */
+    /**
+     * The inherited option's label, in the tablet's words.
+     *
+     * John, 2026-09-22: *"We also want defaults to show here like they do on the
+     * tablet Rachel (Default) - instead of just showing Account Default."* The
+     * tablet resolves the inherited value to its NAME and appends " (Default)",
+     * falling back to a bare "Default" only when the name will not resolve --
+     * VoiceAiSettingsWiring.kt:358 (`if (inheriting) "$name (Default)" else name`),
+     * PersonalityPickerFragment.kt:129, WakeWordPickerFragment.kt:206.
+     *
+     * The console said "Account default" instead, which names the MECHANISM and
+     * withholds the answer: two surfaces describing one state in two vocabularies,
+     * neither of which tells you what the device will actually do.
+     *
+     * 🔴 A missing name must NOT silently become "(Default)" with an empty prefix,
+     * and must not read as a value either. Returns 'Default' alone, exactly as
+     * Kotlin does.
+     */
+    _defaultLabel(name) {
+        const n = String(name ?? '').trim();
+        return n ? `${n} (Default)` : 'Default';
+    },
+
     _sttLabel(id) {
         const opt = (window.VoiceAiOptions?.STT || []).find((o) => o.id === id);
         return opt ? opt.label : String(id);
@@ -673,6 +698,12 @@ const DevicesDetailModals = {
         const row = (key, label, options, hint) => {
             if (!options.length) return '';
             const current = this._voiceSetupValue(device, key);
+            const inheritLabel = this._defaultLabel((() => {
+                const a = acct[key];
+                if (!a) return '';
+                const hit = options.find((o) => (typeof o === 'string' ? o : (o.value ?? o.id)) === a);
+                return hit ? (typeof hit === 'string' ? hit : (hit.label ?? hit.name ?? a)) : a;
+            })());
             const opts = options.map((o) => {
                 const value = typeof o === 'string' ? o : (o.value ?? o.id ?? '');
                 const text = typeof o === 'string' ? o : (o.label ?? o.name ?? value);
@@ -683,7 +714,7 @@ const DevicesDetailModals = {
                 <label class="form-label">${this._escape(label)}</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('${this._escape(key)}', this.value)">
                     ${this._offListOption(current, options.map((o) => (typeof o === 'string' ? o : (o.value ?? o.id ?? ''))), `voice.${key}`)}
-                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    <option value="" ${current === '' ? 'selected' : ''}>${this._escape(inheritLabel)}</option>
                     ${opts}
                 </select>
                 ${hint ? `<div style="font-size: var(--font-size-sm); color: var(--text-muted); margin-top: 4px;">${this._escape(hint)}</div>` : ''}
@@ -726,6 +757,8 @@ const DevicesDetailModals = {
         const sttBlock = record[F.stt._self] || {};
         const available = new Set(Array.isArray(sttBlock[F.stt.available]) ? sttBlock[F.stt.available] : []);
         const current = this._voiceSetupValue(device, 'sttProvider');
+        const acctStt = this._accountSettings?.voice?.sttProvider || '';
+        const inheritLabel = this._defaultLabel(acctStt ? this._sttLabel(acctStt) : '');
 
         const rows = offerable.map((id) => {
             const usable = available.has(id);
@@ -740,7 +773,7 @@ const DevicesDetailModals = {
                 <label class="form-label">Speech-to-text on this device</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('sttProvider', this.value)">
                     ${this._offListOption(current, offerable, 'voice.sttProvider')}
-                    <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
+                    <option value="" ${current === '' ? 'selected' : ''}>${this._escape(inheritLabel)}</option>
                     ${rows}
                 </select>
             </div>
@@ -749,7 +782,7 @@ const DevicesDetailModals = {
             <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
                 Only engines this device has actually registered are listed.
                 ${running ? `It is running <strong>${this._escape(this._sttLabel(running))}</strong> right now.` : ''}
-                Choosing <strong>Account default</strong> puts this device back on the household setup.
+                Choosing the <strong>(Default)</strong> entry puts this device back on the household setup.
             </div>
             <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
                 <button class="btn btn-secondary" onclick="DevicesDetailModals.closeVoiceSetup()" ${this._voiceSetupSaving ? 'disabled' : ''}>Cancel</button>
@@ -1439,7 +1472,7 @@ const DevicesDetailModals = {
             || 'the account setting';
         const optionsHtml = [
             this._offListOption(current, this.WAKE_WORDS.map((w) => w.id), 'voice.wakeWord'),
-            `<option value="" ${current === '' ? 'selected' : ''}>Account default (${this._escape(houseLabel)})</option>`,
+            `<option value="" ${current === '' ? 'selected' : ''}>${this._escape(this._defaultLabel(houseLabel))}</option>`,
             ...this.WAKE_WORDS.map(({ id, label }) =>
                 `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`),
         ].join('');
@@ -1547,7 +1580,14 @@ const DevicesDetailModals = {
      *  personality that was deleted). An empty id = the device follows the
      *  account default (WS-G unset-=-inherit). */
     personalityName(id) {
-        if (!id) return 'Account default';
+        // Inheriting reads as the RESOLVED default, matching the tablet
+        // (VoiceAiSettingsWiring.kt:490 — `if (ai.personalityInheriting)
+        // "$name (Default)" else name`). Falls through to a bare 'Default'
+        // when the account's own id has not loaded yet.
+        if (!id) {
+            const acct = this._accountDefaults?.personalityId || '';
+            return this._defaultLabel(acct ? this.personalityName(acct) : '');
+        }
         const hit = (this._personalityCatalog || []).find(([v]) => v === String(id));
         return hit ? hit[1] : DevicesDetail._titleCase(id);
     },
@@ -1578,13 +1618,16 @@ const DevicesDetailModals = {
         // device ?? account default; until Round B ships it, an inheriting
         // device behaves as the app default (Dashie).
         const current = device.settings?.aiVoice?.personalityId || '';
+        // The BARE name — _defaultLabel does the wrapping. It used to arrive
+        // pre-wrapped as " (Rachel)" for string concatenation, which through the
+        // helper reads " (Rachel) (Default)".
         const defaultName = this._accountDefaults?.personalityId
-            ? ` (${this.personalityName(this._accountDefaults.personalityId)})` : '';
+            ? this.personalityName(this._accountDefaults.personalityId) : '';
         // Ensure the currently-stored personality is always selectable, even if
         // the catalog is still loading or the id is no longer in the catalog —
         // otherwise the <select> would silently snap to the first option and a
         // stray change-event could overwrite a valid value.
-        const catalog = [['', `Account default${defaultName}`], ...(this._personalityCatalog || [])];
+        const catalog = [['', this._defaultLabel(defaultName)], ...(this._personalityCatalog || [])];
         const options = catalog.some(([v]) => v === String(current))
             ? catalog
             : [[String(current), this.personalityName(current)], ...catalog];
@@ -1594,7 +1637,7 @@ const DevicesDetailModals = {
                 ${DevicesDetail._settingSelectRaw(device, 'aiVoice', 'personalityId', String(current), options)}
             </div>
             <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
-                “Account default” follows the personality set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice & AI</a> page; picking one here overrides it for this device only.
+                The “(Default)” entry follows the personality set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice & AI</a> page; picking one here overrides it for this device only.
             </div>
         `;
         return this._modal('Personality', body, 'DevicesDetailModals.closeVoicePersonality()', this._alsoFooter(), device);
@@ -1647,7 +1690,7 @@ const DevicesDetailModals = {
             ? this.voiceName(this._accountDefaults.voiceKey)
             : (p?.voice ? this.voiceName(p.voice) : '');
         const options = [
-            ['', `Account default${accountVoice ? ` (${accountVoice})` : ''}`],
+            ['', this._defaultLabel(accountVoice)],
             ...(this._voiceCatalog || []).map(v => {
                 const key = v.key || v.voice_key;
                 const tier = v.provider === 'elevenlabs' ? ' · premium'
@@ -1661,7 +1704,7 @@ const DevicesDetailModals = {
                 ${DevicesDetail._settingSelectRaw(device, 'aiVoice', 'voiceKey', String(current), options)}
             </div>
             <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
-                “Account default” follows the voice set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page; picking one here overrides it for this device only.
+                The “(Default)” entry follows the voice set on the <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page; picking one here overrides it for this device only.
                 Premium voices cost about 4× the default ${BRAND.assistantName} voice per reply.
             </div>`;
         return this._modal('Voice', body, 'DevicesDetailModals.closeVoiceVoice()', this._alsoFooter(), device);
