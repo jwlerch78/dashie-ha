@@ -253,6 +253,12 @@ node "$ADDON_ROOT/scripts/check-apply-targets.mjs"
 # dead while every other check stays green.
 node "$ADDON_ROOT/scripts/check-card-dialogs.mjs"
 
+# A <select> whose stored value matches NO option shows its FIRST option — so a
+# device holding a value this console does not offer renders as a different
+# setting entirely, silently. That is what made the Samsung's screensaver
+# disagree with the database the console had just read (John, 2026-09-22).
+node "$ADDON_ROOT/scripts/check-picker-fallback.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:

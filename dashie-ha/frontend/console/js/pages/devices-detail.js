@@ -1048,6 +1048,47 @@ const DevicesDetail = {
     //  Persists via DevicesPage._onSettingChange → update_device_settings.
     // =========================================================
 
+    /**
+     * Build the <option> list for a settings picker, and NEVER let a stored
+     * value disappear.
+     *
+     * 🔴 THE BUG THIS FIXES (John, 2026-09-22, screensaver on the Samsung):
+     * an <option> is marked `selected` only when it string-matches the stored
+     * value. When the device holds a value this console's hand-written option
+     * list does not contain, NOTHING is selected — and a <select> with no
+     * selected option displays its FIRST option. So the console showed "Dim"
+     * while the database and the tablet both held something else, with no
+     * error, no warning and nothing to click on. The console WAS reading the
+     * database (list_devices does `select('*')`); it just could not show what
+     * it read.
+     *
+     * The console's lists are hand-copies of the Kotlin schema's, so they
+     * drift by construction: `screensaver.mode` gained ha_page / url / app on
+     * the device and nothing here noticed. Rather than chase each list, an
+     * unrepresented value now renders as its own selected option (labelled so
+     * it is obviously the device's own value, not one of our choices) and logs
+     * a DROP: marker naming the key and value. Drift becomes visible instead
+     * of silently reading as a different setting.
+     *
+     * Deliberately NOT triggered by an empty value: '' is the inherit
+     * sentinel, and "follow the account" is an absence, not an off-list value.
+     */
+    _optionsHtml(options, currentValue, category, key) {
+        const cur = currentValue == null ? '' : String(currentValue);
+        const matched = options.some(([val]) => String(val) === cur);
+        let html = options.map(([val, text]) =>
+            `<option value="${val}" ${String(val) === cur ? 'selected' : ''}>${text}</option>`
+        ).join('');
+        if (!matched && cur !== '') {
+            console.warn(`DROP: ${category}.${key} is "${cur}" on this device, which is not one of `
+                + `the ${options.length} choices this console offers — showing it as-is. `
+                + `The value in the database is correct; the console's option list is behind the device's.`);
+            html = `<option value="${DevicesPage._escape(cur)}" selected>`
+                + `${DevicesPage._escape(cur)} (set on the device)</option>` + html;
+        }
+        return html;
+    },
+
     settingSelect(device, category, key, label, currentValue, options) {
         const savingKey = `${device.device_id}_${key}`;
         const isSaving = DevicesPage._saving[savingKey];
@@ -1056,9 +1097,7 @@ const DevicesDetail = {
         const numeric = options.length > 0 &&
             options.every(([val]) => /^-?\d+(\.\d+)?$/.test(String(val)));
         const valueExpr = numeric ? 'Number(this.value)' : 'this.value';
-        const optionsHtml = options.map(([val, text]) =>
-            `<option value="${val}" ${String(val) === String(currentValue) ? 'selected' : ''}>${text}</option>`
-        ).join('');
+        const optionsHtml = this._optionsHtml(options, currentValue, category, key);
         return `
             <div class="form-group">
                 <label class="form-label">${label} ${isSaving ? '<span style="color: var(--text-muted); font-weight: 400; text-transform: none; font-size: 10px;">saving…</span>' : ''}</label>
@@ -1092,9 +1131,7 @@ const DevicesDetail = {
         const valueExpr = numeric ? 'Number(this.value)' : 'this.value';
         const onChange = customOnChange
             || `DevicesPage._onSettingChange('${device.device_id}', '${category}', '${key}', ${valueExpr})`;
-        const optionsHtml = options.map(([val, text]) =>
-            `<option value="${val}" ${String(val) === String(currentValue) ? 'selected' : ''}>${text}</option>`
-        ).join('');
+        const optionsHtml = this._optionsHtml(options, currentValue, category, key);
         return `<select class="form-select" onchange="${onChange}">${optionsHtml}</select>`;
     },
 

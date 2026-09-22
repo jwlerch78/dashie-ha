@@ -436,10 +436,33 @@ const DevicesDetailModals = {
             <div class="form-group">
                 <label class="form-label">Voice on this device</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('ttsProvider', this.value)">
+                    ${this._offListOption(current, offerable, 'voice.ttsProvider')}
                     <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
                     ${rows}
                 </select>
             </div>`;
+    },
+
+    /**
+     * The voice pickers each lead with an `Account default` option whose value
+     * is the `''` inherit sentinel — so when the device holds a value that is
+     * not in the offered list, NOTHING matches, no option is selected, and the
+     * browser falls back to the first one. The picker then reads "Account
+     * default" for a device that has explicitly overridden the account. That is
+     * worse than showing a wrong value: it reports the wrong *relationship*.
+     *
+     * Same defect as DevicesDetail._optionsHtml (John, 2026-09-22 — the
+     * Samsung's screensaver). Returns a selected option carrying the device's
+     * own value, or '' when the value is represented (or is the sentinel).
+     */
+    _offListOption(current, values, key) {
+        const cur = current == null ? '' : String(current);
+        if (cur === '') return '';
+        if (values.some((v) => String(v) === cur)) return '';
+        console.warn(`DROP: ${key} is "${cur}" on this device, which this console does not offer `
+            + `(${values.length} choices) — showing it as-is rather than as "Account default". `
+            + `The database value is correct; the console's list is behind the device's.`);
+        return `<option value="${this._escape(cur)}" selected>${this._escape(cur)} (set on the device)</option>`;
     },
 
     /** The one-line explanation shown under a device whose TTS override is hidden. */
@@ -659,6 +682,7 @@ const DevicesDetailModals = {
             <div class="form-group">
                 <label class="form-label">${this._escape(label)}</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('${this._escape(key)}', this.value)">
+                    ${this._offListOption(current, options.map((o) => (typeof o === 'string' ? o : (o.value ?? o.id ?? ''))), `voice.${key}`)}
                     <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
                     ${opts}
                 </select>
@@ -715,6 +739,7 @@ const DevicesDetailModals = {
             <div class="form-group">
                 <label class="form-label">Speech-to-text on this device</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('sttProvider', this.value)">
+                    ${this._offListOption(current, offerable, 'voice.sttProvider')}
                     <option value="" ${current === '' ? 'selected' : ''}>Account default</option>
                     ${rows}
                 </select>
@@ -1354,6 +1379,7 @@ const DevicesDetailModals = {
         const houseLabel = (window.VoiceAiOptions?.wakeWordLabel?.(houseId) || houseId)
             || 'the account setting';
         const optionsHtml = [
+            this._offListOption(current, this.WAKE_WORDS.map((w) => w.id), 'voice.wakeWord'),
             `<option value="" ${current === '' ? 'selected' : ''}>Account default (${this._escape(houseLabel)})</option>`,
             ...this.WAKE_WORDS.map(({ id, label }) =>
                 `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`),
