@@ -1223,7 +1223,15 @@ const DevicesDetailModals = {
         if (!DevicesPage._techView) return '';
         const E = (v) => this._escape(String(v));
         const line = (k, v) => `<div style="margin-top:2px;"><span style="opacity:.6;">${E(k)}</span> ${E(v)}</div>`;
-        let html = line('device_id', device.device_id);
+        // The estate FIRST — it is the thing that makes every value below it
+        // meaningful or meaningless, and it was the one fact no surface showed.
+        const url = (DashieAuth.config?.url || '').replace('https://', '').replace('.supabase.co', '');
+        const env = DashieAuth._addonSupabaseEnv;
+        const prod = ['prod', 'production', 'stable'].includes(env);
+        let html = `<div style="margin-bottom:6px; font-weight:600; color:${prod ? '#2d7d46' : '#b06000'};">`
+            + `reading ${prod ? 'PROD' : 'STAGING'} — cloud_env=${E(env || 'unknown')} · ${E(url)}`
+            + ` · ${E(DashieAuth.jwtUserEmail || 'not signed in')}</div>`;
+        html += line('device_id', device.device_id);
         for (const c of categories) {
             html += line(c, JSON.stringify(device.settings?.[c] ?? null));
         }
