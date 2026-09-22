@@ -79,14 +79,30 @@ const DevicesPage = {
      * web (less-technical users). Persisted per-browser in localStorage.
      */
     _TECH_VIEW_KEY: 'dashie_devices_tech_view',
+    /**
+     * 🔴 SESSION-scoped, not localStorage (John, 2026-09-21: *"let's start with
+     * 'status' being what's live when the console comes up"*).
+     *
+     * It was persisted, so the first time anyone looked at Settings the console
+     * opened on Settings for ever after — the live view of the fleet, which is
+     * the reason to open the console at all, became something you had to go and
+     * find. Within a session the toggle still sticks, so switching to Settings
+     * and editing four devices does not fight you; a fresh load returns to
+     * Status.
+     *
+     * ⚠️ The old localStorage key is deliberately NOT read. Migrating it would
+     * faithfully restore the very preference this change exists to stop
+     * honouring, and the person who reported it would see no difference.
+     */
     get _techView() {
-        const stored = localStorage.getItem(this._TECH_VIEW_KEY);
+        let stored = null;
+        try { stored = sessionStorage.getItem(this._TECH_VIEW_KEY); } catch {}
         if (stored === 'on')  return true;
         if (stored === 'off') return false;
         return FeatureGate.isAddonMode();   // default depends on context
     },
     setTechView(on) {
-        try { localStorage.setItem(this._TECH_VIEW_KEY, on ? 'on' : 'off'); } catch {}
+        try { sessionStorage.setItem(this._TECH_VIEW_KEY, on ? 'on' : 'off'); } catch {}
         App.renderPage();
     },
     toggleTechView() { this.setTechView(!this._techView); },
@@ -1079,6 +1095,56 @@ const DevicesPage = {
 
     _renderDetail() { return DevicesDetail.render(this._findDevice(this._detailDeviceId)); },
 
+    /**
+     * Write-and-VERIFY. Reads the row back from the database after a settings write
+     * and says whether it actually holds what the console sent.
+     *
+     * 🔴 WHY THIS EXISTS (John, 2026-09-21): a sleep time set from the console read
+     * 6:30 on the card and 7:00 on the tablet, and there was NO WAY TO TELL which
+     * half was wrong — whether the write never landed, or landed and the device
+     * never applied it. Those are two different bugs in two different repos, and
+     * without this line the next person re-runs the same guesswork. The card is not
+     * evidence: it renders the console's in-memory copy, which the console itself
+     * just mutated, so it agrees with the console whether or not the database does.
+     *
+     * Cheap and always on: one extra list_devices per SAVE (not per keystroke —
+     * saves are user-paced). It logs nothing on the happy path beyond a single
+     * confirming line, and a distinctive marker when the readback disagrees.
+     *
+     * ⚠️ It verifies the DATABASE, not the device. A PASS here means the console
+     * did its job and anything still wrong is downstream — which is exactly the
+     * split that was missing.
+     */
+    async _verifyWrite(device, category, key, expected) {
+        try {
+            // 🔴 Through DevicesSource, not a second dbRequest. list_devices answers
+            // `{devices}` on one path and `{data}` on another, and that knowledge lives
+            // in exactly one place (DevicesSource.fetch). A private copy here that got
+            // the shape wrong would report "row not found" on every save — a loud,
+            // convincing, entirely false alarm about the bug it was built to diagnose.
+            const { devices: rows } = await DevicesSource.fetch();
+            const row = (rows || []).find(d => d.device_id === device.device_id);
+            if (!row) {
+                console.warn(`DROP: VERIFY could not find ${device.device_name} (${device.device_id}) in the `
+                    + `database after writing ${category}.${key}. The row the console is editing may no longer exist `
+                    + `— this happens when a device is removed and re-added, which mints a NEW device_id.`);
+                return;
+            }
+            const actual = row.settings?.[category]?.[key];
+            if (String(actual) === String(expected)) {
+                console.info(`[Devices] VERIFY ok — ${device.device_name} ${category}.${key} = ${JSON.stringify(actual)} `
+                    + `(device_id ${device.device_id})`);
+            } else {
+                console.warn(`DROP: VERIFY MISMATCH — wrote ${category}.${key}=${JSON.stringify(expected)} to `
+                    + `${device.device_name} (${device.device_id}) but the database reads ${JSON.stringify(actual)}. `
+                    + `The write did not take; this is a console/database problem, not a device one.`);
+            }
+        } catch (e) {
+            // Never let verification break the save it is watching.
+            console.warn(`DROP: VERIFY could not read back ${category}.${key} for ${device.device_id}:`, e?.message || e);
+        }
+    },
+
     async _onSettingChange(deviceId, category, key, value) {
         // "Apply to all devices" — when the checkbox in an open settings modal is
         // ticked, fan the same (category, key, value) out to every active device
@@ -1120,6 +1186,9 @@ const DevicesPage = {
                 device.settings = device.settings || {};
                 device.settings[category] = device.settings[category] || {};
                 device.settings[category][key] = value;
+                console.info(`[Devices] WROTE ${category}.${key}=${JSON.stringify(value)} → `
+                    + `${device.device_name} (${device.device_id})`);
+                this._verifyWrite(device, category, key, value);
                 // Live-push to the device so it applies now (not only on next reload) and
                 // its readback can't revert us — send the FULL merged category. Q4 fix.
                 DashieAuth._broadcastDeviceSettingsChanged(
