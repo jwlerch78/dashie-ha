@@ -52,6 +52,9 @@ const DashieAuth = {
     },
 
     _addonSupabaseConfig: null,
+    /** The add-on's `cloud_env` as reported by /api/auth/status — the estate
+     *  selector. Surfaced in the device dialogs' tech-view readout. */
+    _addonSupabaseEnv: null,
     get edgeFunctionUrl() { return this.config.url + '/functions/v1/jwt-auth'; },
     get databaseOpsUrl() { return this.config.url + '/functions/v1/database-operations'; },
     get anonKey() { return this.config.anonKey; },
@@ -593,6 +596,16 @@ const DashieAuth = {
                     anonKey: status.supabase_anon_key,
                     googleClientId: this._configs[this._PROD_SUPABASE_ENVS.includes(status.supabase_env) ? 'production' : 'development'].googleClientId,
                 };
+                // 🔴 RECORDED, not just logged. Which Supabase project this console
+                // talks to is selected by the add-on's `cloud_env` option, and the
+                // dev channel DEFAULTS to `dev` (staging) while John's box stores
+                // `stable` to reach prod. A console pointed at one estate while the
+                // device reads the other produces a perfectly coherent wrong answer:
+                // consistent values that no device ever sees, and writes that land
+                // in a row nothing reads. Nothing on screen said which estate it was,
+                // so the surface could not be told apart from a rendering bug — and
+                // three releases were spent looking for one (2026-09-22).
+                this._addonSupabaseEnv = status.supabase_env || null;
                 console.log('[DashieAuth] Using Supabase from add-on:', status.supabase_env, status.supabase_url);
             }
 
