@@ -250,6 +250,8 @@ const DevicesPage = {
                 // guard the poll path uses). Settings modals re-render from
                 // _devices, which is the point: they show the fresh values.
                 if (typeof DevicesCamera !== 'undefined' && DevicesCamera._open) return;
+        // …and any settings dialog: a background repaint rebuilds it mid-edit.
+        if (typeof DevicesDetailModals !== 'undefined' && DevicesDetailModals.anyOpen?.()) return;
                 // Don't tear down an open settings modal (2026-07-06): a
                 // renderPage here rebuilds the modal DOM, which lost the
                 // "apply to all" checkbox state mid-edit and made the fan-out
@@ -413,6 +415,8 @@ const DevicesPage = {
     refreshScreenshots(deviceIds) {
         if (!DashieAuth.isAddonMode || !deviceIds || !deviceIds.length) return;
         if (typeof DevicesCamera !== 'undefined' && DevicesCamera._open) return;
+        // …and any settings dialog: a background repaint rebuilds it mid-edit.
+        if (typeof DevicesDetailModals !== 'undefined' && DevicesDetailModals.anyOpen?.()) return;
         const ts = Date.now();
         let pending = deviceIds.length;
         let anyLoaded = false;
@@ -463,6 +467,8 @@ const DevicesPage = {
             // if nothing visibly changed since last poll. SSE handles real-time
             // updates between polls, so a quiet status check shouldn't repaint.
             if (typeof DevicesCamera !== 'undefined' && DevicesCamera._open) return;
+        // …and any settings dialog: a background repaint rebuilds it mid-edit.
+        if (typeof DevicesDetailModals !== 'undefined' && DevicesDetailModals.anyOpen?.()) return;
             if (before === after && !listChanged && !claimChanged) return;
             App.renderPage();
         } catch (e) {
@@ -893,6 +899,13 @@ const DevicesPage = {
             ${DevicesDetailModals.renderVoicePersonalityModal()}
             ${DevicesDetailModals.renderVoiceVoiceModal()}
             ${DevicesDetailModals.renderPhotosModal()}
+            <!-- 🔴 The card's tiles open SIX dialogs; this list renders them. Wake word and
+                 Voice setup were missing, so clicking those two tiles set the open flag,
+                 re-rendered, and produced NOTHING — a dead control next to four live ones
+                 (John, 2026-09-21). Both dialogs existed and worked; only the DETAIL page
+                 rendered them. check-card-dialogs.mjs now holds the two lists together. -->
+            ${DevicesDetailModals.renderWakeWordModal()}
+            ${DevicesDetailModals.renderVoiceSetupModal()}
         `;
     },
 
@@ -1111,7 +1124,18 @@ const DevicesPage = {
                 // its readback can't revert us — send the FULL merged category. Q4 fix.
                 DashieAuth._broadcastDeviceSettingsChanged(
                     device.device_id, category, device.settings[category]
-                ).catch(() => {});
+                ).catch((err) => {
+                    // 🔴 NOT SILENT. This is the LIVE push that makes a remote change take
+                    // effect now instead of at the device's next sync. It is fire-and-forget
+                    // by design — the DB write above has already landed, so a failed push is
+                    // a delay, not a lost setting — but swallowing it made "I changed it and
+                    // nothing happened" undiagnosable (John, 2026-09-21, a sleep time that
+                    // did not take on a live tablet). The write succeeded; only the nudge
+                    // failed, and now it says so.
+                    console.warn(`DROP: live settings push failed for ${device.device_id} `
+                        + `(${category}); the value IS saved and will apply on its next sync.`,
+                        err?.message || err);
+                });
             }
         } catch (e) {
             console.error('[DevicesPage] Save failed:', e);
