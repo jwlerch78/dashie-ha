@@ -289,7 +289,18 @@ const DevicesDetailModals = {
     voiceCapabilityNote(state) {
         switch (state) {
             case 'no-record':   return 'Update this device to set its own voice engines.';
-            case 'stack-down':  return "This device hasn't started its voice stack yet — its engines will appear after it runs voice once.";
+            // John, 2026-09-21, on the Fire TV Stick: *"it shows voice is disabled
+            // (though it should just say it that plainly)"*. The old wording —
+            // "hasn't started its voice stack yet ... after it runs voice once" —
+            // described the mechanism and left the reader to infer the state. Lead
+            // with what is true NOW; keep the second sentence, because it is the
+            // only thing that says the dialog will become useful rather than being
+            // permanently empty. Deliberately does NOT claim voice was turned off
+            // deliberately: a record with a down stack cannot distinguish "disabled
+            // on purpose" from "not started yet", and saying the wrong one sends
+            // someone hunting a setting they never changed.
+            case 'stack-down':  return 'Voice is not running on this device, so there are no engines to choose from. '
+                + 'They appear here once it runs voice.';
             case 'nothing-registered': return 'This device has no speech engines it can run, so it follows the account setup.';
             case 'unofferable': return 'This device runs a speech engine this console no longer offers, so it follows the account setup.';
             default: return '';
@@ -1297,14 +1308,19 @@ const DevicesDetailModals = {
         if (this._wakeWordSaving) return;
         const value = this._wakeWordPending;
         const deviceId = this._wakeWordDeviceId;
-        if (!value || !deviceId) { this.closeWakeWord(); return; }
+        // ⚠️ `value == null` — NOT `!value`. '' is the inherit sentinel, so a falsy
+        // test read "put this device back on the account default" as "nothing was
+        // chosen" and closed without saving. The dialog looked like it worked.
+        if (value == null || !deviceId) { this.closeWakeWord(); return; }
         this._wakeWordSaving = true;
         App.renderPage();
         try {
             // Per-device write: user_devices.aiVoice.wakeWord (the path the app reads +
             // reports back). Same merge-per-key RPC the Personality/Theme pickers use.
             await DevicesPage._onSettingChange(deviceId, 'aiVoice', 'wakeWord', value);
-            Toast.success('Wake word saved — restart the device to apply');
+            Toast.success(value === ''
+                ? 'This device now follows the account wake word — restart it to apply'
+                : 'Wake word saved — restart the device to apply');
             this.closeWakeWord();
         } catch (e) {
             Toast.error(`Save failed: ${e?.message || e}`);
@@ -1317,12 +1333,31 @@ const DevicesDetailModals = {
     renderWakeWordModal() {
         if (!this._wakeWordOpen) return '';
         const device = DevicesPage._findDevice(this._wakeWordDeviceId);
+        // 🔴 '' is INHERIT and must be offerable, not just arrivable-at.
+        // Before this the picker listed only the six words, and an inheriting device
+        // was shown the HOUSEHOLD's word preselected as though it were its own. Two
+        // consequences, both John's report (2026-09-21): the card correctly said
+        // "Hey Dashie (default)" while the picker gave no way back to the default,
+        // and pressing Save on an untouched inheriting device silently converted it
+        // into an explicit override of the same value — so the device stopped
+        // following the household and nothing said so.
+        const own = device?.settings?.aiVoice?.wakeWord;
         const current = this._wakeWordPending != null
             ? this._wakeWordPending
-            : (device?.settings?.aiVoice?.wakeWord || VoiceAiApi.defaultWakeWord());
-        const optionsHtml = this.WAKE_WORDS.map(({ id, label }) =>
-            `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`
-        ).join('');
+            : (typeof own === 'string' && own !== '' ? own : '');
+        // The label lookup lives on VoiceAiOptions (the ONE console copy of the word
+        // list), not on VoiceAiApi. Guarded because this renders on a page path:
+        // an unknown id yields '' there, and the raw id is a better fallback than
+        // an empty parenthesis — but "the account setting" is better than both when
+        // the household has not chosen one at all.
+        const houseId = VoiceAiApi.defaultWakeWord() || '';
+        const houseLabel = (window.VoiceAiOptions?.wakeWordLabel?.(houseId) || houseId)
+            || 'the account setting';
+        const optionsHtml = [
+            `<option value="" ${current === '' ? 'selected' : ''}>Account default (${this._escape(houseLabel)})</option>`,
+            ...this.WAKE_WORDS.map(({ id, label }) =>
+                `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`),
+        ].join('');
         const body = `
             <div class="form-group">
                 <label class="form-label">Wake Word</label>
