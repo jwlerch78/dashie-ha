@@ -1091,6 +1091,7 @@ const DevicesDetailModals = {
                         'Motion Wake', sleep.motionWakeForSleep === true)}
                 ` : ''}
             </div>
+            ${this._rawReadout(device, 'sleep')}
         `;
         return this._modal('Sleep / Wake', body, 'DevicesDetailModals.closeSleep()', this._alsoFooter(), device);
     },
@@ -1195,6 +1196,55 @@ const DevicesDetailModals = {
 
     // ── Screensaver modal ─────────────────────────────────────
 
+    /**
+     * The raw stored values, ON SCREEN, beside the controls that claim to show them.
+     *
+     * 🔴 WHY THIS IS IN THE UI AND NOT A console.log (John, 2026-09-22):
+     * two releases in a row shipped a diagnostic into the BROWSER console —
+     * `_verifyWrite`'s VERIFY/MISMATCH lines in 0.9.36, the off-list DROP:
+     * marker in 0.9.37 — and neither produced a reading. This console runs as
+     * an iframe panel inside Home Assistant, so "open devtools and read the
+     * console" means finding the right frame first. An instrument nobody can
+     * reach measures nothing, and two rounds of "still wrong" with no data is
+     * the instrument's fault, not the reporter's.
+     *
+     * Shows the exact JSON this page holds for the categories a dialog edits,
+     * plus the device_id — and, when more than one row carries this device's
+     * name, every one of them. That last part is the discriminator for the
+     * case John raised himself ("we have removed/added devices here"): a
+     * removed-and-re-added device mints a NEW device_id, so the console edits
+     * one row while the tablet reads another. The page CANNOT show that today
+     * because inactive rows are filtered into the Archived section, where they
+     * are never seen beside the active one.
+     *
+     * Tech view only — a debugging surface, not a feature.
+     */
+    _rawReadout(device, ...categories) {
+        if (!DevicesPage._techView) return '';
+        const E = (v) => this._escape(String(v));
+        const line = (k, v) => `<div style="margin-top:2px;"><span style="opacity:.6;">${E(k)}</span> ${E(v)}</div>`;
+        let html = line('device_id', device.device_id);
+        for (const c of categories) {
+            html += line(c, JSON.stringify(device.settings?.[c] ?? null));
+        }
+        const twins = (DevicesPage._devices || []).filter(
+            (d) => d.device_name === device.device_name);
+        if (twins.length > 1) {
+            html += `<div style="margin-top:8px; color:#c0392b; font-weight:600;">`
+                + `${twins.length} rows carry the name "${E(device.device_name)}" — the console edits `
+                + `one of them and the device may be reading another:</div>`;
+            for (const t of twins) {
+                const cats = categories.map((c) => `${c}=${JSON.stringify(t.settings?.[c] ?? null)}`).join(' ');
+                html += line(`${t.device_id}${t.is_active === false ? ' (inactive)' : ''}`, cats);
+            }
+        }
+        return `<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border);
+            font-family: ui-monospace, monospace; font-size:11px; color: var(--text-muted); word-break:break-all;">
+            <div style="opacity:.6; margin-bottom:4px;">stored in the database (tech view)</div>
+            ${html}
+        </div>`;
+    },
+
     _screensaverOpen: false,
     _screensaverDeviceId: null,
 
@@ -1230,6 +1280,7 @@ const DevicesDetailModals = {
                     ` : ''}
                 ` : ''}
             </div>
+            ${this._rawReadout(device, 'screensaver', 'display')}
         `;
         return this._modal('Screensaver', body, 'DevicesDetailModals.closeScreensaver()', null, device);
     },
@@ -1398,6 +1449,7 @@ const DevicesDetailModals = {
                 <button class="btn btn-secondary" onclick="DevicesDetailModals.closeWakeWord()" ${this._wakeWordSaving ? 'disabled' : ''}>Cancel</button>
                 <button class="btn btn-primary" onclick="DevicesDetailModals.submitWakeWord()" ${this._wakeWordSaving ? 'disabled' : ''}>${this._wakeWordSaving ? 'Saving…' : 'Save'}</button>
             </div>
+            ${this._rawReadout(device, 'voice')}
         `;
         return this._modal('Wake Word', body, 'DevicesDetailModals.closeWakeWord()', null, device);
     },
