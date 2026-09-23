@@ -1557,7 +1557,22 @@ const VoiceAiPage = {
             expanded: this._expandedCards.has(stageKey),
             anyExpanded: this._expandedCards.size > 0,  // dim the other cards while one is open
             getConfig: cfg,
+            // Only reaches the COLLAPSED branch; an expanded card still renders its
+            // full option list, and `gridCard` below gives it the whole row to do it in.
+            compact: true,
         });
+        const S = window.VoiceAiSections;
+        // A card in the two-across grid, spanning both columns once it opens. Without
+        // the span an expanded card grows its own column and shoves its neighbour
+        // down, and the option list — the widest thing on this page — gets half the
+        // width to render in.
+        const gridCard = (title, stageKey, options, selectedId) => {
+            const html = card(title, stageKey, options, selectedId);
+            return this._expandedCards.has(stageKey) ? S.full(html) : html;
+        };
+        /** id -> label, for the collapsed section summaries. Falls back to the raw id
+         *  rather than blank: an unlabelled id is still an answer, a gap is not. */
+        const lbl = (options, id) => (options || []).find(x => x.id === String(id))?.label || String(id || '—');
         const filtered = (stage, all) => O.presetFilter(preset, this._haFilter(all));
         const P = window.VoiceAiPresetPicker;
         const D = window.VoiceAiDefaultsCards;
@@ -1595,50 +1610,107 @@ const VoiceAiPage = {
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${P.renderCustomizeRow(customPipeline, true)}
-            ${card('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode))}
-            ${D.renderWakeWordCard({
-                currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
-                saving: this._savingKey === 'ai.defaultWakeWord',
-            })}
-            ${D.renderPersonalityCard({
-                templates: this._templates, custom: this._custom,
-                currentId: String(d['ai.defaultPersonalityId'] || 'dashie'),
-                saving: this._savingKey === 'ai.defaultPersonalityId',
-            })}
-            ${isLive ? this._renderLiveVoiceRow(d) : ''}
-            ${showPipeline ? this._renderEngineDetectionRow() : ''}
-            ${showStt ? card(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) + (isLive ? this._renderLiveSttNote() : '') : ''}
-            ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
-            ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}
-            ${showPipeline ? card('Web search source', 'search', this._markKeyed(searchOptions), searchSelected) : ''}
-            ${showEntities ? this._renderEntitySourceCard() : ''}`;
+            ${S.grid([
+                gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
+                D.renderWakeWordCard({
+                    currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
+                    saving: this._savingKey === 'ai.defaultWakeWord',
+                    compact: true,
+                }),
+                D.renderPersonalityCard({
+                    templates: this._templates, custom: this._custom,
+                    currentId: String(d['ai.defaultPersonalityId'] || 'dashie'),
+                    saving: this._savingKey === 'ai.defaultPersonalityId',
+                    compact: true,
+                }),
+                showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) : '',
+                showPipeline ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
+                // Full-width: these are notes and sub-rows that belong under the grid,
+                // not beside it. Kept in the same list so their conditions stay where
+                // they were rather than migrating into a second block that can drift.
+                S.full([
+                    isLive ? this._renderLiveVoiceRow(d) : '',
+                    showStt && isLive ? this._renderLiveSttNote() : '',
+                    showPipeline ? this._renderEngineDetectionRow() : '',
+                    showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
+                ].filter(Boolean).join('')),
+            ].filter(Boolean))}
+`;
+        // 🔴 Web search source and HA entities MOVED to section 2 (John, 2026-09-23):
+        // they are what the assistant may reach for, not how it hears or speaks. They
+        // keep their own conditions verbatim — this is a regrouping, not a rewrite.
+        const toolsPickers = S.grid([
+            showPipeline ? card('Web search source', 'search', this._markKeyed(searchOptions), searchSelected) : '',
+            showEntities ? this._renderEntitySourceCard() : '',
+        ].filter(Boolean));
             // Sports source card hidden for now (John, 2026-07-11) — ESPN is the
             // only option. The account default-VOICE card was removed 2026-07-12
             // (cloud voice follows the personality; Piper voice lives in the TTS
             // card's config; per-device override on the Devices page).
+        // ── The two sections (John, 2026-09-23, against the D1/D2 mockups) ──────
+        //
+        // This tab rendered FIFTEEN elements in one 760px column, eleven of them
+        // conditional. John: *"I think it's probably too busy as is."* It now groups
+        // into Voice & LLM and AI Tools & Settings, each collapsing to a summary
+        // line — two lines at rest instead of fifteen cards.
+        //
+        // 🔴 A REGROUPING, NOT A REWRITE. Every element expression and every
+        // condition above is the one that was already there; what changed is which
+        // container it lands in. The conditional soup on this page (preset ×
+        // Customize × agent mode × HA reachable) is the part most likely to break
+        // silently, so it was deliberately not touched.
+        const toolToggles = [
+            !isLive ? this._renderDialogRows(d, agentMode) : '',
+            this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled']),
+            // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
+            // (no thumbs up/down ships the feedback). Restore via
+            // FeatureGate.shouldShow('promptForFeedback').
+            FeatureGate.shouldShow('chores') ? this._toggleRow('Always use AI for chores', 'Disable the fast path — routes all chore commands through AI (uses more tokens).', 'voice.alwaysUseAI', d['voice.alwaysUseAI']) : '',
+        ].filter(Boolean).join('');
+
+        // Summaries: what each section says when shut. Read from the SAME ids the
+        // cards render from, so a collapsed page cannot disagree with an open one.
+        const voiceSummary = [
+            lbl(this._haFilter(O.PRESETS), preset),
+            isHaAssist ? '' : lbl(this._modelOptions(preset), this._selectedModelId(agentMode)),
+            showStt ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
+            showPipeline ? lbl(ttsAll, ttsSelectedId) : '',
+        ].filter(Boolean).join(' · ');
+        const toolsSummary = [
+            showPipeline ? lbl(searchOptions, searchSelected) : '',
+            d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
+        ].filter(Boolean).join(' · ');
+
         return `
             <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 20px 0 10px;">
                 <div style="font-size: 15px; font-weight: 600;">Voice &amp; AI Defaults</div>
                 ${this._renderLocalityLegend()}
             </div>
-            ${VoiceAiPresetPicker.render({
-                presets: this._haFilter(O.PRESETS),
-                selectedId: preset,
-                available: (id) => this._presetAvailable(id),
-                isAddonMode: DashieAuth.isAddonMode,
-                localMode: DashieAuth.isLocalMode,
+            ${S.render({
+                id: 'voice',
+                title: 'Voice & LLM',
+                summary: voiceSummary,
+                body: `
+                    ${VoiceAiPresetPicker.render({
+                        presets: this._haFilter(O.PRESETS),
+                        selectedId: preset,
+                        available: (id) => this._presetAvailable(id),
+                        isAddonMode: DashieAuth.isAddonMode,
+                        localMode: DashieAuth.isLocalMode,
+                    })}
+                    ${this._renderCloudSuppliers()}
+                    ${body}`,
             })}
-            ${this._renderCloudSuppliers()}
-            ${body}
-
-            ${isHaAssist ? '' : `
-            ${this._sectionHeader('AI Tools & Settings', '')}
-            <div class="card"><div class="card-body">
-                ${!isLive ? this._renderDialogRows(d, agentMode) : ''}
-                ${this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])}
-                ${false /* 'Prompt for feedback' HIDDEN 2026-07-17 — not yet implemented on the tablet (no thumbs up/down ships the feedback). Restore: FeatureGate.shouldShow('promptForFeedback') */ ? this._toggleRow('Prompt for feedback on responses', 'Show thumbs up/down after voice responses.', 'ai.promptForFeedback', d['ai.promptForFeedback']) : ''}
-                ${FeatureGate.shouldShow('chores') ? this._toggleRow('Always use AI for chores', 'Disable the fast path — routes all chore commands through AI (uses more tokens).', 'voice.alwaysUseAI', d['voice.alwaysUseAI']) : ''}
-            </div></div>`}
+            ${isHaAssist ? '' : S.render({
+                id: 'tools',
+                title: 'AI Tools & Settings',
+                summary: toolsSummary,
+                body: `
+                    ${toolsPickers}
+                    <div class="card" style="margin-top: ${toolsPickers ? '10px' : '0'};"><div class="card-body">
+                        ${toolToggles}
+                    </div></div>`,
+            })}
         `;
         // Conversation memory (+ duration) hidden for now (John, 2026-07-12) —
         // not in use yet. Re-add via ai.conversationContextEnabled /

@@ -49,9 +49,25 @@ const VoiceAiDefaultsCards = {
             : '';
         // No fake ▾ span — the select carries its own (clickable) native arrow now. `o.caret`
         // is accepted for back-compat but no longer renders anything.
+        // COMPACT stacks title above control, for the two-across grid the pickers
+        // moved into (John, 2026-09-23). The wide form reserves 170px for the
+        // title, which is half a column there — the control would be squeezed into
+        // what is left while the label sat in space it did not need. Matches
+        // VoiceAiCards' collapsed compact form so all six rows still read alike,
+        // which is the whole reason this row is shared in the first place.
+        const saving = o.saving ? '<span style="font-weight: 400; text-transform: none;">· saving…</span>' : '';
+        if (o.compact === true) {
+            return `
+            <div class="card"><div class="card-body" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 52px;">
+                <span style="flex: 1; min-width: 0;">
+                    <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">${icon}${this._esc(o.label)} ${saving}</span>
+                    <span style="display: flex; align-items: center; margin-top: 2px; min-width: 0;">${o.controlHtml}</span>
+                </span>
+            </div></div>`;
+        }
         return `
             <div class="card" style="margin-bottom: 10px;"><div class="card-body" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px;">
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); min-width: 170px; display: inline-flex; align-items: center; gap: 7px;">${icon}${this._esc(o.label)} ${o.saving ? '<span style="font-weight: 400; text-transform: none;">· saving…</span>' : ''}</span>
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); min-width: 170px; display: inline-flex; align-items: center; gap: 7px;">${icon}${this._esc(o.label)} ${saving}</span>
                 ${o.controlHtml}
             </div></div>`;
     },
@@ -88,6 +104,7 @@ const VoiceAiDefaultsCards = {
             label: 'Default personality',
             icon: 'icon-persona',
             saving: o.saving,
+            compact: o.compact === true,
             controlHtml: `<select style="${this.SELECT_STYLE}" onchange="VoiceAiPage.saveDefault('ai.defaultPersonalityId', this.value)">${groups.join('')}</select>`,
         });
     },
@@ -119,6 +136,7 @@ const VoiceAiDefaultsCards = {
             label: 'Wake word',
             icon: 'icon-microphone',
             saving: o.saving,
+            compact: o.compact === true,
             controlHtml: `<select style="${this.SELECT_STYLE}" onchange="VoiceAiPage.saveDefault('ai.defaultWakeWord', this.value)">${opts}</select>`,
         });
     },

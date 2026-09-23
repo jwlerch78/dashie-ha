@@ -259,6 +259,12 @@ node "$ADDON_ROOT/scripts/check-card-dialogs.mjs"
 # disagree with the database the console had just read (John, 2026-09-22).
 node "$ADDON_ROOT/scripts/check-picker-fallback.mjs"
 
+# The Voice & AI Settings tab groups into two collapsible sections. That join --
+# VoiceAiSections._DEFAULT_OPEN vs the ids the page renders -- is two hand-kept
+# lists in different files, the same shape that left four device tiles dead.
+# Driven: evaluates the real modules and calls the real _renderAiDefaults().
+node "$ADDON_ROOT/scripts/check-voice-sections.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:
