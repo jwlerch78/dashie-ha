@@ -133,6 +133,17 @@ const html3 = P._renderAiDefaults();
 t('15 an expanded card adds a full-row span', spans(html3) === spansClosed + 1,
   `closed ${spansClosed}, expanded ${spans(html3)}`);
 t('15b the expanded card really did expand', html3.includes('Choose AI Model'));
+// 🔴 …AND THAT IT RENDERED ROWS. An expanded card whose option list is empty
+// still emits the "Choose X" header and still spans, so legs 15/15b pass while
+// `_row()` — where most of the card's markup and all of its click handlers live
+// — is never called. That blindness hid a real TDZ crash in `_row` on
+// 2026-09-23: every leg here was green while every expanded picker would have
+// thrown. `entities` is used because its two options are hardcoded in the page,
+// so they cannot go empty the way a catalog-backed list can.
+P._expandedCards = new Set(['entities']);
+const htmlEnt = P._renderAiDefaults();
+const entRows = (htmlEnt.match(/VoiceAiPage\.selectOption\('entities'/g) || []).length;
+t('15c the expanded card renders real option rows', entRows >= 2, `${entRows} rows`);
 P._expandedCards = new Set();
 
 // Compact form: the 170px label must be gone from the gridded rows
@@ -154,6 +165,63 @@ t('18 control — an unknown section id is refused, loudly', (() => {
   return warned;
 })());
 t('19 control — the harness reaches the real render', html2.includes('VoiceAiSections.toggle'));
+
+// ── The four UI fixes of 2026-09-23 ─────────────────────────────────────────
+// Each was a real defect on John's screen; each is cheap to reintroduce.
+
+// 20 · re-selecting the CURRENT option must still repaint. The collapse happens
+// in state; only a write used to repaint, so a no-op re-select left the card open.
+{
+  let painted = 0;
+  const realRender = sandbox.App.renderPage;
+  sandbox.App.renderPage = () => { painted++; };
+  P._defaults['ai.webSearchEnabled'] = true;
+  P._defaults['voice.searchSource'] = 'google';
+  P._expandedCards = new Set(['search']);
+  P.selectOption('search', 'google');           // the already-selected option
+  sandbox.App.renderPage = realRender;
+  t('20 re-selecting the current search source repaints', painted > 0, `${painted} repaints`);
+  t('21 …and collapses the card', !P._expandedCards.has('search'));
+}
+
+// 22 · selection has a background of its own, independent of cloud/local tint.
+{
+  const C = vm.runInContext('VoiceAiCards', ctx);
+  const noLocality = { id: 'assist', label: 'My HA list', description: 'x' };
+  const sel = C._row(noLocality, true, 'entities', () => '', true, 'select');
+  const unsel = C._row(noLocality, false, 'entities', () => '', true, 'select');
+  t('22 a selected row with no locality is shaded', /background: var\(--surface-muted/.test(sel));
+  t('23 an unselected row with no locality is not', /background: transparent/.test(unsel));
+  const cloudSel = C._row({ id: 'g', label: 'Google', locality: 'cloud' }, true, 'search', () => '', true, 'select');
+  t('24 a cloud row keeps its locality tint, not the neutral one', /rgba\(249, 115, 22/.test(cloudSel));
+}
+
+// 25 · the Customize-pipeline toggle is gone and the pickers stay visible.
+P._defaults['voice.customizePipeline'] = false;   // the key that used to hide them
+P._expandedCards = new Set();
+{
+  const h = P._renderAiDefaults();
+  t('25 no Customize-pipeline toggle is rendered', !/Customize pipeline/i.test(h));
+  t('26 the pickers show even with the stored key false', h.includes('Speech-to-text') && h.includes('Text-to-speech'));
+}
+
+// 27 · conversation mode defaults OFF and appears in the Tools summary.
+{
+  delete P._defaults['voice.agentMode'];
+  P._defaults['voice.conversationAlways'] = true;   // the dead legacy key, alone
+  delete P._defaults['voice.conversationModel'];
+  t('27 conversationAlways alone no longer infers dialog', P._agentMode() === 'single', P._agentMode());
+  P._defaults['voice.conversationModel'] = 'gemini-live';
+  t('28 …but a stored Live model still wins', P._agentMode() === 'live', P._agentMode());
+  delete P._defaults['voice.conversationAlways'];
+  delete P._defaults['voice.conversationModel'];
+  P._defaults['voice.agentMode'] = 'single';
+  const h = P._renderAiDefaults();
+  t('29 the Tools summary names conversation mode', /conversation off/.test(h), 'summary');
+  P._defaults['voice.agentMode'] = 'dialog';
+  t('30 …and tracks it when on', /conversation on/.test(P._renderAiDefaults()));
+  P._defaults['voice.agentMode'] = 'single';
+}
 
 console.log(`check-voice-sections: ${pass} pass, ${fail} fail`);
 if (fail) { console.error(`\ncheck-voice-sections FAILED (${fail} leg(s))`); process.exit(1); }
