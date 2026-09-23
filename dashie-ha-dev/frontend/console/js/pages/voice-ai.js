@@ -921,9 +921,15 @@ const VoiceAiPage = {
         const d = this._defaults;
         const stored = String(d['voice.agentMode'] || '');
         if (stored) return stored;
-        const always = d['voice.conversationAlways'] === true;
+        // 🔴 DEFAULTS OFF (John, 2026-09-23: *"we should change the default for that
+        // to off"*). `conversationAlways` is the superseded pre-agentMode key, kept
+        // only for accounts that never migrated — and on its own it used to infer
+        // 'dialog', i.e. an account that had never chosen conversation mode got it
+        // switched on. A LIVE choice still wins, because a stored conversationModel
+        // is a deliberate selection rather than an inference from a dead flag.
         const lm = String(d['voice.conversationModel'] || '');
-        return always ? (lm ? 'live' : 'dialog') : 'single';
+        if (d['voice.conversationAlways'] === true && lm) return 'live';
+        return 'single';
     },
 
     /** Dialog toggle (shown when a non-Live model is selected):
@@ -990,8 +996,16 @@ const VoiceAiPage = {
                 this.saveDefault('ai.webSearchEnabled', false);
                 return;
             }
-            if (this._defaults['ai.webSearchEnabled'] !== true) this.saveDefault('ai.webSearchEnabled', true);
-            if (id !== 'google') this.saveDefault('voice.searchSource', id);
+            let wrote = false;
+            if (this._defaults['ai.webSearchEnabled'] !== true) { this.saveDefault('ai.webSearchEnabled', true); wrote = true; }
+            if (id !== 'google') { this.saveDefault('voice.searchSource', id); wrote = true; }
+            // 🔴 Re-clicking the ALREADY-SELECTED option writes nothing — and a write
+            // is the only thing that re-renders. The collapse above happened in state
+            // and never reached the screen, so the card sat open (John, 2026-09-23:
+            // *"when i click on the currently selected item it should re-select and
+            // minimize it. This works on HA entities but not on Web search source"*).
+            // HA entities was unaffected only because setEntitySource always writes.
+            if (!wrote) App.renderPage();
             return;
         }
         if (stageKey === 'sports') this.saveDefault('voice.sportsSource', id);
@@ -1522,7 +1536,20 @@ const VoiceAiPage = {
         // HA Assist keeps Customize too (mix the Assist pipeline with e.g. the
         // local Android voice) — just without the Dashie-brain cards.
         const isLive = !isHaAssist && agentMode === 'live';
-        const customPipeline = d['voice.customizePipeline'] === true;
+        // 🔴 THE CUSTOMIZE-PIPELINE TOGGLE IS GONE (John, 2026-09-23: *"with this new
+        // organization we can remove the 'customize pipeline' toggle and just leave
+        // everything active"*). Its job was hiding complexity on a page that showed
+        // fifteen elements at once; the collapsible sections do that now, and better,
+        // because a collapsed section still says what it contains.
+        //
+        // Held as a constant rather than deleted so the ~6 `showPipeline` / `showStt`
+        // conditions below keep reading as they did. `voice.customizePipeline` is NOT
+        // written here: the key stays whatever the account holds, because Kotlin's
+        // own Settings still gates its pipeline section on it, and silently rewriting
+        // an account key to fix a console layout is how two surfaces start disagreeing
+        // about what the user chose. ⚠️ That asymmetry is real and is flagged to John:
+        // the console now always shows these; the tablet still honours the stored key.
+        const customPipeline = true;
         const showPipeline = customPipeline && !isLive;
         // STT shows whenever the pipeline is customized — in cascade (with TTS/search) AND
         // in Live mode (on its own, below Live Voice). In Live it's the engine that
@@ -1605,11 +1632,9 @@ const VoiceAiPage = {
         // (model/personality/search) since HA owns the conversation agent.
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
-            ${P.renderCustomizeRow(customPipeline, true)}
             ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
-            ${P.renderCustomizeRow(customPipeline, true)}
             ${S.grid([
                 gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
                 D.renderWakeWordCard({
@@ -1678,6 +1703,10 @@ const VoiceAiPage = {
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
             showPipeline ? lbl(searchOptions, searchSelected) : '',
+            // John, 2026-09-23: the summary must capture conversation mode. It is the
+            // one setting in here that changes how every single turn behaves, so a
+            // collapsed section that omitted it was hiding the most consequential row.
+            isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
             d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
         ].filter(Boolean).join(' · ');
 

@@ -125,7 +125,17 @@ const VoiceAiCards = {
     _row(x, selected, stageKey, getConfig, isFirst, mode) {
         const O = window.VoiceAiOptions;
         const color = O.COLOR[x.locality] || 'var(--text-muted)';
-        const bg = (O.BG || {})[x.locality] || 'transparent';
+        // 🔴 TWO DIFFERENT THINGS WERE SHARING ONE BACKGROUND (John, 2026-09-23:
+        // *"The 'choose HA entities' doesn't have the same shading as the web search
+        // source"*). `O.BG` is the CLOUD/LOCAL tint — information about where an
+        // option runs — and it was the only background any row got. So Google looked
+        // "selected" because it is cloud, and the HA-entity options, which have no
+        // locality at all, could never look selected however they were chosen.
+        //
+        // Selection now has its own background, and locality keeps its own. A row
+        // with a locality still shows that tint (it is the more specific fact);
+        // a row without one gets a neutral selected fill instead of nothing.
+        const localityBg = (O.BG || {})[x.locality] || '';
         const localityTag = `<span style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:${color};">${O.LABEL[x.locality] || ''}</span>`;
         const soon = x.comingSoon
             ? `<span style="font-size:10px; font-weight:600; color: var(--text-muted); background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); padding: 1px 6px; border-radius: 9px;">coming soon</span>`
@@ -134,6 +144,14 @@ const VoiceAiCards = {
         // Install row: an uninstalled HA engine advertised with an "Install ↗" badge
         // that deep-links to the add-on store (the row is not selectable).
         const isInstall = !!x.install;
+        // ⚠️ Computed HERE, not beside `localityBg` above, because it reads
+        // `isInstall` — a `const` declared on the line above this one. Placing it
+        // with the other background work threw `Cannot access 'isInstall' before
+        // initialization` on every row of every expanded picker. Caught 2026-09-23
+        // by a gate leg that calls `_row` DIRECTLY: the section-level legs render an
+        // expanded card whose option list is empty in the harness, so they never
+        // reach this line and were green throughout.
+        const bg = localityBg || ((!isInstall && selected) ? 'var(--surface-muted, #f5f5f5)' : 'transparent');
         const installBadge = isInstall
             ? `<span style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:#fff; background: var(--accent); padding: 2px 8px; border-radius: 9px;">Install ↗</span>`
             : '';
