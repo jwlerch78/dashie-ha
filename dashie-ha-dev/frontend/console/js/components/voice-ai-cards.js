@@ -60,13 +60,32 @@ const VoiceAiCards = {
             // icon next to it, so the summary reads "Gemini 2.5 Flash CLOUD 🔑".
             const keyBadge = sel.keyed ? this._keyIcon() : '';
             const dimmed = o.anyExpanded;
+            // COMPACT stacks the title above the value instead of running them side
+            // by side. The wide form reserves 170px for the title, which is fine in a
+            // full-width column and half the row once the pickers went two-across
+            // (John, 2026-09-23) — the value would then truncate while the label sat
+            // in acres of space. Same content, same click target, same markup path:
+            // an `if (compact) return ...` second copy would drift from this one.
+            const compact = o.compact === true;
+            const titleStyle = compact
+                ? 'font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;'
+                : 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); min-width: 170px; display: inline-flex; align-items: center; gap: 7px;';
+            const valueStyle = compact
+                ? 'font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 7px; margin-top: 2px; min-width: 0;'
+                : 'flex: 1; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;';
+            const inner = compact
+                ? `<span style="flex: 1; min-width: 0;">
+                       <span style="${titleStyle}">${icon}${this._esc(o.title)}</span>
+                       <span style="${valueStyle}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._esc(sel.label)}</span> ${tag} ${keyBadge}</span>
+                   </span>`
+                : `<span style="${titleStyle}">${icon}${this._esc(o.title)}</span>
+                   <span style="${valueStyle}">${this._esc(sel.label)} ${tag} ${keyBadge}</span>`;
             return `
-                <div style="margin-bottom: 10px; transition: opacity 120ms ease; ${dimmed ? 'opacity: 0.45;' : ''}">
+                <div style="${compact ? '' : 'margin-bottom: 10px;'} transition: opacity 120ms ease; ${dimmed ? 'opacity: 0.45;' : ''}">
                     <div class="card"><div class="card-body" style="padding: 0;">
                         <div onclick="VoiceAiPage.toggleCard('${o.stageKey}')"
-                            style="cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 14px;">
-                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); min-width: 170px; display: inline-flex; align-items: center; gap: 7px;">${icon}${this._esc(o.title)}</span>
-                            <span style="flex: 1; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">${this._esc(sel.label)} ${tag} ${keyBadge}</span>
+                            style="cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 52px;">
+                            ${inner}
                             <span style="color: var(--text-muted); font-size: 13px;">▸</span>
                         </div>
                     </div></div>
