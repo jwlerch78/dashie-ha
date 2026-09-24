@@ -133,6 +133,7 @@ const DevicesDetail = {
             ${DevicesDetailModals.renderVoiceVoiceModal()}
             ${DevicesDetailModals.renderWakeWordModal()}
             ${DevicesDetailModals.renderVoiceSetupModal()}
+            ${DevicesDetailModals.renderProfileModal()}
             ${DevicesDetailModals.renderPinModal()}
         `;
     },
@@ -712,8 +713,15 @@ const DevicesDetail = {
                 `DevicesDetailModals.openVoiceSetup('${idAttr}')`)
             : DevicesDetailModals._readonlyRow('Voice setup', voiceSetup.label);
 
+        // Which household profile this device follows (CONTRACTS #148). Shown ONLY when
+        // the household has a named profile: with just Default there is nothing to
+        // choose, and a row offering one option is noise on every household that will
+        // never make a second profile (§7's guardrail, applied to the device page).
+        const profileRow = DevicesDetailModals.profileAssignmentRow(device, idAttr);
+
         const rows = [
             DevicesDetailModals._toggleRow(device, 'voice', 'enabled', 'Enable Voice', voiceEnabled),
+            profileRow,
             voiceSetupRow,
             DevicesDetailModals._summaryRow('Wake Word', wakeWordLabel,
                 `DevicesDetailModals.openWakeWord('${idAttr}')`),

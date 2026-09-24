@@ -922,6 +922,7 @@ const DevicesPage = {
                  rendered them. check-card-dialogs.mjs now holds the two lists together. -->
             ${DevicesDetailModals.renderWakeWordModal()}
             ${DevicesDetailModals.renderVoiceSetupModal()}
+            ${DevicesDetailModals.renderProfileModal()}
         `;
     },
 

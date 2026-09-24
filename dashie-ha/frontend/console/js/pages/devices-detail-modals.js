@@ -580,6 +580,86 @@ const DevicesDetailModals = {
         return opt ? opt.label : String(id);
     },
 
+    // ── Which household profile does this device follow? (CONTRACTS #148) ───────
+    //
+    // 🔴 THIS IS THE ONLY SURFACE THAT ASSIGNS ONE. Without it the whole feature is
+    // inert: the console can create profiles, devices receive them, the pointer syncs —
+    // and nothing ever sets it, so every device stays on Default forever. Profiles that
+    // cannot be pointed at are settings nobody can use.
+    //
+    // Deliberately NOT gated on voiceOverridesApply(): which profile a device follows is
+    // a question independent of the pipeline preset, and hiding it under ha_assist would
+    // strand any device that happened to be on that preset.
+
+    _profileOpen: false,
+    _profileDeviceId: null,
+
+    /** The row, or '' when the household has only Default. §7's guardrail applied to the
+     *  device page: one option is not a choice, it is noise on every household that will
+     *  never make a second profile. */
+    profileAssignmentRow(device, idAttr) {
+        this.ensureAccountSettings();
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings);
+        if (!named || Object.keys(named).length === 0) return '';
+        const L = this._profileLayer(device);
+        // A dangling pointer is NAMED, not hidden: the profile was deleted while this
+        // device was offline, so it is silently on Default and the only other place that
+        // says so is a device log nobody reads.
+        const label = L.source === 'dangling'
+            ? `Default (the “${L.id}” profile was deleted)`
+            : (L.source === 'profile' ? L.name : 'Default');
+        return this._summaryRow('Voice profile', label, `DevicesDetailModals.openProfile('${idAttr}')`);
+    },
+
+    openProfile(deviceId) {
+        this._resetAlso();
+        this._profileOpen = true;
+        this._profileDeviceId = deviceId;
+        this.ensureAccountSettings();
+        App.renderPage();
+    },
+
+    closeProfile() { this._profileOpen = false; App.renderPage(); },
+
+    renderProfileModal() {
+        if (!this._profileOpen) return '';
+        const device = DevicesPage._findDevice(this._profileDeviceId);
+        if (!device) return '';
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings) || {};
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        const current = String(device?.settings?.voice?.profileId || '') || DEFAULT;
+        const opts = [[DEFAULT, 'Default'], ...Object.entries(named).map(([id, p]) => [id, p.name || id])];
+        const options = opts.map(([v, label]) =>
+            `<option value="${this._escape(v)}" ${v === current ? 'selected' : ''}>${this._escape(label)}</option>`).join('');
+
+        const body = `
+            <div class="form-group">
+                <label class="form-label">Voice profile</label>
+                <select class="form-select" onchange="DevicesDetailModals.setProfile(this.value)">
+                    ${this._offListOption(current, opts.map(([v]) => v), 'voice.profileId')}
+                    ${options}
+                </select>
+            </div>
+            <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
+                A profile is a complete set of voice &amp; AI defaults, edited on the
+                <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page.
+                <strong>Default</strong> is your household's own settings.
+                This device's own overrides below still win over whichever profile it follows.
+            </div>`;
+        return this._modal('Voice profile', body, 'DevicesDetailModals.closeProfile()', this._alsoFooter(), device);
+    },
+
+    async setProfile(value) {
+        const deviceId = this._profileDeviceId;
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        // '' for Default rather than the literal id: absent is what every device that has
+        // never chosen already stores, so the two states are ONE state rather than two
+        // that resolve alike but compare differently.
+        const stored = (value === DEFAULT) ? '' : String(value);
+        await DevicesPage._onSettingChange(deviceId, 'voice', 'profileId', stored);
+        this.closeProfile();
+    },
+
     // ── Per-device voice setup modal (D2b: one selection leads) ──────────────
 
     _voiceSetupOpen: false,
