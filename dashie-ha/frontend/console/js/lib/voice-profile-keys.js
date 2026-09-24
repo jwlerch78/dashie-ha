@@ -75,79 +75,72 @@ window.VoiceProfileKeys = {
 
     // ── The profile LAYER: which default does a device actually follow? ──────
     //
-    // 🔴 SECOND COPY of the resolution ORDER in the webapp's
-    // js/data/settings/voice-profiles.js. Same reason as the key list above — the
-    // console cannot import the resolver — and gated the same way:
-    // `lint:profile-keys` pins DEFAULT_PROFILE_ID against the webapp's constant.
+    // 🔴 THE ACCOUNT *IS* THE DEFAULT PROFILE (John, 2026-09-24). `user_settings.voice.*`
+    // / `ai.default*` is not a legacy layer — it is Default's storage, renamed. So there
+    // is no "un-migrated household" state and no empty state: every household has
+    // Default, always. `voiceProfiles` holds the NAMED profiles only.
     //
-    // ⚠️ THE POINTER IS NOT PER-DEVICE YET, AND THAT IS WHY THIS IS ANSWERABLE.
-    // The webapp reads the active profile from localStorage['dashie-device-profile-id']
-    // (voice-profiles.js ACTIVE_PROFILE_LS). NOTHING WRITES THAT KEY — there is no
-    // picker on any surface until phase 2b — so activeProfileId() returns the seeded
-    // DEFAULT_PROFILE_ID on every device, always. The household therefore follows ONE
-    // profile, and "which default does this device follow?" is a household question.
-    //
-    // It is also device-INVISIBLE: the key is device-local and is not in
-    // SETTINGS_KEY_MAP, so it never reaches user_devices and the console could not
-    // read a per-device pointer even if one existed. When 2b introduces a real
-    // picker it must ALSO map the pointer as a synced device key, and then
-    // layer() takes a device argument. That is the one place this changes.
+    // Second copy of the resolution ORDER in the webapp's js/data/settings/voice-profiles.js,
+    // gated the same way as the key list (`lint:profile-keys` pins DEFAULT_PROFILE_ID
+    // across every spelling; `lint:profile-layer` runs these functions for real).
 
-    /** The id the webapp seeds and falls back to (voice-profiles.js DEFAULT_PROFILE_ID). */
+    /** The id meaning "the account paths". Never a key inside `voiceProfiles`. */
     DEFAULT_PROFILE_ID: 'default',
 
     /**
-     * The household's LIVE profiles, or null when it has none.
+     * The household's NAMED profiles, or null when it has none.
      *
      * 🔴 A deleted profile is stored as null, not removed — patchUserSetting cannot
-     * delete a key (D-121). Counting null entries makes a household that deleted its
-     * last profile read as migrated-with-zero-profiles, which is the state where every
-     * answer about the household is wrong while resolution still looks fine.
+     * delete a key (D-121). A blob stored under `default` is ignored on purpose: Default
+     * is the account paths, so a key by that name is a stale artefact, not a profile.
      */
-    live(settings) {
+    named(settings) {
         const raw = settings?.voiceProfiles;
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
         const out = {};
-        for (const [id, p] of Object.entries(raw)) if (p && typeof p === 'object') out[id] = p;
+        for (const [id, p] of Object.entries(raw)) {
+            if (p && typeof p === 'object' && id !== this.DEFAULT_PROFILE_ID) out[id] = p;
+        }
         return Object.keys(out).length > 0 ? out : null;
     },
 
     /**
-     * Which layer supplies this household's defaults right now.
+     * Which layer supplies THIS DEVICE's defaults.
      *
-     * @returns {{source: 'account'|'profile'|'dangling', id: ?string, name: string,
-     *            profile: ?object, has: string[]}}
-     *   account  — no profiles exist. The legacy account paths answer, exactly as
-     *              before profiles existed. This is a normal, supported steady state.
-     *   profile  — a profile with the seeded id exists and is authoritative for EVERY
-     *              key it carries, including the ones it holds as ''.
-     *   dangling — profiles exist but none carries the seeded id, so every device
-     *              falls back to the account layer and logs a DROP. Resolution is
-     *              correct; the profiles are simply doing nothing. Surface it.
+     * 🔴 Reads the device's own pointer — `settings.voice.profileId`, a SYNCED device key
+     * since CONTRACTS #148 landed. The first version of this page read that field before
+     * anything wrote it and got `undefined` for every device in every household, which is
+     * exactly what "no assignments" looks like (§12.8 finding 1). It is real now.
+     *
+     * @returns {{source: 'default'|'profile'|'dangling', id: string, name: string, profile: ?object}}
+     *   default  — following Default: the account paths answer. The normal case.
+     *   profile  — following a named profile, authoritative for every key it carries.
+     *   dangling — the pointer names a profile that no longer exists; Default answers,
+     *              which always exists, so the device stays configured.
      */
-    layer(settings) {
-        const profiles = this.live(settings);
-        if (!profiles) return { source: 'account', id: null, name: '', profile: null, has: [] };
-        const id = this.DEFAULT_PROFILE_ID;
-        const p = profiles[id];
-        if (p) return { source: 'profile', id, name: String(p.name || id), profile: p, has: Object.keys(profiles) };
-        return { source: 'dangling', id, name: '', profile: null, has: Object.keys(profiles) };
+    layer(settings, device) {
+        const id = String(device?.settings?.voice?.profileId || '') || this.DEFAULT_PROFILE_ID;
+        if (id === this.DEFAULT_PROFILE_ID) {
+            return { source: 'default', id, name: 'Default', profile: null };
+        }
+        const p = this.named(settings)?.[id];
+        if (p) return { source: 'profile', id, name: String(p.name || id), profile: p };
+        return { source: 'dangling', id, name: '', profile: null };
     },
 
     /**
-     * The value a device with no override of its own will actually run, and the
-     * layer that supplied it.
+     * The value a device with no override of its own will actually run, and the layer
+     * that supplied it.
      *
-     * 🔴 The fallback is PER-HOUSEHOLD, not per-key. A migrated household's profile
-     * answers for every declared key including the ones it holds as '' — it does NOT
-     * fall through to `accountValue`. Per-key fallback would make clearing a field in
-     * a profile resurrect the old account value, which is indistinguishable from a
-     * save that failed.
+     * 🔴 A NAMED profile does NOT fall through to Default. It is complete, so it answers
+     * for every key it declares including the ones it holds as '' — per-key fallback
+     * would resurrect Default's value the moment a user cleared a field, which cannot be
+     * told apart from a save that failed.
      *
-     * @param accountValue what the caller already read from the legacy account layer.
+     * @param accountValue what the caller read from the account paths — i.e. Default.
      */
-    inherited(settings, category, key, accountValue) {
-        const L = this.layer(settings);
+    inherited(settings, device, category, key, accountValue) {
+        const L = this.layer(settings, device);
         if (L.source === 'profile') {
             const v = L.profile.values?.[category]?.[key];
             return { value: (typeof v === 'string') ? v : '', layer: L };
