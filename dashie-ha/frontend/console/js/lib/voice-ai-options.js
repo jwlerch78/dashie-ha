@@ -73,14 +73,21 @@ const VoiceAiOptions = {
 
     /** Filter a picker option list by the active preset (§6): Local hides
      *  cloud rows, Cloud hides local rows, Hybrid shows both minus the HA
-     *  Assist pipeline row (va_default). HA Assist keeps the local rows
+     *  HA Assist pipeline row too — see below. HA Assist keeps the local rows
      *  (va_default = the Assist pipeline itself, plus Android/engine-direct
      *  overrides — e.g. speak HA's reply in the local Android voice) but no
      *  Dashie-cloud metered rows (John, 2026-07-12). */
     presetFilter(presetId, options) {
         if (presetId === 'local')  return options.filter(o => o.locality === 'local');
         if (presetId === 'cloud')  return options.filter(o => o.locality === 'cloud');
-        if (presetId === 'hybrid') return options.filter(o => o.id !== 'va_default');
+        // 🔴 Hybrid offers EVERYTHING, including the "Home Assistant" row (va_default).
+        // John, 2026-09-24: "when i'm in hybrid it's not giving me the option to use home
+        // assistant for TTS or STT. That's available in local. it should be in both."
+        // Hybrid means cloud AI with the voice of your choosing, and HA's own pipeline is
+        // one of those choices. Checked before changing: TtsRoutePlan.kt:73 routes
+        // TTS_VA_DEFAULT on haPipelineAvailable alone and never reads the preset, so the
+        // exclusion was picker policy rather than something the engine required.
+        if (presetId === 'hybrid') return options;
         if (presetId === 'ha_assist') return options.filter(o => o.locality === 'local');
         return options;
     },
