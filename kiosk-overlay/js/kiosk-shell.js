@@ -218,8 +218,25 @@ let _haCurrentUrl = '';
 window.addEventListener('message', (e) => {
   if (!e.data) return;
 
+  // Terminal result of the injector's own retry loop, relayed from inside the HA iframe.
+  if (e.data.type === 'dashie-kiosk-injection') {
+    reportKioskInjection({ ok: e.data.ok, reason: e.data.reason }, e.data.site || 'injector');
+  }
+
+  // D-001 probe: a click landed on HA's chrome. Reported even when nothing follows it —
+  // a click with no ha-url-changed after it IS the reported bug, and it is the only half
+  // of this pair that is reachable while the bug is happening.
+  if (e.data.type === 'ha-nav-click' && e.data.detail) {
+    reportHaNav('click', e.data.detail);
+  }
+
   if (e.data.type === 'ha-url-changed' && e.data.url) {
     _haCurrentUrl = e.data.url;
+    // Path only — these logs get attached to public GitHub issues, and the full href
+    // carries the host and any query HA put there.
+    let path = 'unparseable';
+    try { path = new URL(e.data.url).pathname; } catch (ex2) { /* keep the placeholder */ }
+    reportHaNav('url', path);
     // Persist to Kotlin so crash/OOM recovery can restore the correct page
     try {
       if (typeof DashieNative !== 'undefined' && DashieNative.onHaUrlChanged) {
@@ -263,18 +280,55 @@ window.dashieGetHaUrl = function() {
 };
 
 /**
+ * Report an injection outcome so it reaches a diagnostics UPLOAD (D-076).
+ *
+ * Before this, injectScriptsViaContentDocument's `false` was discarded at both call sites:
+ * "handed over and applied" and "handed over and silently dropped" were indistinguishable in
+ * every artifact we can collect remotely, which is why two external sidebar reports could not
+ * be diagnosed from 5.2 MB of bundles. console.log alone is not enough — only ERROR-level
+ * console reaches crash diagnostics, so this goes over the bridge to PersistentLog.
+ */
+function reportKioskInjection(result, site) {
+  const ok = !!(result && result.ok);
+  const reason = (result && result.reason) || 'unknown';
+  if (!ok) {
+    console.warn('[KioskShell] DROP: kiosk injection failed at ' + site + ' — ' + reason);
+  }
+  // Payload-prefix contract with Kotlin: JS_KOTLIN_CONTRACTS row 141.
+  // Reuses the EXISTING reportKioskUi channel rather than adding a bridge method: it is
+  // already the kiosk-UI-outcome channel, DashieJSBridge is at its file-size ceiling, and an
+  // old APK degrades to a DiagnosticBuffer line instead of losing the report entirely.
+  try {
+    if (typeof DashieNative !== 'undefined' && DashieNative.reportKioskUi) {
+      DashieNative.reportKioskUi(
+        (ok ? 'KIOSK_INJECT_OK: ' : 'DROP: KIOSK_INJECT_FAILED: ') + 'site=' + site + ' ' + reason);
+    }
+  } catch (ex) { /* older APK without the method — feature-detected above */ }
+}
+
+/** Relay one HA navigation-probe event (D-001) down the same channel (contract row 141). */
+function reportHaNav(kind, detail) {
+  try {
+    if (typeof DashieNative !== 'undefined' && DashieNative.reportKioskUi) {
+      DashieNative.reportKioskUi('NAV ' + kind + ' ' + String(detail).slice(0, 120));
+    }
+  } catch (ex) { /* older APK */ }
+}
+
+/**
  * Inject scripts into HA iframe via same-origin contentDocument access.
  * Called after iframe.onload when _dashieInjectionScripts is set by Kotlin.
  * Injects: parent bridge, WS proxy, kiosk CSS (in that order).
  */
 function injectScriptsViaContentDocument(iframe) {
   const scripts = window._dashieInjectionScripts;
-  if (!scripts || !iframe.contentDocument) return false;
+  if (!scripts) return { ok: false, reason: 'no-scripts' };
+  if (!iframe.contentDocument) return { ok: false, reason: 'no-contentDocument' };
 
   try {
     const doc = iframe.contentDocument;
     const head = doc.head || doc.documentElement;
-    if (!head) return false;
+    if (!head) return { ok: false, reason: 'no-head' };
 
     // Block HA theme persistence to prevent cross-device theme sync.
     // syncHaIframeTheme() dispatches a 'settheme' CustomEvent which HA handles
@@ -322,11 +376,23 @@ function injectScriptsViaContentDocument(iframe) {
       head.appendChild(el);
     }
 
+    // Whether HA's own root element existed AT INJECTION TIME. This is the D-001 race
+    // question in one field: we inject on iframe.onload, and the reporters' own VIEWPORT
+    // probes show `home-assistant-main not found` at boot with the drawer appearing ~3 s
+    // later. Recorded as an observation, not a verdict.
+    let haRoot = 'unknown';
+    try {
+      const rootEl = doc.querySelector('home-assistant');
+      const mainEl = rootEl && rootEl.shadowRoot
+        ? rootEl.shadowRoot.querySelector('home-assistant-main') : null;
+      haRoot = mainEl ? 'present' : (rootEl ? 'home-assistant-only' : 'absent');
+    } catch (e) { haRoot = 'threw'; }
+
     console.log('[KioskShell] Same-origin injection complete');
-    return true;
+    return { ok: true, reason: 'injected haMainAtInject=' + haRoot };
   } catch (e) {
     console.warn('[KioskShell] Same-origin injection failed:', e.message);
-    return false;
+    return { ok: false, reason: 'threw: ' + (e && e.message) };
   }
 }
 
@@ -698,7 +764,7 @@ window.dashieSetHaUrl = function(url) {
 
     // Same-origin: inject kiosk CSS and scripts via contentDocument
     if (hasSameOriginScripts) {
-      injectScriptsViaContentDocument(iframe);
+      reportKioskInjection(injectScriptsViaContentDocument(iframe), 'iframe-onload');
       // 🔴 NEED 70: the latch is inline style on the CHILD document, so a new document means a new
       // (empty) style — MEASURED lapsing after dashieReloadHaIframe(): child back to 909, both
       // inline properties gone. A one-shot write would give "zoom works until you navigate", which
@@ -910,7 +976,7 @@ window.dashieLoadHaWithTokens = function(url, tokenJson) {
 
         // Same-origin: inject kiosk scripts after token reload too
         if (window._dashieInjectionScripts) {
-          injectScriptsViaContentDocument(iframe);
+          reportKioskInjection(injectScriptsViaContentDocument(iframe), 'after-token-reload');
         }
 
         if (typeof DashieNative !== 'undefined' && DashieNative.onHaIframeLoaded) {

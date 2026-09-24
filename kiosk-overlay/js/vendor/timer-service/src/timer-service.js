@@ -224,6 +224,65 @@ export class TimerService extends EventEmitter {
   }
 
   /**
+   * Restart a COMPLETED timer with `seconds` on the clock, keeping its identity.
+   *
+   * 🔴 Why this is not `addTime` (board row 63, ruling 4 — the alarm's "+1 min" / "+5 min").
+   * Those buttons only ever appear on a RINGING timer, and `addTime` refuses exactly that state
+   * ("Cannot add time to completed timer"). Routing the alarm through it would log a warning and
+   * do nothing — and because the alarm's own Dismiss is what stops the looping sound, the user
+   * would be left with a ringing alarm and a visibly dead button.
+   *
+   * 📌 The SAME id, slot, and description survive, which is what makes the design's promise —
+   * "tapping one restarts the same timer" — literally true rather than a new timer wearing the
+   * old one's name. The native card is keyed by id, so it updates in place instead of stacking a
+   * second card beside the one that is still ringing.
+   *
+   * ⚠️ The clock fields must ALL be reset, not just `remainingSeconds`: the tick loop recomputes
+   * remaining from `startedAt`/`accumulatedPauseTime` (see `_tick`), so a timer that kept its old
+   * `startedAt` would be recomputed straight back to 0 and re-complete on the very next tick.
+   *
+   * @param {string} timerId
+   * @param {number} seconds - New duration, > 0
+   * @returns {Object|null} The restarted timer, or null if it failed
+   */
+  extendCompletedTimer(timerId, seconds) {
+    const timer = this.timers.get(timerId);
+    if (!timer) {
+      this.logger.warn('DROP: extendCompletedTimer — timer not found', { timerId });
+      return null;
+    }
+    if (timer.state !== 'completed') {
+      this.logger.warn('DROP: extendCompletedTimer on a timer that is not completed', {
+        timerId, state: timer.state
+      });
+      return null;
+    }
+    if (!(seconds > 0)) {
+      this.logger.warn('DROP: extendCompletedTimer with a non-positive duration', { timerId, seconds });
+      return null;
+    }
+
+    const capped = Math.min(seconds, MAX_TIMER_SECONDS);
+    const now = Date.now();
+
+    timer.durationSeconds = capped;
+    timer.remainingSeconds = capped;
+    timer.state = 'running';
+    // Restart the clock the tick loop actually reads.
+    timer.startedAt = now;
+    timer.pausedAt = null;
+    timer.accumulatedPauseTime = 0;
+    // Keep the slot number, refresh the duration suffix so the card doesn't claim the old length.
+    timer.label = `Timer ${timer.slot} (${this.formatDurationLabel(capped)})`;
+
+    this._saveToStorage();
+    this.emit('TIMER_UPDATED', { timer: { ...timer }, action: 'extended', seconds: capped });
+    this.logger.info(`Extended ${timer.label} — restarted with ${this.formatTime(capped)}`);
+
+    return { ...timer };
+  }
+
+  /**
    * Subtract time from a timer
    * @param {string} timerId - Timer ID
    * @param {number} seconds - Seconds to subtract

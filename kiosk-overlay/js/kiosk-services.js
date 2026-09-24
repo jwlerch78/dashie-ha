@@ -24,6 +24,7 @@ import { classifyTimerIntent, classifyMediaIntent, classifyVolumeIntent, parseDu
 // Shared with full mode (pure module, no app imports — bundles cleanly): answers
 // "what time / date / day is it" on-device instead of a billable brain round-trip.
 import { answerTimeQuery } from '../../js/core/voice/time-fast-path.js';
+import { spokenTimerStarted } from '../../js/core/voice/voice-strings.js';
 // 🔴 SHARED, NOT MIRRORED (standing rule 1). The kiosk builds its own entity list below — it does
 // NOT go through entitiesForBrain — so the utterance-aware scoping would have been a second copy
 // waiting to drift. It is a pure module with no browser deps precisely so all three consumers
@@ -654,8 +655,22 @@ class KioskServicesController {
             }
             break;
           }
+          case 'extend': {
+            // Row 63 ruling 4 — the alarm card's "+1 min" / "+5 min". Deliberately NOT addTime:
+            // addTime refuses a completed timer, which is the only state those buttons appear in.
+            // Scoped to a COMPLETED timer so a stray extend can't restart one still counting down.
+            const seconds = Number(data.seconds) || 0;
+            const t = findTimer('completed');
+            if (t && seconds > 0) {
+              timerService.extendCompletedTimer(t.id, seconds);
+              console.log(`[KioskServices] ⏱️ Extended timer ${t.id} by ${seconds}s`);
+            } else {
+              console.warn(`[KioskServices] ⏱️ DROP: extend had no ringing timer to restart (seconds=${seconds})`);
+            }
+            break;
+          }
           default:
-            console.warn(`[KioskServices] ⏱️ Unknown timer command: ${command}`);
+            console.warn(`[KioskServices] ⏱️ DROP: unknown timer command: ${command}`);
         }
       } catch (error) {
         console.error(`[KioskServices] ⏱️ Error executing timer command ${command}:`, error);
@@ -1005,10 +1020,21 @@ class KioskServicesController {
         console.log('[KioskServices] ⏱️ Creating timer:', totalSeconds, 'seconds');
         const createResult = timerService.createTimer(totalSeconds, params.description);
         if (createResult.success) {
-          const durationStr = this.formatDuration(totalSeconds);
-          const desc = params.description ? ` for ${params.description}` : '';
+          // 🔴 THE SAME LINE FULL MODE SPEAKS, from the same table (board row 63, John
+          // 2026-09-14). This used to be `I've set a ${durationStr} timer${desc}.` — a second,
+          // independently-worded confirmation for the same event, written here because kiosk
+          // classifies timer intents in this file rather than in the voice action handler.
+          //
+          // ⚠️ Two spoken strings for one moment is the hand-mirror voice-strings.js exists to
+          // stop, and it is the WORST shape of it: nothing crashes, nothing logs, both sentences
+          // are grammatical, and the only way to notice is to own both a kiosk device and a
+          // full-mode one and say the same thing to each. A household with one of each heard
+          // Dashie answer differently depending on which room they were in.
+          //
+          // kiosk CAN reach shared js/ — it already imports time-fast-path from the same tree —
+          // so there was never a technical reason for the second copy.
           return {
-            voice: `I've set a ${durationStr} timer${desc}.`,
+            voice: spokenTimerStarted(totalSeconds, params.description),
             action: { category: 'timer', command: 'create', parameters: { seconds: totalSeconds, description: params.description } }
           };
         }
