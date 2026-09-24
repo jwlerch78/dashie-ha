@@ -73,6 +73,88 @@ window.VoiceProfileKeys = {
         return { name, schemaVersion: 1, values, unset };
     },
 
+    // ── The profile LAYER: which default does a device actually follow? ──────
+    //
+    // 🔴 SECOND COPY of the resolution ORDER in the webapp's
+    // js/data/settings/voice-profiles.js. Same reason as the key list above — the
+    // console cannot import the resolver — and gated the same way:
+    // `lint:profile-keys` pins DEFAULT_PROFILE_ID against the webapp's constant.
+    //
+    // ⚠️ THE POINTER IS NOT PER-DEVICE YET, AND THAT IS WHY THIS IS ANSWERABLE.
+    // The webapp reads the active profile from localStorage['dashie-device-profile-id']
+    // (voice-profiles.js ACTIVE_PROFILE_LS). NOTHING WRITES THAT KEY — there is no
+    // picker on any surface until phase 2b — so activeProfileId() returns the seeded
+    // DEFAULT_PROFILE_ID on every device, always. The household therefore follows ONE
+    // profile, and "which default does this device follow?" is a household question.
+    //
+    // It is also device-INVISIBLE: the key is device-local and is not in
+    // SETTINGS_KEY_MAP, so it never reaches user_devices and the console could not
+    // read a per-device pointer even if one existed. When 2b introduces a real
+    // picker it must ALSO map the pointer as a synced device key, and then
+    // layer() takes a device argument. That is the one place this changes.
+
+    /** The id the webapp seeds and falls back to (voice-profiles.js DEFAULT_PROFILE_ID). */
+    DEFAULT_PROFILE_ID: 'default',
+
+    /**
+     * The household's LIVE profiles, or null when it has none.
+     *
+     * 🔴 A deleted profile is stored as null, not removed — patchUserSetting cannot
+     * delete a key (D-121). Counting null entries makes a household that deleted its
+     * last profile read as migrated-with-zero-profiles, which is the state where every
+     * answer about the household is wrong while resolution still looks fine.
+     */
+    live(settings) {
+        const raw = settings?.voiceProfiles;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        const out = {};
+        for (const [id, p] of Object.entries(raw)) if (p && typeof p === 'object') out[id] = p;
+        return Object.keys(out).length > 0 ? out : null;
+    },
+
+    /**
+     * Which layer supplies this household's defaults right now.
+     *
+     * @returns {{source: 'account'|'profile'|'dangling', id: ?string, name: string,
+     *            profile: ?object, has: string[]}}
+     *   account  — no profiles exist. The legacy account paths answer, exactly as
+     *              before profiles existed. This is a normal, supported steady state.
+     *   profile  — a profile with the seeded id exists and is authoritative for EVERY
+     *              key it carries, including the ones it holds as ''.
+     *   dangling — profiles exist but none carries the seeded id, so every device
+     *              falls back to the account layer and logs a DROP. Resolution is
+     *              correct; the profiles are simply doing nothing. Surface it.
+     */
+    layer(settings) {
+        const profiles = this.live(settings);
+        if (!profiles) return { source: 'account', id: null, name: '', profile: null, has: [] };
+        const id = this.DEFAULT_PROFILE_ID;
+        const p = profiles[id];
+        if (p) return { source: 'profile', id, name: String(p.name || id), profile: p, has: Object.keys(profiles) };
+        return { source: 'dangling', id, name: '', profile: null, has: Object.keys(profiles) };
+    },
+
+    /**
+     * The value a device with no override of its own will actually run, and the
+     * layer that supplied it.
+     *
+     * 🔴 The fallback is PER-HOUSEHOLD, not per-key. A migrated household's profile
+     * answers for every declared key including the ones it holds as '' — it does NOT
+     * fall through to `accountValue`. Per-key fallback would make clearing a field in
+     * a profile resurrect the old account value, which is indistinguishable from a
+     * save that failed.
+     *
+     * @param accountValue what the caller already read from the legacy account layer.
+     */
+    inherited(settings, category, key, accountValue) {
+        const L = this.layer(settings);
+        if (L.source === 'profile') {
+            const v = L.profile.values?.[category]?.[key];
+            return { value: (typeof v === 'string') ? v : '', layer: L };
+        }
+        return { value: accountValue == null ? '' : String(accountValue), layer: L };
+    },
+
     /** Does this profile carry every declared key? */
     isComplete(profile) {
         const missing = this.all()

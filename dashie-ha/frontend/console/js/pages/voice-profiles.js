@@ -64,17 +64,39 @@ const VoiceProfilesPage = {
         return live;
     },
 
-    /** id -> [device name, …]. Devices naming a profile that no longer exists are
-     *  counted under that id on purpose, so a dangling assignment is VISIBLE here
-     *  rather than only as a DROP in a device log nobody reads. */
-    _assignments() {
-        const out = {};
-        for (const d of (this._devices || [])) {
-            const id = d?.settings?.voice?.profileId;
-            if (!id) continue;
-            (out[id] = out[id] || []).push(d.device_name || d.name || d.device_id || 'a device');
-        }
-        return out;
+    /** Which layer the household's defaults come from right now. Guarded: this runs
+     *  from a render path, and an absent lib must degrade rather than take the
+     *  console shell down with it. */
+    _layer() {
+        return window.VoiceProfileKeys?.layer?.(this._settings)
+            || { source: 'account', id: null, name: '', profile: null, has: [] };
+    },
+
+    /**
+     * The devices following one profile — or null when that is not knowable.
+     *
+     * 🔴 THIS IS NOT READ FROM THE DEVICE ROW, and the first version of this page
+     * got that wrong: it read `device.settings.voice.profileId`, a key NOTHING in
+     * the webapp writes and that is not in SETTINGS_KEY_MAP, so it never reaches
+     * user_devices. Every device came back unassigned — which is exactly what a
+     * household with no assignments looks like. The delete warning was therefore
+     * empty for every profile in every household, including the ones devices were
+     * really following, and the emptiness was indistinguishable from the truth.
+     *
+     * What is actually true today: the webapp resolves the active profile from
+     * localStorage['dashie-device-profile-id'], and nothing writes that key until
+     * phase 2b ships a picker. So activeProfileId() is the seeded DEFAULT_PROFILE_ID
+     * on every device, and the household follows exactly ONE profile — the one whose
+     * id is that constant. Every other stored profile is inert.
+     *
+     * @returns {string[]|null} names, or null when the device list did not load —
+     *   which must NOT render as "no devices", the mistake this comment exists for.
+     */
+    _followers(id) {
+        const L = this._layer();
+        if (L.source !== 'profile' || L.id !== id) return [];
+        if (!Array.isArray(this._devices)) return null;
+        return this._devices.map((d) => d.device_name || d.name || d.device_id || 'a device');
     },
 
     _esc(s) {
@@ -124,7 +146,16 @@ const VoiceProfilesPage = {
             if (typeof App !== 'undefined') App.renderPage();
             return;
         }
-        await this._patch(this._slug(name), profile, 'create the profile');
+        // 🔴 The FIRST profile takes the seeded id, exactly as migrateToProfiles does
+        // (`writeProfiles({ default: profile })`). Slugging the name instead would
+        // create a profile no device points at — profiles would exist, every device
+        // would dangle and fall back to the account layer, and the household would
+        // have a "profile" that does nothing while the page said it was created.
+        // Seeding from the account defaults means the resolved values are unchanged,
+        // so becoming authoritative is a no-op on every screen. That is the point.
+        const first = Object.keys(this._profiles()).length === 0;
+        const id = first ? window.VoiceProfileKeys.DEFAULT_PROFILE_ID : this._slug(name);
+        await this._patch(id, profile, 'create the profile');
     },
 
     async duplicate(id) {
@@ -148,11 +179,13 @@ const VoiceProfilesPage = {
     async remove(id) {
         const src = this._profiles()[id];
         if (!src) return;
-        const users = this._assignments()[id] || [];
-        const warn = users.length
-            ? `\n\n${users.length} device${users.length > 1 ? 's' : ''} follow${users.length > 1 ? '' : 's'} it (${users.join(', ')}). ` +
-              `They will fall back to the household defaults.`
-            : '';
+        const users = this._followers(id);
+        const warn = users === null
+            ? `\n\nThe device list didn't load, so this can't say which devices follow it.`
+            : users.length
+                ? `\n\n${users.length} device${users.length > 1 ? 's' : ''} follow${users.length > 1 ? '' : 's'} it (${users.join(', ')}). ` +
+                  `They will fall back to the household defaults.`
+                : '';
         if (!confirm(`Delete "${src.name}"?${warn}`)) return;
         // null, not absent: patchUserSetting cannot delete a key (D-121).
         await this._patch(id, null, 'delete the profile');
@@ -173,10 +206,28 @@ const VoiceProfilesPage = {
         return bits.length ? bits.map((b) => this._esc(b)).join(' · ') : 'No values set';
     },
 
+    /**
+     * The one line that says whether this profile is doing anything.
+     *
+     * ⚠️ Three states, not two. "Unknown" must never collapse into "none": the
+     * device list can fail to load, and rendering that as "no devices follow this"
+     * puts a confident wrong answer under a Delete button.
+     */
+    _who(id, users) {
+        const L = this._layer();
+        if (L.source === 'profile' && L.id === id) {
+            if (users === null) return 'Active — device list unavailable';
+            return users.length
+                ? `Active · every device follows it (${this._esc(users.join(', '))})`
+                : 'Active · no devices are claimed on this household yet';
+        }
+        // Stored, but nothing reads it: devices resolve their profile from a local
+        // pointer no surface writes until the native picker (phase 2b) ships.
+        return 'Not in use — devices can’t be pointed at this one yet';
+    },
+
     _card(id, p, users) {
-        const who = users.length
-            ? `${users.length} device${users.length > 1 ? 's' : ''}: ${this._esc(users.join(', '))}`
-            : 'No devices follow this profile yet';
+        const who = this._who(id, users);
         return `
             <div class="card" style="margin-bottom: 12px;">
               <div class="card-body">
@@ -205,14 +256,14 @@ const VoiceProfilesPage = {
             </div></div>`;
         }
         const profiles = this._profiles();
-        const assignments = this._assignments();
+        const layer = this._layer();
         const ids = Object.keys(profiles);
         const err = this._error
             ? `<div class="card" style="margin-bottom:12px;"><div class="card-body" style="color: var(--status-error,#c00);">${this._esc(this._error)}</div></div>`
             : '';
 
         const body = ids.length
-            ? ids.map((id) => this._card(id, profiles[id], assignments[id] || [])).join('')
+            ? ids.map((id) => this._card(id, profiles[id], this._followers(id))).join('')
             : `<div class="card" style="margin-bottom:12px;"><div class="card-body" style="color: var(--text-secondary);">
                  <strong>No profiles yet — and that's fine.</strong><br>
                  Every device is following your household's voice &amp; AI defaults, exactly as it does today.
@@ -220,15 +271,18 @@ const VoiceProfilesPage = {
                  the defaults.
                </div></div>`;
 
-        // A device pointing at a profile that no longer exists: surfaced here because the
-        // device itself only says so in a log, and a setting that changed with nobody
-        // touching it should never be silent.
-        const dangling = Object.keys(assignments).filter((id) => !profiles[id]);
-        const danglingCard = dangling.length
+        // Profiles exist, but none carries the id every device points at — so every
+        // device falls back to the account layer and logs a DROP, forever. Resolution
+        // is correct; the profiles are simply doing nothing. Surfaced here because
+        // the only other place it is visible is a device log nobody reads, and from
+        // this page the household looks configured.
+        const danglingCard = layer.source === 'dangling'
             ? `<div class="card" style="margin-bottom:12px;"><div class="card-body" style="color: var(--status-warn,#a60);">
-                 ${dangling.map((id) => `${this._esc(assignments[id].join(', '))} follow${assignments[id].length > 1 ? '' : 's'}
-                 a profile that no longer exists (<code>${this._esc(id)}</code>) — ${assignments[id].length > 1 ? 'they are' : 'it is'}
-                 using the household defaults.`).join('<br>')}
+                 <strong>None of these profiles is in use.</strong><br>
+                 Your devices follow the profile named <code>${this._esc(layer.id)}</code>, and this household
+                 doesn’t have one. Every device is using your household voice &amp; AI defaults instead —
+                 nothing is broken, but nothing here is being applied either.
+                 Duplicating a profile won’t help; this is fixed when devices can pick a profile themselves.
                </div></div>`
             : '';
 
