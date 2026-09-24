@@ -78,6 +78,11 @@ export interface SportsCard {
   state: State;
   detail?: string;
   venue?: string;
+  /** The kickoff INSTANT (ISO), attached by `scheduleCards` for the widget's views — ABSENT when the
+   *  provider has not timed the game. `detail` is a localised string and cannot be ordered or compared;
+   *  a consumer parsing it back would re-derive what this builder formatted. Not set by `card()` itself:
+   *  the calendar popup and the voice renderer never asked for it. */
+  start?: string;
   /** Indoor venue ⇒ a kickoff forecast is meaningless. The ONE reader is `showsKickoffWeather()`
    *  (`js/data/sports/kickoff-weather-rule.js`); `undefined` means not measured and keeps the weather. */
   indoorVenue?: boolean;
