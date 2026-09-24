@@ -26,7 +26,6 @@ const App = {
         photos:        { page: typeof PhotosPage        !== 'undefined' ? PhotosPage        : null },
         // Core pages (present in every build)
         'voice-ai':    { page: VoiceAiPage },
-        'voice-profiles': { page: VoiceProfilesPage },
         'scheduled-actions': { page: ScheduledActionsPage },
         account:       { page: AccountPage },
         credits:       { page: CreditsPage },

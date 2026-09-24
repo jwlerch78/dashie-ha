@@ -269,6 +269,11 @@ const VoiceAiPage = {
                 // absence renders nothing.
                 this._fetchSharingState(),
             ]);
+            // The RAW account map — i.e. Default's values. Kept separately because the
+            // switcher can change which profile is being edited without a refetch, and the
+            // overlay must always be recomputed FROM Default rather than from a previous
+            // overlay (which would leave one profile's values showing under another's name).
+            this._accountRaw = defaults;
             this._defaults = defaults;
             this._storedKeys = storedKeys;
             // Household sharing is ACCOUNT-scoped (voice.householdSharing) as of 2026-07-13 —
@@ -492,10 +497,33 @@ const VoiceAiPage = {
 
         const prev = this._defaults[dottedKey];
         this._defaults[dottedKey] = value;
+        // ⚠️ The optimistic write must reach the RAW map too for account-layer keys, or the
+        // next applyScope() recomputes from `_accountRaw` and visibly reverts the row the
+        // user just changed — a save that worked, looking like one that failed.
+        if (this._accountRaw && window.VoiceProfileScope?.route?.(dottedKey, window.AccountSettingsStore?.get?.())?.layer !== 'profile') {
+            this._accountRaw[dottedKey] = value;
+        }
         this._savingKey = dottedKey;
         App.renderPage();
         try {
-            await VoiceAiApi.saveAiDefault(dottedKey, value);
+            // ── Which layer does this key belong to? ────────────────────────────────
+            // Editing Default writes the account paths, because those ARE Default's
+            // storage — so a one-profile household writes exactly what it always did.
+            // Editing a named profile writes into that profile's blob instead.
+            //
+            // 🔴 Only for keys the profile OWNS. Household sharing is account-wide by §7,
+            // and ai.model / web search / HA entities are not in the profile shape, so
+            // they keep writing the account even while a named profile is selected.
+            // Sweeping every key into the profile would split a household's settings
+            // across two layers invisibly.
+            const route = window.VoiceProfileScope?.route?.(dottedKey, window.AccountSettingsStore?.get?.());
+            if (route?.layer === 'profile') {
+                await DashieAuth.patchUserSetting(route.path, value);
+                window.AccountSettingsStore?.reset?.();
+                window.AccountSettingsStore?.ensure?.();
+            } else {
+                await VoiceAiApi.saveAiDefault(dottedKey, value);
+            }
         } catch (e) {
             console.error('[VoiceAiPage] save default failed:', e);
             this._defaults[dottedKey] = prev;  // roll back
@@ -1073,40 +1101,41 @@ const VoiceAiPage = {
 
     // ── Render ───────────────────────────────────────────────
 
+    // ⚠️ The "your devices are following a profile, not these settings" banner is GONE,
+    // and deliberately. It existed because this page edited the ACCOUNT layer while
+    // devices read a profile — two layers, one screen, no way to tell. John's ruling
+    // (2026-09-24) removed the premise: the account IS the Default profile, and this page
+    // now edits whichever profile the switcher names. There is no longer a state where a
+    // save here reaches nothing, so a warning about one would be describing a hazard that
+    // cannot occur.
+
     /**
-     * Says so when this page is editing a layer no device is reading.
+     * Point `_defaults` at whichever profile the switcher names, so every existing read
+     * site renders the edited profile without being touched.
      *
-     * 🔴 Once a household has an active voice profile, that profile is authoritative
-     * for every key it carries — the fallback to these account paths is PER-HOUSEHOLD,
-     * not per-key. So changing a default here writes successfully, reports success,
-     * and changes nothing on any device. The observable is an ABSENCE, which is the
-     * hardest possible thing to report as a bug: the user sees a saved setting and a
-     * device that ignores it, with no error anywhere to connect them.
+     * 🔴 Always recomputed FROM `_accountRaw`, never from the current `_defaults`. Layering
+     * an overlay on an overlay would leave the previous profile's values showing under the
+     * new profile's name — which reads as a saved setting rather than as a stale view.
      *
-     * A banner, not a redirect: whether this page should edit the ACTIVE PROFILE
-     * instead of the account layer is a product decision, not one to make in a
-     * renderer. Until it is made, saying the truth out loud is the whole fix.
+     * Idempotent and cheap (a shallow copy of ~40 keys). Called from render because the
+     * account settings can resolve AFTER the first paint, and the overlay is a pure
+     * function of (raw defaults, household, selection).
      */
-    _renderProfileNotice() {
-        const L = window.VoiceProfileKeys?.layer?.(window.AccountSettingsStore?.get?.());
-        if (!L || L.source !== 'profile') return '';
-        const name = this._escape(L.name || '');
-        return `
-            <div class="card" style="margin-bottom:16px;"><div class="card-body" style="color: var(--status-warn,#a60);">
-              <strong>Your devices are following the &ldquo;${name}&rdquo; voice profile, not these settings.</strong><br>
-              Changes here will save, but no device will pick them up while that profile is active.
-              Edit the profile on the <a href="#voice-profiles" onclick="event.preventDefault(); App.navigate('voice-profiles')">Voice Profiles</a> page instead.
-            </div></div>`;
+    applyScope() {
+        if (!this._accountRaw) return;
+        this._defaults = window.VoiceProfileScope?.overlay?.(this._accountRaw, window.AccountSettingsStore?.get?.())
+            || this._accountRaw;
     },
 
     _renderMain() {
         // Personalities moved to its own tab; this is the Voice & AI Settings tab.
-        // Best-effort: the household is needed only for the profile notice, so a load
-        // that has not resolved yet simply renders no banner rather than blocking.
+        // The household is needed for the switcher (which profiles exist) — a load that
+        // has not resolved yet simply renders no switcher rather than blocking the page.
         window.AccountSettingsStore?.ensure?.();
+        this.applyScope();
         return `
             <div style="max-width: 760px;">
-                ${this._renderProfileNotice()}
+                ${window.VoiceAiProfileSwitcher?.render?.(this._defaults) || ''}
                 ${this._renderAiDefaults()}
                 ${this._renderHouseholdSharing()}
             </div>

@@ -53,6 +53,8 @@
          device follows, so a page-ordered load would make the answer depend on which
          script tag happened to come first. -->
     <script src="js/lib/voice-profile-keys.js?v=20260924b"></script>
+    <!-- Which layer a Voice & AI key writes to. Needs voice-profile-keys above it. -->
+    <script src="js/lib/voice-profile-scope.js?v=20260924a"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
     <script src="js/lib/ai-models-catalog.js?v=20260712a"></script>
@@ -96,6 +98,7 @@
          Must load AFTER voice-ai-options.js: haOption() reads window.VoiceAiOptions. -->
     <script src="js/lib/ha-engines.js?v=20260920a"></script>
     <script src="js/components/voice-ai-cards.js?v=20260923a"></script>
+    <script src="js/components/voice-ai-profile-switcher.js?v=20260924a"></script>
     <script src="js/components/voice-ai-preset-picker.js?v=20260730b"></script>
     <script src="js/components/voice-ai-defaults-cards.js?v=20260923a"></script>
     <!-- The two collapsible groups on the Voice & AI Settings tab. Must load BEFORE
@@ -124,7 +127,6 @@
     <script src="js/pages/usage-source.js?v=20260828a"></script>
     <script src="js/pages/usage.js?v=20260828a"></script>
     <script src="js/pages/api-keys.js?v=20260804a"></script>
-    <script src="js/pages/voice-profiles.js?v=20260924a"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
     <!-- Video feeds. Published core since 2026-07-31 (was the closed family
          delta): HA camera feeds are a core HA capability, and every operation
