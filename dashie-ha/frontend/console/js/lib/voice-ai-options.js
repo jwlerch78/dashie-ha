@@ -201,11 +201,26 @@ const VoiceAiOptions = {
             cost: 'Free',
             haOnly: true,
         }];
-        // 🗑️ The Hermes Agent row lived here, soft-removed 2026-07-17 and fully STRIPPED
-        // 2026-08-23 (John's ruling): Hermes is not a brain. The comment that stood here
-        // said the plumbing "all remains" and gave RESTORE instructions — both untrue now,
-        // and a restore is not what a future Hermes would be anyway: memory-sync would be a
-        // NEW surface, not this row brought back. So the instructions retire with the code.
+        // 🗑️ The Hermes Agent row lived here. THREE decisions, a month apart each, and the
+        // record matters because the first one's promise outlived it:
+        //   · 2026-07-17 SOFT-REMOVED — row hidden, plumbing left DORMANT and intact, with
+        //     RESTORE instructions. That promise is what the next two retired.
+        //   · 2026-08-23 fully STRIPPED here (John): "Hermes is not a brain."
+        //   · 2026-09-24 the SERVER plumbing stripped too, in the family add-on
+        //     (dashie-ha-app/dashie-console-dev/server/{account-config,api/voice-local}.js) —
+        //     John: "Hermes is not in use. We csn disable or strip."
+        //
+        // 🔴 Why the third was needed at all: the add-on sat between decisions one and two
+        // for a month, still READING user_settings.voice.hermesUrl that nothing had written
+        // since the row was hidden. lint:kiosk-mirror found it — a key with no writer — and
+        // the July comment's "plumbing all remains" read as a live contract rather than as a
+        // promise nobody had revisited. A comment asserting a deliberate state stays true
+        // only as long as someone maintains it; this one outlived its own subject by 69 days.
+        //
+        // A restore is not what a future Hermes would be anyway: memory-sync would be a NEW
+        // surface, not this row brought back. What remains, deliberately: the on-box key
+        // store's 'hermes' provider slot and voice-engines.js's add-on detection — neither
+        // reads user_settings, so neither is reachable by this route.
         // Saved own-AI engines replace the generic "My own AI" inline-URL row.
         const inlineOwnAiRow = out.find(o => o && o.id === 'local') || null;
         const withEngines = this.withSavedEngines('llm', out, 'local');
