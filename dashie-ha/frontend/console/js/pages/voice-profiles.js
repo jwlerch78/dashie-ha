@@ -179,13 +179,21 @@ const VoiceProfilesPage = {
     async remove(id) {
         const src = this._profiles()[id];
         if (!src) return;
+        // ⚠️ Three outcomes, and SILENCE is not one of them. An empty follower list here
+        // means something different depending on why it is empty, and a dialog that says
+        // nothing lets the user supply their own reason — usually the wrong one. The card
+        // already distinguishes these; the confirm must too, because it is the last thing
+        // read before a destructive click.
         const users = this._followers(id);
+        const L = this._layer();
         const warn = users === null
             ? `\n\nThe device list didn't load, so this can't say which devices follow it.`
             : users.length
                 ? `\n\n${users.length} device${users.length > 1 ? 's' : ''} follow${users.length > 1 ? '' : 's'} it (${users.join(', ')}). ` +
                   `They will fall back to the household defaults.`
-                : '';
+                : (L.source === 'profile' && L.id === id)
+                    ? `\n\nIt is the active profile, but no devices are claimed on this household yet.`
+                    : `\n\nNothing is using it — devices can't be pointed at a profile yet, so deleting it changes nothing on any device.`;
         if (!confirm(`Delete "${src.name}"?${warn}`)) return;
         // null, not absent: patchUserSetting cannot delete a key (D-121).
         await this._patch(id, null, 'delete the profile');
