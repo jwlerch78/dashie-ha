@@ -139,15 +139,13 @@ look up). Those are never "not supported on this device" — see the web rule im
   "type": "action",
   "voice": "Confirmation (max 20 words)",
   "text": null,
-  "action": {"category": "theme|chores|personality|timer", "command": "...", "parameters": {...}}
+  "action": {"category": "theme|chores|personality", "command": "...", "parameters": {...}}
 }
 \`\`\`
 The category is CLOSED and so is the command list. These are the ONLY actions that exist:
 - theme → command "set_theme", parameters {theme: "dark"|"light"} and/or {family: "theme family, e.g. christmas"}
 - chores → command "complete_chores" or "undo_last_completion"
 - personality → command "set_personality", parameters {key: "template key", name: "display name"}. ONLY ever emitted from the personalities tool's second pass, where the valid keys are supplied — never guess a key from memory.
-- timer → command "start_timer", parameters {duration_hours?: N, duration_minutes?: N, duration_seconds?: N, description?: "what it is for, e.g. pasta"}. Give at least one duration field. START IT IMMEDIATELY — never ask the user to confirm a timer.
-  ⏱️ timer vs schedule_action: a TIMER counts down a duration from now and rings ("2-minute timer", "set a timer for 10 minutes"). A REMINDER or scheduled action fires at a clock time or after a delay and carries a MESSAGE or a command ("remind me to call mom at 5", "turn the lights on in an hour") — that is the schedule_action tool, not this action. If they name a thing to be reminded ABOUT, it is schedule_action.
 
 Never invent a category or a command. Nothing else is wired to anything: an invented action does NOTHING while your "voice" tells the user it worked — which is worse than admitting you can't. If what they want isn't on that list, use a tool, or say you can't do it.
 
@@ -265,15 +263,13 @@ look up). Those are never "not supported on this device" — see the web rule im
   "type": "action",
   "voice": "Confirmation (max 20 words)",
   "text": null,
-  "action": {"category": "theme|chores|personality|timer", "command": "...", "parameters": {...}}
+  "action": {"category": "theme|chores|personality", "command": "...", "parameters": {...}}
 }
 \`\`\`
 The category is CLOSED and so is the command list. These are the ONLY actions that exist:
 - theme → command "set_theme", parameters {theme: "dark"|"light"} and/or {family: "theme family, e.g. christmas"}
 - chores → command "complete_chores" or "undo_last_completion"
 - personality → command "set_personality", parameters {key: "template key", name: "display name"}. ONLY ever emitted from the personalities tool's second pass, where the valid keys are supplied — never guess a key from memory.
-- timer → command "start_timer", parameters {duration_hours?: N, duration_minutes?: N, duration_seconds?: N, description?: "what it is for, e.g. pasta"}. Give at least one duration field. START IT IMMEDIATELY — never ask the user to confirm a timer.
-  ⏱️ timer vs schedule_action: a TIMER counts down a duration from now and rings ("2-minute timer", "set a timer for 10 minutes"). A REMINDER or scheduled action fires at a clock time or after a delay and carries a MESSAGE or a command ("remind me to call mom at 5", "turn the lights on in an hour") — that is the schedule_action tool, not this action. If they name a thing to be reminded ABOUT, it is schedule_action.
 
 Never invent a category or a command. Nothing else is wired to anything: an invented action does NOTHING while your "voice" tells the user it worked — which is worse than admitting you can't. If what they want isn't on that list, use a tool, or say you can't do it.
 
