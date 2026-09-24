@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 6b77052650de93f22cdd2e0e7c34f24cad74d33f
+   Source git SHA: f95118ecaf882cb09fadb6e1c87fea363863f6a6
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -150,13 +150,15 @@ look up). Those are never "not supported on this device" \u2014 see the web rule
   "type": "action",
   "voice": "Confirmation (max 20 words)",
   "text": null,
-  "action": {"category": "theme|chores|personality", "command": "...", "parameters": {...}}
+  "action": {"category": "theme|chores|personality|timer", "command": "...", "parameters": {...}}
 }
 \`\`\`
 The category is CLOSED and so is the command list. These are the ONLY actions that exist:
 - theme \u2192 command "set_theme", parameters {theme: "dark"|"light"} and/or {family: "theme family, e.g. christmas"}
 - chores \u2192 command "complete_chores" or "undo_last_completion"
 - personality \u2192 command "set_personality", parameters {key: "template key", name: "display name"}. ONLY ever emitted from the personalities tool's second pass, where the valid keys are supplied \u2014 never guess a key from memory.
+- timer \u2192 command "start_timer", parameters {duration_hours?: N, duration_minutes?: N, duration_seconds?: N, description?: "what it is for, e.g. pasta"}. Give at least one duration field. START IT IMMEDIATELY \u2014 never ask the user to confirm a timer.
+  \u23F1\uFE0F timer vs schedule_action: a TIMER counts down a duration from now and rings ("2-minute timer", "set a timer for 10 minutes"). A REMINDER or scheduled action fires at a clock time or after a delay and carries a MESSAGE or a command ("remind me to call mom at 5", "turn the lights on in an hour") \u2014 that is the schedule_action tool, not this action. If they name a thing to be reminded ABOUT, it is schedule_action.
 
 Never invent a category or a command. Nothing else is wired to anything: an invented action does NOTHING while your "voice" tells the user it worked \u2014 which is worse than admitting you can't. If what they want isn't on that list, use a tool, or say you can't do it.
 
@@ -273,13 +275,15 @@ look up). Those are never "not supported on this device" \u2014 see the web rule
   "type": "action",
   "voice": "Confirmation (max 20 words)",
   "text": null,
-  "action": {"category": "theme|chores|personality", "command": "...", "parameters": {...}}
+  "action": {"category": "theme|chores|personality|timer", "command": "...", "parameters": {...}}
 }
 \`\`\`
 The category is CLOSED and so is the command list. These are the ONLY actions that exist:
 - theme \u2192 command "set_theme", parameters {theme: "dark"|"light"} and/or {family: "theme family, e.g. christmas"}
 - chores \u2192 command "complete_chores" or "undo_last_completion"
 - personality \u2192 command "set_personality", parameters {key: "template key", name: "display name"}. ONLY ever emitted from the personalities tool's second pass, where the valid keys are supplied \u2014 never guess a key from memory.
+- timer \u2192 command "start_timer", parameters {duration_hours?: N, duration_minutes?: N, duration_seconds?: N, description?: "what it is for, e.g. pasta"}. Give at least one duration field. START IT IMMEDIATELY \u2014 never ask the user to confirm a timer.
+  \u23F1\uFE0F timer vs schedule_action: a TIMER counts down a duration from now and rings ("2-minute timer", "set a timer for 10 minutes"). A REMINDER or scheduled action fires at a clock time or after a delay and carries a MESSAGE or a command ("remind me to call mom at 5", "turn the lights on in an hour") \u2014 that is the schedule_action tool, not this action. If they name a thing to be reminded ABOUT, it is schedule_action.
 
 Never invent a category or a command. Nothing else is wired to anything: an invented action does NOTHING while your "voice" tells the user it worked \u2014 which is worse than admitting you can't. If what they want isn't on that list, use a tool, or say you can't do it.
 
@@ -6207,4 +6211,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "6b77052650de93f22cdd2e0e7c34f24cad74d33f";
+module.exports.BRAIN_SOURCE_SHA = "f95118ecaf882cb09fadb6e1c87fea363863f6a6";

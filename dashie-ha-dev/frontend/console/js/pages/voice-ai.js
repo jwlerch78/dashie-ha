@@ -1073,10 +1073,40 @@ const VoiceAiPage = {
 
     // ── Render ───────────────────────────────────────────────
 
+    /**
+     * Says so when this page is editing a layer no device is reading.
+     *
+     * 🔴 Once a household has an active voice profile, that profile is authoritative
+     * for every key it carries — the fallback to these account paths is PER-HOUSEHOLD,
+     * not per-key. So changing a default here writes successfully, reports success,
+     * and changes nothing on any device. The observable is an ABSENCE, which is the
+     * hardest possible thing to report as a bug: the user sees a saved setting and a
+     * device that ignores it, with no error anywhere to connect them.
+     *
+     * A banner, not a redirect: whether this page should edit the ACTIVE PROFILE
+     * instead of the account layer is a product decision, not one to make in a
+     * renderer. Until it is made, saying the truth out loud is the whole fix.
+     */
+    _renderProfileNotice() {
+        const L = window.VoiceProfileKeys?.layer?.(window.AccountSettingsStore?.get?.());
+        if (!L || L.source !== 'profile') return '';
+        const name = this._escape(L.name || '');
+        return `
+            <div class="card" style="margin-bottom:16px;"><div class="card-body" style="color: var(--status-warn,#a60);">
+              <strong>Your devices are following the &ldquo;${name}&rdquo; voice profile, not these settings.</strong><br>
+              Changes here will save, but no device will pick them up while that profile is active.
+              Edit the profile on the <a href="#voice-profiles" onclick="event.preventDefault(); App.navigate('voice-profiles')">Voice Profiles</a> page instead.
+            </div></div>`;
+    },
+
     _renderMain() {
         // Personalities moved to its own tab; this is the Voice & AI Settings tab.
+        // Best-effort: the household is needed only for the profile notice, so a load
+        // that has not resolved yet simply renders no banner rather than blocking.
+        window.AccountSettingsStore?.ensure?.();
         return `
             <div style="max-width: 760px;">
+                ${this._renderProfileNotice()}
                 ${this._renderAiDefaults()}
                 ${this._renderHouseholdSharing()}
             </div>

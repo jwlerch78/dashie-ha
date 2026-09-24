@@ -48,6 +48,11 @@
          (diff dots) and the device MODAL. Must load before either. Two caches on
          one page drift, and the visible symptom is a wrong dot. -->
     <script src="js/lib/account-settings-store.js?v=20260920a"></script>
+    <!-- The voice-profile key list AND the profile-layer resolver. Loads with the
+         libs, not beside its page: devices-detail-modals.js asks it which default a
+         device follows, so a page-ordered load would make the answer depend on which
+         script tag happened to come first. -->
+    <script src="js/lib/voice-profile-keys.js?v=20260924b"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
     <script src="js/lib/ai-models-catalog.js?v=20260712a"></script>
@@ -119,6 +124,7 @@
     <script src="js/pages/usage-source.js?v=20260828a"></script>
     <script src="js/pages/usage.js?v=20260828a"></script>
     <script src="js/pages/api-keys.js?v=20260804a"></script>
+    <script src="js/pages/voice-profiles.js?v=20260924a"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
     <!-- Video feeds. Published core since 2026-07-31 (was the closed family
          delta): HA camera feeds are a core HA capability, and every operation
