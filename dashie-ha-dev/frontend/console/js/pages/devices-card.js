@@ -236,6 +236,40 @@ const DevicesCard = {
             </button>`;
     },
 
+    /**
+     * The full-width VOICE & AI row — profile, pipeline and engines in one sentence.
+     *
+     * John, 2026-09-25: it absorbs the Voice profile and Voice tiles, formatted like the
+     * Voice & LLM summary on the Voice & AI page. Wake word and Personality stay tiles,
+     * which leaves a clean 2x2 grid above with no spacer.
+     *
+     * 🔴 The sentence comes from VoicePipelineSummary, the ONE holder. The Voice & AI
+     * page's collapsed section says the same thing about the same profile, and two
+     * screens disagreeing about one profile is the exact failure the profile work
+     * exists to remove.
+     *
+     * The diff dot still means "this device overrides the pipeline it inherits" — the
+     * line now SHOWS the overridden values rather than collapsing them to "Custom", so
+     * the dot says where they came from rather than what they are.
+     */
+    _renderPipelineRow(device, id, custom) {
+        const summary = window.VoicePipelineSummary?.forDevice?.(
+            device, window.AccountSettingsStore?.get?.() ?? null, window.HaEngines?.raw ?? null) || '';
+        // No summary => nothing known yet. Render nothing rather than an empty row that
+        // reads as a device with no voice setup at all.
+        if (!summary) return '';
+        return `
+            <button type="button" class="dtile dtile-wide${custom ? ' is-diff' : ''}"
+                    title="Voice &amp; AI"
+                    onclick="event.stopPropagation(); DevicesDetailModals.openVoiceSetup('${id}')">
+                <span class="dtile-i" aria-hidden="true">${iconImg('icon-voice.svg', 15)}</span>
+                <span class="dtile-t">
+                    <span class="dtile-l">Voice &amp; AI</span>
+                    <span class="dtile-v">${DevicesPage._escape(summary)}</span>
+                </span>
+            </button>`;
+    },
+
     /** An empty grid cell so an odd tile count keeps the 2-column rhythm. */
     _tileSpacer() { return '<span class="dtile is-spacer" aria-hidden="true"></span>'; },
 
@@ -249,20 +283,6 @@ const DevicesCard = {
      * unconditionally and John hit it on a device holding `fern` (2026-09-21). A
      * second hand-copy of the condition is how that comes back.
      */
-    /**
-     * Does this household have at least one NAMED profile?
-     *
-     * Same rule as the Voice & AI switcher (§7): with only Default there is nothing to
-     * assign, so the tile is absent rather than present-and-inert. Null-safe on purpose —
-     * AccountSettingsStore.get() returns null until the load resolves, and "not known yet"
-     * must render no tile rather than one that appears a beat later.
-     */
-    _hasNamedProfiles() {
-        const named = window.VoiceProfileKeys?.named?.(
-            window.AccountSettingsStore?.get?.() ?? null);
-        return !!named && Object.keys(named).length > 0;
-    },
-
     _themeEditable() {
         return (typeof FeatureGate === 'undefined')
             || FeatureGate.optionAllowed('display.themeFamily');
@@ -470,8 +490,9 @@ const DevicesCard = {
         // household preset's name. That is exactly the dot. The function was in
         // the file I was editing; I argued from a half-remembered ruling instead
         // of reading it.
+        // Only `custom` is read now: the full-width Voice & AI row SHOWS the resolved
+        // pipeline rather than collapsing it to a label, so this is just the diff dot.
         const voice = DevicesDetailModals.voiceSetupSummary(device);
-        const voiceShown = voice.custom ? 'Custom' : `${voice.label} (default)`;
 
         return `
             ${leaseLine ? `<div style="padding: 0 12px;">${leaseLine}</div>` : ''}
@@ -480,18 +501,12 @@ const DevicesCard = {
                              { icon: 'icon-moon.svg' })}
                 ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`,
                              { icon: 'icon-photos.svg' })}
-                ${this._hasNamedProfiles() ? this._tile('Voice profile',
-                             DevicesDetailModals._profileNow(device),
-                             `DevicesDetailModals.openProfile('${id}')`,
-                             { icon: 'icon-voice.svg' }) : ''}
-                ${this._tile('Voice', voiceShown, `DevicesDetailModals.openVoiceSetup('${id}')`,
-                             { icon: 'icon-sliders.svg', diff: voice.custom })}
                 ${this._tile('Wake word', wakeShown, `DevicesDetailModals.openWakeWord('${id}')`,
                              { icon: 'icon-microphone.svg', diff: wakeDiffers, household: houseWake })}
                 ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`,
                              { icon: 'icon-persona.svg' })}
-                ${this._hasNamedProfiles() ? '' : this._tileSpacer()}
             </div>
+            ${this._renderPipelineRow(device, id, voice.custom)}
         `;
     },
 

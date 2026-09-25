@@ -41,9 +41,19 @@ const VoiceAiOptions = {
     // Both builds show this: "which vendor hears my audio" is not a brand
     // question, and a self-hosting reader checking the cloud claim should be
     // able to find the answer without leaving the console.
+    // 🔴 THE ONE HOLDER of who currently runs the cloud engines. It used to feed a
+    // separate suppliers note under the preset picker; John removed that on
+    // 2026-09-25 and asked for the vendors to sit on the engines they actually
+    // describe. So these strings are now interpolated into the dashie_cloud STT and
+    // TTS descriptions below rather than rendered on their own — same single source,
+    // read where the user is already looking.
+    //
+    // ⚠️ Still NOT in the LABEL. The label is the product ("Dashie Cloud STT"); the
+    // vendor is an implementation detail that can change, and a label is what a stored
+    // value renders as on every other screen.
     CLOUD_SUPPLIERS: [
         { stage: 'Speech-to-text', vendors: 'Deepgram' },
-        { stage: 'Text-to-speech', vendors: 'Inworld, ElevenLabs for personality voices' },
+        { stage: 'Text-to-speech', vendors: 'ElevenLabs and Inworld' },
     ],
 
     // ── pipeline presets (Open Brain plan §6) ─────────────────
@@ -280,12 +290,15 @@ const VoiceAiOptions = {
     STT: [
         // Supplier names deliberately NOT in the label — suppliers change (TTS
         // already has once) and a stale vendor name in a picker is worse than no
-        // vendor name. Who currently processes cloud audio is disclosed in the
-        // repo README and on the Voice & AI page's suppliers note.
+        // vendor name. Who currently processes cloud audio is disclosed in the repo
+        // README and in this row's own DESCRIPTION (2026-09-25). It used to point at a
+        // suppliers note under the preset picker; that note is gone, and a comment that
+        // still named it would send the next reader looking for a paragraph that no
+        // longer renders.
         { id: 'dashie_cloud',
           label: `${BRAND.cloudName} STT`,
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
-          description: 'Streaming, premium accuracy.' },
+          description: 'Streaming, premium accuracy, provided by Deepgram.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
           description: 'Whisper server on your own box (OpenAI-compatible, LAN, direct).',
           configFields: [
@@ -325,7 +338,8 @@ const VoiceAiOptions = {
         { id: 'dashie_cloud',
           label: `${BRAND.cloudName} TTS`,
           locality: 'cloud', cost: '$0.09–0.33/1k chars · ~0.5–1.9¢/reply',
-          description: `The default ${BRAND.assistantName} voice is the most economical; personality voices are premium.` },
+          description: `Voices provided by ElevenLabs and Inworld. The default ${BRAND.assistantName} voice `
+                     + 'is the most economical; personality voices are premium.' },
         { id: 'local_url', label: 'Local TTS (your box)', locality: 'local', cost: 'Free',
           description: 'Kokoro / OpenAI-compatible TTS on your own box (LAN, direct).',
           configFields: [

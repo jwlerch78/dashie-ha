@@ -230,7 +230,7 @@ const VoiceAiProfileSwitcher = {
         // button that creates the first. Naming a concept the user does not have
         // yet is how a one-tablet household starts wondering what it is missing.
         return `${err}
-            <h3 style="margin:0 0 8px; font-size:.95em; font-weight:600; color: var(--text-primary);">Voice Profile</h3>
+            <h2 style="margin:0 0 10px; font-size:1.15em; font-weight:600; color: var(--text-primary);">Voice &amp; AI Profile</h2>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
               <label class="form-label" style="margin:0;">Editing</label>
               <select class="form-select" style="max-width:220px;" ${this._busy ? 'disabled' : ''}

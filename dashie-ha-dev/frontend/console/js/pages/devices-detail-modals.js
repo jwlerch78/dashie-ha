@@ -661,15 +661,58 @@ const DevicesDetailModals = {
      */
     PROFILE_FANOUT_KEYS: ['profileId'],
 
-    /** "Evenings" / "Default" — what the footer says this device follows now. */
+    /** "Evenings" / "Default" — what the footer says this device follows now.
+     *  Delegates to VoicePipelineSummary, which is the one holder; the dangling-pointer
+     *  reasoning lives there with it. */
     _profileNow(device) {
-        const id = String(device?.settings?.voice?.profileId || '');
-        if (!id) return 'Default';
+        return window.VoicePipelineSummary?.profileName?.(device, this._accountSettings) || 'Default';
+    },
+
+    /**
+     * The profile selector INSIDE the voice-setup dialog (John, 2026-09-25).
+     *
+     * The dialog is now the single place a device's voice pipeline is set, so the layer
+     * it follows belongs at the top of it rather than behind a separate tile.
+     *
+     * 🔴 Hidden when the household has no NAMED profile. With only Default there is
+     * nothing to choose, and a one-item picker is a control that cannot do anything.
+     *
+     * ⚠️ This writes IMMEDIATELY, unlike the STT/TTS rows below it, which stage into
+     * _voiceSetupPending and land on Save. That asymmetry is deliberate and the reason
+     * is worth keeping: the profile decides what the rows below it INHERIT, so a staged
+     * profile would leave every "(Default)" label underneath describing the old one
+     * until Save — the labels would be lying for the whole time the dialog is open.
+     * The staged leaves survive the re-render because they live in module state.
+     */
+    _voiceSetupProfileRow(device) {
         const named = window.VoiceProfileKeys?.named?.(this._accountSettings) || {};
-        // A dangling pointer is NAMED as dangling. Rendering a bare id would read as a
-        // profile whose name happens to look like a slug, and falling back to 'Default'
-        // would claim a state the device is not in.
-        return named[id]?.name || `${id} (missing)`;
+        const ids = Object.keys(named);
+        if (!ids.length) return '';
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        const current = String(device?.settings?.voice?.profileId || '') || DEFAULT;
+        const opts = [[DEFAULT, 'Default'], ...ids.map((id) => [id, named[id].name || id])];
+        const options = opts.map(([v, label]) =>
+            `<option value="${this._escape(v)}" ${v === current ? 'selected' : ''}>${this._escape(label)}</option>`).join('');
+        return `
+            <div class="form-group">
+                <label class="form-label">Voice profile</label>
+                <select class="form-select" onchange="DevicesDetailModals.setVoiceSetupProfile(this.value)">
+                    ${this._offListOption(current, opts.map(([v]) => v), 'voice.profileId')}
+                    ${options}
+                </select>
+                <div style="font-size: var(--font-size-sm); color: var(--text-muted); margin-top: 4px;">
+                    The set of voice &amp; AI defaults this device follows. Anything you override below wins over it.
+                </div>
+            </div>`;
+    },
+
+    /** Point this device at a profile from inside the voice-setup dialog, without closing it. */
+    async setVoiceSetupProfile(value) {
+        const deviceId = this._voiceSetupDeviceId;
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        // '' for Default rather than the literal id — see setProfile().
+        await DevicesPage._onSettingChange(deviceId, 'voice', 'profileId', (value === DEFAULT) ? '' : String(value));
+        App.renderPage();
     },
 
     async setProfile(value) {
@@ -936,6 +979,7 @@ const DevicesDetailModals = {
 
         const running = sttBlock[F.stt.running];
         const body = `
+            ${this._voiceSetupProfileRow(device)}
             <div class="form-group">
                 <label class="form-label">Speech-to-text on this device</label>
                 <select class="form-select" onchange="DevicesDetailModals._setVoiceSetupPending('sttProvider', this.value)">
