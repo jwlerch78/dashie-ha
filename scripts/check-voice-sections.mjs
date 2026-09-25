@@ -106,7 +106,7 @@ t('6 Voice & LLM defaults OPEN (the one people come to change)', S.isOpen('voice
 t('7 AI Tools defaults CLOSED', S.isOpen('tools') === false);
 t('8 a closed section renders no body', !html.includes('Always use AI for chores'));
 // the five section-1 pickers
-for (const [n,lab] of [['AI Model','AI Model'],['Wake word','Wake word'],['Personality','Default personality'],['STT','Speech-to-text'],['TTS','Text-to-speech']])
+for (const [n,lab] of [['AI Model','AI Model'],['Wake word','Wake word'],['Personality','>Personality </span>'],['STT','Speech-to-text'],['TTS','Text-to-speech']])
   t(`9 section 1 carries ${n}`, html.includes(lab), lab);
 // search + entities must NOT be in section 1 any more
 t('10 Web search source left section 1', !html.slice(0, html.indexOf('AI Tools')).includes('Web search source'));
