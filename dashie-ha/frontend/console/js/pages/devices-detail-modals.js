@@ -2318,7 +2318,8 @@ const DevicesDetailModals = {
         const spec = this._openApplyAllSpec();
         if (!spec) return [];
         const srcId = this[spec.idKey];
-        return (DevicesPage._devices || []).filter(d => d.is_active !== false && d.device_id !== srcId);
+        // One holder — see DevicesPage._fanOutEligible for why this is not filtered here.
+        return DevicesPage._fanOutEligible(srcId);
     },
 
     _alsoFooter() {
@@ -2478,8 +2479,10 @@ const DevicesDetailModals = {
         const src = DevicesPage._findDevice(this[spec.idKey]);
         if (!src) return;
         const wanted = new Set(targetIds || []);
-        const others = (DevicesPage._devices || [])
-            .filter(d => d.is_active !== false && d.device_id !== src.device_id && wanted.has(d.device_id));
+        // The SAME holder the picker listed from. If these two ever diverge, the user
+        // ticks one set of boxes and a different set of devices changes.
+        const others = DevicesPage._fanOutEligible(src.device_id)
+            .filter((d) => wanted.has(d.device_id));
         // Group by category so we write each category once per device.
         // 🔴 Resolve the SHOWN values, not the stored ones. A sparse blob (a
         // device never configured for sleep) used to skip every key and fan out

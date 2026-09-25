@@ -227,6 +227,42 @@ for (const [name, d] of Object.entries(DERIVED)) {
   derivedChecked += canonical.size;
 }
 
+// ── ONE holder for "which devices may a bulk action target" ────────────────
+// John, 2026-09-25: the picker offered 13 devices where 4 were associated. The rule
+// was `is_active !== false` alone — written out THREE times (the picker's list, the
+// fan-out's write, and _onSettingChange's targets) and in none of them excluding
+// ARCHIVED or DISMISSED devices. Three copies of "which devices count" is how a list
+// and a write come to disagree: you tick four boxes and a fifth device changes.
+const PAGE = join(ROOT, 'dashie-ha/frontend/console/js/pages/devices.js');
+if (!existsSync(PAGE)) blind('devices.js not found beside devices-detail-modals.js');
+const pageSrc = readFileSync(PAGE, 'utf8');
+if (!/_fanOutEligible\s*\(excludeDeviceId\)\s*\{/.test(pageSrc)) {
+  problems.push('DevicesPage._fanOutEligible is gone — the bulk-action device rule has no holder.\n'
+    + '    → the picker, the fan-out and _onSettingChange each filtered their own way before it existed.');
+}
+// ⚠️ COMMENTS STRIPPED FIRST. Without this the leg counted the sentence in
+// _fanOutEligible's own doc block that QUOTES the old filter, and reported the holder
+// as a violation of itself — a probe absorbed by prose describing its subject.
+const codeOnly = (txt) => txt
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+for (const [label, raw] of [['devices.js', pageSrc], ['devices-detail-modals.js', src]]) {
+  const txt = codeOnly(raw);
+  const hits = (txt.match(/is_active\s*!==\s*false/g) || []).length;
+  const allowed = label === 'devices.js' ? 1 : 0;   // the holder itself, and nowhere else
+  if (hits > allowed) {
+    problems.push(`${label} filters on is_active in ${hits} place(s); only the holder may.\n`
+      + '    → route it through DevicesPage._fanOutEligible so the list and the write cannot diverge.');
+  }
+}
+for (const needed of ['_isArchived', '_isDismissed']) {
+  const at = pageSrc.indexOf('_fanOutEligible(excludeDeviceId)');
+  if (at === -1) break;
+  if (!pageSrc.slice(at, at + 400).includes(needed)) {
+    problems.push(`_fanOutEligible does not consult ${needed} — archived or dismissed devices are offered as targets.`);
+  }
+}
+
 if (problems.length) {
   console.error('❌ check-apply-targets: "Also apply to" does not copy everything its dialog writes:\n');
   for (const p of problems) console.error(`  · ${p}\n`);
