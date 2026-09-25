@@ -95,7 +95,12 @@ const VoiceAiProfileSwitcher = {
     },
 
     async create(defaultsMap) {
-        const name = prompt('Name this profile', '');
+        const name = await ConfirmModal.prompt({
+            title: 'New voice profile',
+            label: 'Name this profile',
+            placeholder: 'Evenings',
+            confirmLabel: 'Create',
+        });
         if (!name || !name.trim()) return;
         const { profile, missing } = this._build(name.trim(), defaultsMap || {});
         if (missing.length) {
@@ -119,7 +124,12 @@ const VoiceAiProfileSwitcher = {
         if (this._isDefault(id)) return;
         const src = this._named()[id];
         if (!src) return;
-        const name = prompt('Rename profile', src.name);
+        const name = await ConfirmModal.prompt({
+            title: 'Rename profile',
+            label: 'Profile name',
+            value: src.name,
+            confirmLabel: 'Rename',
+        });
         if (!name || !name.trim() || name.trim() === src.name) return;
         // Label only. The id is the handle devices point at; re-slugging orphans them.
         await this._patch(`voiceProfiles.${id}.name`, name.trim(), 'rename the profile');
@@ -129,7 +139,12 @@ const VoiceAiProfileSwitcher = {
         const id = this._editingId();
         const src = this._isDefault(id) ? null : this._named()[id];
         const baseName = src ? `${src.name} copy` : 'Default copy';
-        const name = prompt('Name for the copy', baseName);
+        const name = await ConfirmModal.prompt({
+            title: 'Duplicate profile',
+            label: 'Name for the copy',
+            value: baseName,
+            confirmLabel: 'Duplicate',
+        });
         if (!name || !name.trim()) return;
         const built = src
             ? { profile: { ...src, name: name.trim() }, missing: [] }
@@ -159,13 +174,19 @@ const VoiceAiProfileSwitcher = {
         // destructive click.
         const users = this._followers(id);
         const warn = users === null
-            ? `\n\nThe device list didn't load, so this can't say which devices are using it.`
+            ? `The device list didn't load, so this can't say which devices are using it.`
             : users.length
-                ? `\n\n⚠️ ${users.length} device${users.length > 1 ? 's are' : ' is'} using it ` +
+                ? `⚠️ ${users.length} device${users.length > 1 ? 's are' : ' is'} using it ` +
                   `(${users.join(', ')}). ${users.length > 1 ? 'They' : 'It'} will fall back to Default, ` +
                   `so ${users.length > 1 ? 'their' : 'its'} voice setup will change.`
-                : `\n\nNo devices are using it, so nothing will change on any device.`;
-        if (!confirm(`Delete the "${src.name}" profile?${warn}\n\nThis can't be undone.`)) return;
+                : `No devices are using it, so nothing will change on any device.`;
+        const ok = await ConfirmModal.confirm({
+            title: `Delete "${src.name}"?`,
+            message: `${warn}\n\nThis can't be undone.`,
+            confirmLabel: 'Delete',
+            danger: true,
+        });
+        if (!ok) return;
 
         // null, not absent: patchUserSetting cannot delete a key (D-121).
         if (await this._patch(`voiceProfiles.${id}`, null, 'delete the profile')) {
