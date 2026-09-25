@@ -61,7 +61,7 @@ const AccountRequiredPanel = {
             also: 'Settings that belong to THIS box — voice engines, models, API keys — are under Voice & AI, Local Engines and API Keys, and need no account.',
         },
         'devices': {
-            title: 'Dashboards',
+            title: 'Devices',
             what: 'Dashie dashboard devices — tablets, TVs and displays — registered to your household: claim a new one, rename it, and see what each is doing.',
             why: 'A device is claimed BY an account; that pairing is what this page manages, so it needs a free account.',
             also: null,

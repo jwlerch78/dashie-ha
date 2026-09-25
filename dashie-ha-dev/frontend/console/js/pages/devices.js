@@ -1225,14 +1225,35 @@ const DevicesPage = {
         }
     },
 
-    /** True iff any DevicesDetailModals modal is currently open. Used by
-     *  _onSettingChange to avoid tearing down the modal DOM on save. */
+    /**
+     * True iff any DevicesDetailModals modal is currently open. Used by
+     * _onSettingChange to avoid tearing down the modal DOM on save.
+     *
+     * 🔴 DERIVED, not hand-listed (2026-09-25). This was a hand-written list of ten
+     * flags and it had fallen three behind the modals that exist: _voiceOpen,
+     * _voiceSetupOpen and _profileOpen were all missing, so saving from any of those
+     * three re-rendered the page underneath the open dialog and rebuilt it
+     * mid-interaction. _voiceSetupOpen is the worst of the three — it stages edits in
+     * _voiceSetupPending, so a rebuild can drop work the user has already done.
+     *
+     * ⚠️ It also named _displayOpen, which no longer exists — so the list was both
+     * short and stale, and neither was visible from either file. A missing flag has no
+     * symptom at the save site: the write lands, the toast is green, and the only sign
+     * is a dialog that flickers or loses a staged edit.
+     *
+     * Reading the flags off the object closes the class: a new modal is covered the
+     * moment it declares its `_xOpen`. `_alsoOpen` is excluded deliberately — it is the
+     * "Also apply to" FOOTER's disclosure state, not a modal, and it is open during
+     * exactly the saves this guard exists for.
+     */
     _isAnyDetailModalOpen() {
         const M = typeof DevicesDetailModals !== 'undefined' ? DevicesDetailModals : null;
         if (!M) return false;
-        return !!(M._sleepOpen || M._displayOpen || M._themeOpen
-            || M._pickerOpen || M._screensaverOpen || M._advancedDisplayOpen || M._personalityOpen
-            || M._wakeWordOpen || M._pinOpen || M._photosOpen);
+        for (const k of Object.keys(M)) {
+            if (k === '_alsoOpen') continue;
+            if (/^_[a-zA-Z]+Open$/.test(k) && M[k] === true) return true;
+        }
+        return false;
     },
 
     showDetail(deviceId) {
