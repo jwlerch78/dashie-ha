@@ -248,6 +248,13 @@ node "$ADDON_ROOT/scripts/check-voice-override-gating.mjs"
 echo "==> Checking \"Also apply to\" copies everything each dialog writes"
 node "$ADDON_ROOT/scripts/check-apply-targets.mjs"
 
+# ...and it must copy THE CHANGE, not the whole dialog. John changed a wake time and it
+# disabled "show clock during sleep" on his Mio tablets -- sleepEffective() resolves an
+# absent toggle to false, so the fan-out did not copy a choice, it manufactured one.
+# check-apply-targets is static and was green throughout: the spec list was correct.
+echo "==> Checking \"Also apply to\" copies only what changed"
+node "$ADDON_ROOT/scripts/check-fanout-scope.mjs"
+
 # Every dialog a device card can OPEN must be RENDERED on the page that draws the
 # card. Two hand-maintained lists in different files; the join is where a tile goes
 # dead while every other check stays green.

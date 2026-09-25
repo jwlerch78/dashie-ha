@@ -1200,6 +1200,12 @@ const DevicesPage = {
             : [];
         const targets = [...self, ...extra];
 
+        // Record the edit so "Also apply to" fans out THIS change rather than every key
+        // the dialog manages (John, 2026-09-25). Noted before the write, not after, so a
+        // failed save still counts as "the user changed this" — the retry is theirs to
+        // make and the intent was real.
+        if (typeof DevicesDetailModals !== 'undefined') DevicesDetailModals.noteAlsoChange?.(category, key);
+
         const savingKey = `${deviceId}_${key}`;
         this._saving[savingKey] = true;
 
