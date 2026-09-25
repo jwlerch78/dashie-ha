@@ -80,7 +80,9 @@ const VoiceAiDefaultsCards = {
      * 2026-09-24). "Default" was doing two jobs on one screen: it meant
      * "the household-wide value a device inherits" here, while the per-device
      * rows on the Devices page append " (Default)" to mean "this device is
-     * inheriting" (console 0.9.41, mirroring VoiceAiSettingsWiring.kt). With
+     * inheriting" (console 0.9.41, mirroring VoiceAiSettingsWiring.kt — that
+     * decoration is JS_KOTLIN_CONTRACTS row 149, gated by lint:inherit-state;
+     * this comment references it and does not add a mirror). With
      * profiles, "Default" ALSO names a specific profile — so the same word
      * meant a scope, an inheritance state, and a profile id. The switcher above
      * this card already says which profile is being edited, which is what the
