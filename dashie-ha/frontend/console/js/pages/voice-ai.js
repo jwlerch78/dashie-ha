@@ -1782,8 +1782,11 @@ const VoiceAiPage = {
         ].filter(Boolean).join(' · ');
 
         return `
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 20px 0 10px;">
-                <div style="font-size: 15px; font-weight: 600;">Voice &amp; AI Defaults</div>
+            <!-- The "Voice & AI Defaults" title is GONE (John, 2026-09-25). The profile
+                 switcher's own "Voice & AI Profile" heading now titles this whole area, and
+                 two headings a few pixels apart were naming the same thing twice. The
+                 locality legend stays and keeps its row, right-aligned on its own. -->
+            <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 16px; margin: 20px 0 10px;">
                 ${this._renderLocalityLegend()}
             </div>
             ${S.render({
@@ -1798,7 +1801,6 @@ const VoiceAiPage = {
                         isAddonMode: DashieAuth.isAddonMode,
                         localMode: DashieAuth.isLocalMode,
                     })}
-                    ${this._renderCloudSuppliers()}
                     ${body}`,
             })}
             ${isHaAssist ? '' : S.render({
@@ -2272,9 +2274,33 @@ const VoiceAiPage = {
         // Piper/Whisper rows speak for themselves (hint removed 2026-07-12).
         const e = this._engines;
         if (e && e.available) return '';
+
+        // 🔴 THREE STATES, NOT ONE (John, 2026-09-25: *"why does it say Home Assistant is
+        // not reachable here?"* — on a box where it plainly was).
+        //
+        // This line used to render for any falsy-or-unavailable `_engines`, and asserted
+        // "Home Assistant not reachable" in all of them. Only ONE of the three means that:
+        //
+        //   · not loaded yet  — `_engines` is null until the async load resolves, so the
+        //     claim renders on FIRST PAINT of every visit and is replaced a beat later.
+        //     That is the one John saw, and it accused his HA of being down.
+        //   · load failed     — the add-on's /api/voice/engines call itself did not answer.
+        //     The add-on is the thing that is unreachable; HA may be perfectly fine.
+        //   · available:false — the server could not build an HA WS config at all
+        //     (no SUPERVISOR_TOKEN). THAT is "Home Assistant not reachable".
+        //
+        // HaEngines.loaded exists precisely to separate the first from the others — its own
+        // doc says "so a caller can tell 'not yet' from 'none'" — and this call site was not
+        // asking. A wrong cause is worse than no message: it sends someone to check their
+        // Home Assistant when nothing is wrong with it.
+        const H = window.HaEngines;
+        if (H && H.loaded === false) return '';   // still checking — say nothing, claim nothing
+        const msg = e
+            ? 'Home Assistant not reachable — showing your-box (URL) options only.'
+            : "Couldn't check this box for Home Assistant voice engines — showing your-box (URL) options only.";
         return `
             <div style="margin: 0 0 8px; font-size: 12px; color: var(--text-secondary);">
-                ${this._escape('Home Assistant not reachable — showing your-box (URL) options only.')}
+                ${this._escape(msg)}
             </div>`;
     },
 
@@ -2287,23 +2313,6 @@ const VoiceAiPage = {
             <div style="display:flex; gap: 16px; font-size: 12px; color: var(--text-secondary);">
                 ${dot(O.COLOR.cloud, 'Cloud')}
                 ${dot(O.COLOR.local, 'Local')}
-            </div>`;
-    },
-
-    /** Who runs the hosted engines. These names used to live inside the STT/TTS
-     *  option labels; they were moved here on 2026-07-30 so a supplier switch is
-     *  one edit instead of a stale vendor name sitting in a picker. Moving them
-     *  off the labels must not mean losing them — this is where they went.
-     *  Suppressed on the Local preset, where no cloud engine is in play. */
-    _renderCloudSuppliers() {
-        const rows = window.VoiceAiOptions?.CLOUD_SUPPLIERS || [];
-        if (!rows.length) return '';
-        const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        const list = rows.map(r => `${esc(r.stage)}: ${esc(r.vendors)}`).join(' · ');
-        return `
-            <div style="margin: 8px 2px 0; font-size: 12px; color: var(--text-muted); line-height: 1.5;">
-                ${esc(BRAND.cloudName)} engines are currently run by — ${list}.
-                Suppliers can change; local and hybrid presets never send audio to them.
             </div>`;
     },
 
