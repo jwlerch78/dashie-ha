@@ -253,6 +253,13 @@ node "$ADDON_ROOT/scripts/check-apply-targets.mjs"
 # dead while every other check stays green.
 node "$ADDON_ROOT/scripts/check-card-dialogs.mjs"
 
+# ...and the TILES that open them must actually render. check-card-dialogs proves the
+# modal is on the page; it passed the whole time a tile was written with an identifier
+# that is not in that function's scope, which threw and took out the entire card render.
+# node --check cannot see it: the name only resolves when the function runs.
+echo "==> Checking the device card tile grid renders"
+node "$ADDON_ROOT/scripts/check-device-card-tiles.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver
