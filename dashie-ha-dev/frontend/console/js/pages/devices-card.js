@@ -136,8 +136,7 @@ const DevicesCard = {
         // device) but as a plain span: no button, no cursor, no promise.
         const themeLabel = DevicesPage._escape(this._prettify(fam));
         const swatchCls = `dcard-swatch theme-${DevicesPage._escape(fam)}${dark ? ' is-dark' : ''}`;
-        const themeEditable = (typeof FeatureGate === 'undefined')
-            || FeatureGate.optionAllowed('display.themeFamily');
+        const themeEditable = this._themeEditable();
         const swatch = DevicesPage._localMode === true ? '' : (themeEditable ? `
             <button type="button" class="${swatchCls}"
                     title="Theme: ${themeLabel}"
@@ -241,6 +240,21 @@ const DevicesCard = {
     _tileSpacer() { return '<span class="dtile is-spacer" aria-hidden="true"></span>'; },
 
     /**
+     * Is the theme EDITOR reachable in this build/session?
+     *
+     * 🔴 ONE holder, read by both the header swatch and the Theme tile. These two
+     * open the same modal, and renderThemeModal() returns '' when this is false --
+     * so a surface that draws itself without asking is a control that opens
+     * nothing. That already happened once: the old Theme row was drawn
+     * unconditionally and John hit it on a device holding `fern` (2026-09-21). A
+     * second hand-copy of the condition is how that comes back.
+     */
+    _themeEditable() {
+        return (typeof FeatureGate === 'undefined')
+            || FeatureGate.optionAllowed('display.themeFamily');
+    },
+
+    /**
      * Offline card — minimal render for devices in the Offline section.
      * Just the header row: icon + name + type + last-seen + status dot.
      * No lock chip (intentionally hidden — offline devices can't toggle
@@ -339,9 +353,18 @@ const DevicesCard = {
         const aiVoice = settings.aiVoice || {};
         const photos = settings.photos || {};
 
-        // Theme is no longer a tile — the header's swatch owns it (P4a). The
-        // FAMILY-only rule still holds there: dark/light is a separate control and
-        // is deliberately NOT folded into the theme name (2026-07-06, per user).
+        // Theme IS a tile again (John, 2026-09-25: *"use the empty 6th slot"*), placed
+        // immediately before the voice tiles so the card reads device-then-voice. The
+        // header swatch stays: it is glanceable down a column of cards and carries the
+        // colour itself, which a text tile cannot. Both open the same modal and both
+        // ask _themeEditable() — see that function for why the condition has one holder.
+        //
+        // The FAMILY-only rule still holds: dark/light is a SEPARATE control (Quick
+        // Controls) and is deliberately NOT folded into the theme name (2026-07-06).
+        //
+        // ⚠️ No icon, deliberately: the icon set has no palette/theme glyph, and the
+        // candidates all mislead (icon-sun is light/dark, which is the control this one
+        // is explicitly not). The detail page's Theme row carries no icon either.
 
         // AI Personality — the device blob stores personalityId (template key or
         // custom uuid); resolve it to the catalog's display name.
@@ -439,13 +462,15 @@ const DevicesCard = {
                              { icon: 'icon-moon.svg' })}
                 ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`,
                              { icon: 'icon-photos.svg' })}
+                ${this._themeEditable() ? this._tile('Theme', DevicesDetailModals.buildThemeSummary(display),
+                             `DevicesDetailModals.openTheme('${id}')`) : ''}
                 ${this._tile('Voice', voiceShown, `DevicesDetailModals.openVoiceSetup('${id}')`,
                              { icon: 'icon-sliders.svg', diff: voice.custom })}
                 ${this._tile('Wake word', wakeShown, `DevicesDetailModals.openWakeWord('${id}')`,
                              { icon: 'icon-microphone.svg', diff: wakeDiffers, household: houseWake })}
                 ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`,
                              { icon: 'icon-persona.svg' })}
-                ${this._tileSpacer()}
+                ${this._themeEditable() ? '' : this._tileSpacer()}
             </div>
         `;
     },
