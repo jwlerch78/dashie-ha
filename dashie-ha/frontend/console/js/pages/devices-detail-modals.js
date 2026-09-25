@@ -649,6 +649,29 @@ const DevicesDetailModals = {
         return this._modal('Voice profile', body, 'DevicesDetailModals.closeProfile()', this._alsoFooter(), device);
     },
 
+    /**
+     * The canonical list of what the Voice-profile dialog writes, for "Also apply to".
+     *
+     * 🔴 Exactly ONE key, and it must stay that way. The pointer is the only thing this
+     * dialog sets; the profile's CONTENTS live in the household blob and are shared by
+     * every device that follows it. Adding a pipeline leaf here would copy a value the
+     * dialog never offered — the mirror of the bug check-apply-targets was built for.
+     *
+     * Pinned to the spec by `DERIVED.profile` in scripts/check-apply-targets.mjs.
+     */
+    PROFILE_FANOUT_KEYS: ['profileId'],
+
+    /** "Evenings" / "Default" — what the footer says this device follows now. */
+    _profileNow(device) {
+        const id = String(device?.settings?.voice?.profileId || '');
+        if (!id) return 'Default';
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings) || {};
+        // A dangling pointer is NAMED as dangling. Rendering a bare id would read as a
+        // profile whose name happens to look like a slug, and falling back to 'Default'
+        // would claim a state the device is not in.
+        return named[id]?.name || `${id} (missing)`;
+    },
+
     async setProfile(value) {
         const deviceId = this._profileDeviceId;
         const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
@@ -2353,6 +2376,12 @@ const DevicesDetailModals = {
                               ['voice', 'haSttEngineId'], ['voice', 'haTtsEngineId'],
                               ['voice', 'haTtsVoiceId']],
                        now: (d) => DevicesDetailModals.voiceSetupSummary(d).label },
+        // The pointer alone (PROFILE_FANOUT_KEYS). Fanning this out is how a fleet gets
+        // put on one profile in a single action -- the point of profiles for a household
+        // with more than one screen.
+        profile:     { idKey: '_profileDeviceId',     label: 'voice profile',
+                       keys: [['voice', 'profileId']],
+                       now: (d) => DevicesDetailModals._profileNow(d) },
         photos:      { idKey: '_photosDeviceId',      label: 'photo album',
                        keys: [['photos', 'sourceType'], ['photos', 'albumId'], ['photos', 'albumName'], ['photos', 'slideshowInterval']],
                        now: (d) => DevicesDetailModals._photosNow(d) },
@@ -2392,6 +2421,7 @@ const DevicesDetailModals = {
         if (this._voiceOpen)       return this._APPLY_ALL_KEYS.voice;
         if (this._photosOpen)      return this._APPLY_ALL_KEYS.photos;
         if (this._voiceSetupOpen)  return this._APPLY_ALL_KEYS.voiceSetup;
+        if (this._profileOpen)     return this._APPLY_ALL_KEYS.profile;
         return null;
     },
 
@@ -2414,7 +2444,16 @@ const DevicesDetailModals = {
         const resolved = {
             sleep: this.sleepEffective(src.settings?.sleep),
             display: { screenOffBehavior: this.screenOffEffective(src.settings?.display) },
-            voice: this.voiceEffective(src.settings?.voice),
+            // voiceEffective resolves VOICE_LEAF_KEYS and deliberately does NOT carry
+            // profileId (that list is pinned to the voiceSetup spec). Resolved here so a
+            // source device that has never chosen a profile fans out '' = Default rather
+            // than `undefined`, which the loop below skips -- leaving byCat empty and the
+            // whole action a no-op with a "nothing to apply" toast.
+            voice: {
+                ...this.voiceEffective(src.settings?.voice),
+                profileId: typeof src.settings?.voice?.profileId === 'string'
+                    ? src.settings.voice.profileId : '',
+            },
         };
         const byCat = {};
         for (const [cat, key] of spec.keys) {

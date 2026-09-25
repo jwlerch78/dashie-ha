@@ -59,6 +59,12 @@ const EXEMPT = {
  * here — so without this such a dialog could never be covered at all.
  */
 const DERIVED = {
+  profile: {
+    list: 'PROFILE_FANOUT_KEYS', category: 'voice',
+    why: 'renderProfileModal writes through setProfile() on change, so the (device, cat, key) '
+      + 'scan of the render body reads zero. The one-key list is what keeps the spec from '
+      + 'growing a pipeline leaf the dialog never offered.',
+  },
   voiceSetup: {
     list: 'VOICE_LEAF_KEYS', category: 'voice',
     why: 'stages into _voiceSetupPending and writes on submit, so the (device, cat, key) scan reads zero',
