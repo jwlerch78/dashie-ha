@@ -14,9 +14,20 @@ const DashieAuth = {
      *
      *  It named only `production`/`stable` until 2026-08-23, when the canonical
      *  names became `dev`/`prod` (server/config.js ENV_ALIASES). Renaming the
-     *  server without this line would have pointed every prod box — John's
-     *  included, since his dev add-on deliberately runs against prod — at the wrong
-     *  client. Legacy names stay because boxes still store them. */
+     *  server without this line would have pointed every prod box at the wrong
+     *  client. Legacy names stay because boxes still store them.
+     *
+     *  ⚠️ CORRECTED 2026-09-24: this used to add "John's included, since his dev
+     *  add-on deliberately runs against prod" as a standing fact. It is not one —
+     *  John confirmed the same day that his dev add-on runs against DEV. A box's
+     *  channel is per-box, changeable, and invisible from here; writing one box's
+     *  configuration into a source comment makes it read as an invariant, and this
+     *  one was still being quoted a month after it stopped being true. It sent a
+     *  reader looking for test data in the wrong database.
+     *
+     *  🔴 A box's env is runtime state: read it from the add-on (`_addonSupabaseConfig`,
+     *  which `_getConfig` already prefers for exactly this reason) or ask its owner.
+     *  Never infer it from a comment — including this one. */
     _PROD_SUPABASE_ENVS: ['prod', 'production', 'stable'],
 
     // --- Config (auto-detect environment by hostname) ---

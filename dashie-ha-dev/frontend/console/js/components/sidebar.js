@@ -54,7 +54,6 @@ const Sidebar = {
             <div class="sidebar-section">
                 ${this._gatedNavItem('devices', 'Dashboards', 'icon-tv', activePage)}
                 ${this._gatedNavItem('voice-ai', 'Voice & AI', 'icon-ai-chat', activePage)}
-                ${this._gatedNavItem('voice-profiles', 'Voice Profiles', 'icon-ai-chat', activePage)}
                 ${this._gatedNavItem('video-feeds', 'Video Feeds', 'icon-video-camera', activePage)}
                 ${this._gatedNavItem('scheduled-actions', 'Scheduled Actions', 'icon-clock', activePage)}
                 ${this._gatedNavItem('preferences', 'Preferences', 'icon-sliders', activePage)}

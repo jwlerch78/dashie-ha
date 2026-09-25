@@ -147,11 +147,11 @@ const DevicesDetailModals = {
      * page's "Account default" always rendered blank. Nothing errored; it just showed
      * nothing, forever. (Kiosk-mirror audit #5, the second half.)
      */
-    getAccountWakeWord() {
+    getAccountWakeWord(device) {
         // ⚠️ No callers today (the picker resolves its own inherit label). Routed
         // through the profile layer anyway so re-using it cannot reintroduce a read
         // of a layer the household may no longer be following.
-        return this._inherited('aiVoice', 'wakeWord', this._accountSettings?.ai?.defaultWakeWord);
+        return this._inherited('aiVoice', 'wakeWord', this._accountSettings?.ai?.defaultWakeWord, device);
     },
 
     // ── Per-device voice pipeline (mixed-fleet, John ruled 2026-08-25) ───────
@@ -200,7 +200,7 @@ const DevicesDetailModals = {
         // badge on a device that genuinely differs from its profile.
         const overriddenKeys = this.VOICE_LEAF_KEYS.filter(
             (k) => typeof dev[k] === 'string' && dev[k] !== ''
-                && dev[k] !== this._inherited('voice', k, acct[k])
+                && dev[k] !== this._inherited('voice', k, acct[k], device)
         );
 
         if (overriddenKeys.length > 0) {
@@ -418,7 +418,7 @@ const DevicesDetailModals = {
     _renderTtsProviderRow(device) {
         // §6c: per-device overrides do not apply under the ha_assist preset, where the
         // HA pipeline owns TTS and a Dashie-side choice has nothing to act on.
-        if (!this.voiceOverridesApply()) return '';
+        if (!this.voiceOverridesApply(device)) return '';
         const { state, offerable } = this.ttsCapabilityState(device);
         if (state !== 'ok') {
             const note = this.ttsCapabilityNote(state);
@@ -430,8 +430,8 @@ const DevicesDetailModals = {
         const opts = new Map((window.VoiceAiOptions?.TTS || []).map((o) => [o.id, o]));
         const afford = this._ttsAffordability();
         const current = this._voiceSetupValue(device, 'ttsProvider');
-        const acctTts = this._inherited('voice', 'ttsProvider', this._accountSettings?.voice?.ttsProvider);
-        const inheritLabel = this._defaultLabel(opts.get(acctTts)?.label || acctTts);
+        const acctTts = this._inherited('voice', 'ttsProvider', this._accountSettings?.voice?.ttsProvider, device);
+        const inheritLabel = this._defaultLabel(opts.get(acctTts)?.label || acctTts, device);
 
         const rows = offerable.map((id) => {
             const opt = opts.get(id);
@@ -519,9 +519,9 @@ const DevicesDetailModals = {
      * and must not read as a value either. Returns 'Default' alone, exactly as
      * Kotlin does.
      */
-    _defaultLabel(name) {
+    _defaultLabel(name, device) {
         const n = String(name ?? '').trim();
-        const d = this._defaultWord();
+        const d = this._defaultWord(device);
         return n ? `${n} (${d})` : d;
     },
 
@@ -538,10 +538,13 @@ const DevicesDetailModals = {
     // whole Devices detail page down (the same failure AccountSettingsStore.ensure
     // documents). Absent lib → behave exactly as before profiles existed.
 
-    /** Which layer answers this household's defaults. See VoiceProfileKeys.layer. */
-    _profileLayer() {
-        const L = window.VoiceProfileKeys?.layer?.(this._accountSettings);
-        return L || { source: 'account', id: null, name: '', profile: null, has: [] };
+    /** Which layer answers THIS DEVICE's defaults. See VoiceProfileKeys.layer.
+     *  🔴 Per-device now: the pointer is a synced device key (CONTRACTS #148), so two
+     *  devices in one household can legitimately answer differently. Passing no device
+     *  means Default, which is the account paths. */
+    _profileLayer(device) {
+        const L = window.VoiceProfileKeys?.layer?.(this._accountSettings, device);
+        return L || { source: 'default', id: 'default', name: 'Default', profile: null };
     },
 
     /**
@@ -555,8 +558,8 @@ const DevicesDetailModals = {
      * plain "Default", which is the truth: every device really is on the account
      * layer. The profiles page is where that state gets explained.
      */
-    _defaultWord() {
-        const L = this._profileLayer();
+    _defaultWord(device) {
+        const L = this._profileLayer(device);
         return (L.source === 'profile' && L.name) ? `Default · ${L.name}` : 'Default';
     },
 
@@ -567,14 +570,117 @@ const DevicesDetailModals = {
      * The fallback is per-HOUSEHOLD: a migrated household's profile answers for every
      * key it declares, including the ones it holds as '', and does NOT fall through.
      */
-    _inherited(category, key, accountValue) {
-        const r = window.VoiceProfileKeys?.inherited?.(this._accountSettings, category, key, accountValue);
+    _inherited(category, key, accountValue, device) {
+        const r = window.VoiceProfileKeys?.inherited?.(this._accountSettings, device, category, key, accountValue);
         return r ? r.value : (accountValue == null ? '' : String(accountValue));
     },
 
     _sttLabel(id) {
         const opt = (window.VoiceAiOptions?.STT || []).find((o) => o.id === id);
         return opt ? opt.label : String(id);
+    },
+
+    // ── Which household profile does this device follow? (CONTRACTS #148) ───────
+    //
+    // 🔴 THIS IS THE ONLY SURFACE THAT ASSIGNS ONE. Without it the whole feature is
+    // inert: the console can create profiles, devices receive them, the pointer syncs —
+    // and nothing ever sets it, so every device stays on Default forever. Profiles that
+    // cannot be pointed at are settings nobody can use.
+    //
+    // Deliberately NOT gated on voiceOverridesApply(): which profile a device follows is
+    // a question independent of the pipeline preset, and hiding it under ha_assist would
+    // strand any device that happened to be on that preset.
+
+    _profileOpen: false,
+    _profileDeviceId: null,
+
+    /** The row, or '' when the household has only Default. §7's guardrail applied to the
+     *  device page: one option is not a choice, it is noise on every household that will
+     *  never make a second profile. */
+    profileAssignmentRow(device, idAttr) {
+        this.ensureAccountSettings();
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings);
+        if (!named || Object.keys(named).length === 0) return '';
+        const L = this._profileLayer(device);
+        // A dangling pointer is NAMED, not hidden: the profile was deleted while this
+        // device was offline, so it is silently on Default and the only other place that
+        // says so is a device log nobody reads.
+        const label = L.source === 'dangling'
+            ? `Default (the “${L.id}” profile was deleted)`
+            : (L.source === 'profile' ? L.name : 'Default');
+        return this._summaryRow('Voice profile', label, `DevicesDetailModals.openProfile('${idAttr}')`);
+    },
+
+    openProfile(deviceId) {
+        this._resetAlso();
+        this._profileOpen = true;
+        this._profileDeviceId = deviceId;
+        this.ensureAccountSettings();
+        App.renderPage();
+    },
+
+    closeProfile() { this._profileOpen = false; App.renderPage(); },
+
+    renderProfileModal() {
+        if (!this._profileOpen) return '';
+        const device = DevicesPage._findDevice(this._profileDeviceId);
+        if (!device) return '';
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings) || {};
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        const current = String(device?.settings?.voice?.profileId || '') || DEFAULT;
+        const opts = [[DEFAULT, 'Default'], ...Object.entries(named).map(([id, p]) => [id, p.name || id])];
+        const options = opts.map(([v, label]) =>
+            `<option value="${this._escape(v)}" ${v === current ? 'selected' : ''}>${this._escape(label)}</option>`).join('');
+
+        const body = `
+            <div class="form-group">
+                <label class="form-label">Voice profile</label>
+                <select class="form-select" onchange="DevicesDetailModals.setProfile(this.value)">
+                    ${this._offListOption(current, opts.map(([v]) => v), 'voice.profileId')}
+                    ${options}
+                </select>
+            </div>
+            <div style="font-size: var(--font-size-sm); color: var(--text-muted);">
+                A profile is a complete set of voice &amp; AI defaults, edited on the
+                <a href="#voice-ai" onclick="event.preventDefault(); App.navigate('voice-ai')">Voice &amp; AI</a> page.
+                <strong>Default</strong> is your household's own settings.
+                This device's own overrides below still win over whichever profile it follows.
+            </div>`;
+        return this._modal('Voice profile', body, 'DevicesDetailModals.closeProfile()', this._alsoFooter(), device);
+    },
+
+    /**
+     * The canonical list of what the Voice-profile dialog writes, for "Also apply to".
+     *
+     * 🔴 Exactly ONE key, and it must stay that way. The pointer is the only thing this
+     * dialog sets; the profile's CONTENTS live in the household blob and are shared by
+     * every device that follows it. Adding a pipeline leaf here would copy a value the
+     * dialog never offered — the mirror of the bug check-apply-targets was built for.
+     *
+     * Pinned to the spec by `DERIVED.profile` in scripts/check-apply-targets.mjs.
+     */
+    PROFILE_FANOUT_KEYS: ['profileId'],
+
+    /** "Evenings" / "Default" — what the footer says this device follows now. */
+    _profileNow(device) {
+        const id = String(device?.settings?.voice?.profileId || '');
+        if (!id) return 'Default';
+        const named = window.VoiceProfileKeys?.named?.(this._accountSettings) || {};
+        // A dangling pointer is NAMED as dangling. Rendering a bare id would read as a
+        // profile whose name happens to look like a slug, and falling back to 'Default'
+        // would claim a state the device is not in.
+        return named[id]?.name || `${id} (missing)`;
+    },
+
+    async setProfile(value) {
+        const deviceId = this._profileDeviceId;
+        const DEFAULT = window.VoiceProfileKeys?.DEFAULT_PROFILE_ID || 'default';
+        // '' for Default rather than the literal id: absent is what every device that has
+        // never chosen already stores, so the two states are ONE state rather than two
+        // that resolve alike but compare differently.
+        const stored = (value === DEFAULT) ? '' : String(value);
+        await DevicesPage._onSettingChange(deviceId, 'voice', 'profileId', stored);
+        this.closeProfile();
     },
 
     // ── Per-device voice setup modal (D2b: one selection leads) ──────────────
@@ -601,13 +707,13 @@ const DevicesDetailModals = {
     VOICE_OVERRIDE_PRESETS: ['cloud', 'hybrid', 'local'],
 
     /** Is this household on a preset where per-device voice overrides apply at all? */
-    voiceOverridesApply() {
+    voiceOverridesApply(device) {
         // Through the profile layer: a profile carries the preset it was seeded from
         // (§9), and reading the raw account path here would hide the per-device
         // override rows for a whole household whose PROFILE is on cloud/hybrid/local
         // while the stale account path still says ha_assist. The feature would not
         // misbehave — it would be absent, with nothing on screen to explain it.
-        const preset = this._inherited('voice', 'pipelinePreset', this._accountSettings?.voice?.pipelinePreset);
+        const preset = this._inherited('voice', 'pipelinePreset', this._accountSettings?.voice?.pipelinePreset, device);
         // Unknown preset (account settings not loaded yet) ⇒ do NOT offer. Same posture as an
         // empty capability list: fail toward the account default, never toward a guess.
         return this.VOICE_OVERRIDE_PRESETS.includes(String(preset || ''));
@@ -740,7 +846,7 @@ const DevicesDetailModals = {
      * fail toward the account default rather than toward a guess.
      */
     _renderHaEngineRows(device) {
-        if (!this.voiceOverridesApply()) return '';
+        if (!this.voiceOverridesApply(device)) return '';
         // Bind once rather than reaching for the bare global per call: if ha-engines.js did not
         // load (a missing script tag in a vendored tree, a 404), this is undefined and every row
         // is omitted — instead of a ReferenceError mid-render that takes the whole modal down.
@@ -751,7 +857,7 @@ const DevicesDetailModals = {
         const effective = (key) => {
             const own = device?.settings?.voice?.[key];
             // '' is the inherit sentinel, not a value — an inheriting device carries it explicitly.
-            return (typeof own === 'string' && own !== '') ? own : this._inherited('voice', key, acct[key]);
+            return (typeof own === 'string' && own !== '') ? own : this._inherited('voice', key, acct[key], device);
         };
         const sttIsHa = effective('sttProvider') === 'ha_engine';
         const ttsIsHa = effective('ttsProvider') === 'ha_engine';
@@ -760,7 +866,7 @@ const DevicesDetailModals = {
             if (!options.length) return '';
             const current = this._voiceSetupValue(device, key);
             const inheritLabel = this._defaultLabel((() => {
-                const a = this._inherited('voice', key, acct[key]);
+                const a = this._inherited('voice', key, acct[key], device);
                 if (!a) return '';
                 const hit = options.find((o) => (typeof o === 'string' ? o : (o.value ?? o.id)) === a);
                 return hit ? (typeof hit === 'string' ? hit : (hit.label ?? hit.name ?? a)) : a;
@@ -818,8 +924,8 @@ const DevicesDetailModals = {
         const sttBlock = record[F.stt._self] || {};
         const available = new Set(Array.isArray(sttBlock[F.stt.available]) ? sttBlock[F.stt.available] : []);
         const current = this._voiceSetupValue(device, 'sttProvider');
-        const acctStt = this._inherited('voice', 'sttProvider', this._accountSettings?.voice?.sttProvider);
-        const inheritLabel = this._defaultLabel(acctStt ? this._sttLabel(acctStt) : '');
+        const acctStt = this._inherited('voice', 'sttProvider', this._accountSettings?.voice?.sttProvider, device);
+        const inheritLabel = this._defaultLabel(acctStt ? this._sttLabel(acctStt) : '', device);
 
         const rows = offerable.map((id) => {
             const usable = available.has(id);
@@ -1528,12 +1634,12 @@ const DevicesDetailModals = {
         // an unknown id yields '' there, and the raw id is a better fallback than
         // an empty parenthesis — but "the account setting" is better than both when
         // the household has not chosen one at all.
-        const houseId = this._inherited('aiVoice', 'wakeWord', VoiceAiApi.defaultWakeWord());
+        const houseId = this._inherited('aiVoice', 'wakeWord', VoiceAiApi.defaultWakeWord(), device);
         const houseLabel = (window.VoiceAiOptions?.wakeWordLabel?.(houseId) || houseId)
             || 'the account setting';
         const optionsHtml = [
             this._offListOption(current, this.WAKE_WORDS.map((w) => w.id), 'voice.wakeWord'),
-            `<option value="" ${current === '' ? 'selected' : ''}>${this._escape(this._defaultLabel(houseLabel))}</option>`,
+            `<option value="" ${current === '' ? 'selected' : ''}>${this._escape(this._defaultLabel(houseLabel, device))}</option>`,
             ...this.WAKE_WORDS.map(({ id, label }) =>
                 `<option value="${this._escape(id)}" ${id === current ? 'selected' : ''}>${this._escape(label)}</option>`),
         ].join('');
@@ -1632,7 +1738,7 @@ const DevicesDetailModals = {
      *  account default (WS-G resolution rule — mirrored here for display/lock). */
     effectivePersonalityId(device) {
         return device.settings?.aiVoice?.personalityId
-            || this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId)
+            || this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId, device)
             || 'dashie';
     },
 
@@ -1640,14 +1746,14 @@ const DevicesDetailModals = {
      *  id when the catalog hasn't loaded yet or the id is unknown (e.g. a custom
      *  personality that was deleted). An empty id = the device follows the
      *  account default (WS-G unset-=-inherit). */
-    personalityName(id) {
+    personalityName(id, device) {
         // Inheriting reads as the RESOLVED default, matching the tablet
         // (VoiceAiSettingsWiring.kt:490 — `if (ai.personalityInheriting)
         // "$name (Default)" else name`). Falls through to a bare 'Default'
         // when the account's own id has not loaded yet.
         if (!id) {
-            const acct = this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId);
-            return this._defaultLabel(acct ? this.personalityName(acct) : '');
+            const acct = this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId, device);
+            return this._defaultLabel(acct ? this.personalityName(acct, device) : '', device);
         }
         const hit = (this._personalityCatalog || []).find(([v]) => v === String(id));
         return hit ? hit[1] : DevicesDetail._titleCase(id);
@@ -1682,13 +1788,13 @@ const DevicesDetailModals = {
         // The BARE name — _defaultLabel does the wrapping. It used to arrive
         // pre-wrapped as " (Rachel)" for string concatenation, which through the
         // helper reads " (Rachel) (Default)".
-        const inheritedPersonality = this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId);
+        const inheritedPersonality = this._inherited('aiVoice', 'personalityId', this._accountDefaults?.personalityId, device);
         const defaultName = inheritedPersonality ? this.personalityName(inheritedPersonality) : '';
         // Ensure the currently-stored personality is always selectable, even if
         // the catalog is still loading or the id is no longer in the catalog —
         // otherwise the <select> would silently snap to the first option and a
         // stray change-event could overwrite a valid value.
-        const catalog = [['', this._defaultLabel(defaultName)], ...(this._personalityCatalog || [])];
+        const catalog = [['', this._defaultLabel(defaultName, device)], ...(this._personalityCatalog || [])];
         const options = catalog.some(([v]) => v === String(current))
             ? catalog
             : [[String(current), this.personalityName(current)], ...catalog];
@@ -1747,12 +1853,12 @@ const DevicesDetailModals = {
         // Premium flag (John, 2026-07-12): ElevenLabs voices cost ~4× the
         // default Dashie voice (Inworld) per character — mark them explicitly.
         const current = device.settings?.aiVoice?.voiceKey || '';
-        const inheritedVoiceKey = this._inherited('aiVoice', 'voiceKey', this._accountDefaults?.voiceKey);
+        const inheritedVoiceKey = this._inherited('aiVoice', 'voiceKey', this._accountDefaults?.voiceKey, device);
         const accountVoice = inheritedVoiceKey
             ? this.voiceName(inheritedVoiceKey)
             : (p?.voice ? this.voiceName(p.voice) : '');
         const options = [
-            ['', this._defaultLabel(accountVoice)],
+            ['', this._defaultLabel(accountVoice, device)],
             ...(this._voiceCatalog || []).map(v => {
                 const key = v.key || v.voice_key;
                 const tier = v.provider === 'elevenlabs' ? ' · premium'
@@ -2256,8 +2362,8 @@ const DevicesDetailModals = {
         personality: { idKey: '_personalityDeviceId', label: 'personality',
                        keys: [['aiVoice', 'personalityId'], ['aiVoice', 'voiceKey']],
                        now: (d) => DevicesDetailModals._inheritNow(d?.settings?.aiVoice?.personalityId,
-                                       (v) => DevicesDetailModals.personalityName(v),
-                                       DevicesDetailModals._inherited('aiVoice', 'personalityId', DevicesDetailModals._accountSettings?.ai?.defaultPersonalityId)) },
+                                       (v) => DevicesDetailModals.personalityName(v, d),
+                                       DevicesDetailModals._inherited('aiVoice', 'personalityId', DevicesDetailModals._accountSettings?.ai?.defaultPersonalityId, d)) },
         voice:       { idKey: '_voiceDeviceId',       label: 'voice',
                        keys: [['aiVoice', 'voiceKey']],
                        now: (d) => { const v = DevicesDetailModals.voiceSetupSummary(d);
@@ -2270,6 +2376,12 @@ const DevicesDetailModals = {
                               ['voice', 'haSttEngineId'], ['voice', 'haTtsEngineId'],
                               ['voice', 'haTtsVoiceId']],
                        now: (d) => DevicesDetailModals.voiceSetupSummary(d).label },
+        // The pointer alone (PROFILE_FANOUT_KEYS). Fanning this out is how a fleet gets
+        // put on one profile in a single action -- the point of profiles for a household
+        // with more than one screen.
+        profile:     { idKey: '_profileDeviceId',     label: 'voice profile',
+                       keys: [['voice', 'profileId']],
+                       now: (d) => DevicesDetailModals._profileNow(d) },
         photos:      { idKey: '_photosDeviceId',      label: 'photo album',
                        keys: [['photos', 'sourceType'], ['photos', 'albumId'], ['photos', 'albumName'], ['photos', 'slideshowInterval']],
                        now: (d) => DevicesDetailModals._photosNow(d) },
@@ -2309,6 +2421,7 @@ const DevicesDetailModals = {
         if (this._voiceOpen)       return this._APPLY_ALL_KEYS.voice;
         if (this._photosOpen)      return this._APPLY_ALL_KEYS.photos;
         if (this._voiceSetupOpen)  return this._APPLY_ALL_KEYS.voiceSetup;
+        if (this._profileOpen)     return this._APPLY_ALL_KEYS.profile;
         return null;
     },
 
@@ -2331,7 +2444,16 @@ const DevicesDetailModals = {
         const resolved = {
             sleep: this.sleepEffective(src.settings?.sleep),
             display: { screenOffBehavior: this.screenOffEffective(src.settings?.display) },
-            voice: this.voiceEffective(src.settings?.voice),
+            // voiceEffective resolves VOICE_LEAF_KEYS and deliberately does NOT carry
+            // profileId (that list is pinned to the voiceSetup spec). Resolved here so a
+            // source device that has never chosen a profile fans out '' = Default rather
+            // than `undefined`, which the loop below skips -- leaving byCat empty and the
+            // whole action a no-op with a "nothing to apply" toast.
+            voice: {
+                ...this.voiceEffective(src.settings?.voice),
+                profileId: typeof src.settings?.voice?.profileId === 'string'
+                    ? src.settings.voice.profileId : '',
+            },
         };
         const byCat = {};
         for (const [cat, key] of spec.keys) {

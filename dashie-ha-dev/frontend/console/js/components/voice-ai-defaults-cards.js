@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    Account-level defaults from Open Brain plan §13.2:
 
-   - Default personality (brain section, under the AI Model card)
+   - Personality (brain section, under the AI Model card)
      → ai.defaultPersonalityId. Compact single-row card (label +
      inline dropdown — 2026-07-12 vertical-compression pass).
 
@@ -73,8 +73,19 @@ const VoiceAiDefaultsCards = {
     },
 
     /**
-     * Default-personality row — bold borderless dropdown styled like the
-     * collapsed pipeline rows.
+     * Personality row — bold borderless dropdown styled like the collapsed
+     * pipeline rows.
+     *
+     * 🔴 The label is "Personality", NOT "Default personality" (renamed
+     * 2026-09-24). "Default" was doing two jobs on one screen: it meant
+     * "the household-wide value a device inherits" here, while the per-device
+     * rows on the Devices page append " (Default)" to mean "this device is
+     * inheriting" (console 0.9.41, mirroring VoiceAiSettingsWiring.kt). With
+     * profiles, "Default" ALSO names a specific profile — so the same word
+     * meant a scope, an inheritance state, and a profile id. The switcher above
+     * this card already says which profile is being edited, which is what the
+     * word was there to convey. Don't put it back.
+     *
      * @param {object} o { templates, custom, currentId, saving }
      */
     renderPersonalityCard(o) {
@@ -101,7 +112,7 @@ const VoiceAiDefaultsCards = {
         const templateOpts = (o.templates || []).map(t => opt(t.key || t.id, (t.name || t.key) + suffix(t))).join('');
         groups.push(`<optgroup label="Built-in">${templateOpts}</optgroup>`);
         return this.renderControlRow({
-            label: 'Default personality',
+            label: 'Personality',
             icon: 'icon-persona',
             saving: o.saving,
             compact: o.compact === true,

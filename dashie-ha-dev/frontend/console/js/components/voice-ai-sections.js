@@ -12,7 +12,7 @@
  * two lines at rest instead of fifteen cards. John approved this shape on
  * 2026-09-23 against the D1/D2 mockups:
  *
- *   • **Voice & LLM** — Mode, then AI Model / Wake Word / Default Personality /
+ *   • **Voice & LLM** — Mode, then AI Model / Wake Word / Personality /
  *     Speech-to-text / Text-to-speech, two across
  *   • **AI Tools & Settings** — Web search source + HA entities two across, then
  *     the behaviour toggles
