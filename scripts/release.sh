@@ -265,6 +265,14 @@ node "$ADDON_ROOT/scripts/check-picker-fallback.mjs"
 # Driven: evaluates the real modules and calls the real _renderAiDefaults().
 node "$ADDON_ROOT/scripts/check-voice-sections.mjs"
 
+# Editing a NAMED profile must not write into DEFAULT. overlay() handed back the
+# caller's own object on its early returns, so the page's _defaults became the very
+# same object as _accountRaw and optimistic edits leaked into the household copy --
+# "switching back to default did not bring back the default settings" (John,
+# 2026-09-25). Driven: calls the real overlay() and the real applyScope().
+echo "==> Checking a named profile cannot write into Default"
+node "$ADDON_ROOT/scripts/check-profile-isolation.mjs"
+
 # ── The gates that were already here and were run by NOTHING ─────────────────
 #
 # 🔴 Found while wiring the four above, and it is the same defect one floor up:

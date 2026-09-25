@@ -519,8 +519,20 @@ const VoiceAiPage = {
             const route = window.VoiceProfileScope?.route?.(dottedKey, window.AccountSettingsStore?.get?.());
             if (route?.layer === 'profile') {
                 await DashieAuth.patchUserSetting(route.path, value);
-                window.AccountSettingsStore?.reset?.();
-                window.AccountSettingsStore?.ensure?.();
+                // 🔴 Patch the ONE household cache in place; do NOT reset it. reset()
+                // makes AccountSettingsStore.get() return null until the refetch lands,
+                // and for that whole window overlay() has no profile to overlay — so the
+                // page re-renders the profile's rows showing the ACCOUNT's values and then
+                // snaps back. That is the "bouncing" John reported on 2026-09-25, worst on
+                // a preset toggle because it fires three saves at once.
+                const cur = window.AccountSettingsStore?.get?.();
+                if (cur) {
+                    window.AccountSettingsStore.set(
+                        window.VoiceProfileScope.withValue(cur, route.path, value));
+                } else {
+                    // Not loaded yet (so nothing to go stale). Let it load normally.
+                    window.AccountSettingsStore?.ensure?.();
+                }
             } else {
                 await VoiceAiApi.saveAiDefault(dottedKey, value);
             }
