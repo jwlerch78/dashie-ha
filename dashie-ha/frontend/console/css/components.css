@@ -2223,6 +2223,15 @@
    beside it) and a bottom border to close the block. `width: 100%` because a flex
    button outside a grid does not stretch on its own. */
 .dtile-wide { width: 100%; border-right: 0; }
+/* Second line of the wide row: the engines, muted and smaller under the profile —
+   the same relationship the Voice & LLM card's summary has to its title. It is a
+   SIBLING of .dtile-v inside .dtile-t (a column flex), so it stacks without any
+   extra wrapper. Ellipsised like .dtile-v: on a narrow card the engine names are
+   the part that should truncate, not the profile. */
+.dtile-v2 {
+    font-size: 11.5px; font-weight: 400; color: var(--text-secondary, #6b7280);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* The label is VISUALLY HIDDEN, not removed. The mock is icon + value only, which
    is the compact form John asked for - but the icon is aria-hidden, so deleting the
    label would leave the button's accessible name as a bare value ("10pm-7am", with

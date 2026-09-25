@@ -253,11 +253,15 @@ const DevicesCard = {
      * the dot says where they came from rather than what they are.
      */
     _renderPipelineRow(device, id, custom) {
-        const summary = window.VoicePipelineSummary?.forDevice?.(
-            device, window.AccountSettingsStore?.get?.() ?? null, window.HaEngines?.raw ?? null) || '';
-        // No summary => nothing known yet. Render nothing rather than an empty row that
-        // reads as a device with no voice setup at all.
-        if (!summary) return '';
+        const p = window.VoicePipelineSummary?.parts?.(
+            device, window.AccountSettingsStore?.get?.() ?? null, window.HaEngines?.raw ?? null);
+        // Nothing known yet => render nothing, rather than an empty row that reads as a
+        // device with no voice setup at all.
+        if (!p) return '';
+        // TWO LINES (John, 2026-09-25), matching the Voice & LLM card: the profile and its
+        // pipeline on top, the engines smaller and muted underneath. The second line is
+        // omitted rather than left blank under HA Voice Assist, where the Assist pipeline
+        // owns STT and TTS and there are no Dashie engines to name.
         return `
             <button type="button" class="dtile dtile-wide${custom ? ' is-diff' : ''}"
                     title="Voice &amp; AI"
@@ -265,7 +269,8 @@ const DevicesCard = {
                 <span class="dtile-i" aria-hidden="true">${iconImg('icon-voice.svg', 15)}</span>
                 <span class="dtile-t">
                     <span class="dtile-l">Voice &amp; AI</span>
-                    <span class="dtile-v">${DevicesPage._escape(summary)}</span>
+                    <span class="dtile-v">${DevicesPage._escape(p.primary)}</span>
+                    ${p.secondary ? `<span class="dtile-v2">${DevicesPage._escape(p.secondary)}</span>` : ''}
                 </span>
             </button>`;
     },

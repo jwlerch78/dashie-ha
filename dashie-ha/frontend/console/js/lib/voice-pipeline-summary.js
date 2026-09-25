@@ -77,6 +77,27 @@ const VoicePipelineSummary = {
      * @param {object|null} engines  HA engine detection, for engine-direct labels
      */
     forDevice(device, settings, engines) {
+        const p = this.parts(device, settings, engines);
+        if (!p) return '';
+        return [p.primary, p.secondary].filter(Boolean).join(' · ');
+    },
+
+    /**
+     * The same sentence, split where the device card breaks it across two lines
+     * (John, 2026-09-25): the profile and its pipeline bold on top, the engines
+     * smaller and muted underneath — the shape the Voice & LLM card already uses.
+     *
+     *   primary:   "Default (Cloud, Gemini 2.5 Flash)"
+     *   secondary: "Dashie Cloud STT · On-Device (Built-in)"
+     *
+     * 🔴 ONE derivation, two renderings. forDevice() joins these rather than
+     * building the line a second way, so a caller that wants one line and a caller
+     * that wants two can never disagree about what the device is running — which is
+     * the whole reason this module exists.
+     *
+     * @returns {{primary: string, secondary: string}|null} null when nothing is known
+     */
+    parts(device, settings, engines) {
         const O = window.VoiceAiOptions;
         if (!O) return '';
         const acctVoice = settings?.voice || {};
@@ -103,9 +124,12 @@ const VoicePipelineSummary = {
         // 🔴 The profile NAME alone is not a summary — it is what we know before the
         // account settings have loaded, and a row reading just "Default" describes a
         // device with no voice setup rather than one we have not looked up yet. Callers
-        // treat '' as "render nothing".
-        if (!head && !engineParts.length) return '';
-        return [head ? `${profile} (${head})` : profile, ...engineParts].join(' · ');
+        // treat null / '' as "render nothing".
+        if (!head && !engineParts.length) return null;
+        return {
+            primary: head ? `${profile} (${head})` : profile,
+            secondary: engineParts.join(' · '),
+        };
     },
 };
 

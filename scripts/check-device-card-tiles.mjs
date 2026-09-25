@@ -118,6 +118,14 @@ t('9 no undefined id leaked into any handler', !html.includes('undefined'));
 t('10 the summary names the profile', html.includes('Evenings'));
 t('11 ...the preset', /Evenings \(Cloud/.test(html), html.slice(html.indexOf('dtile-wide'), html.indexOf('dtile-wide') + 400));
 t('12 ...and the AI model', html.includes('Gemini 2.5 Flash'));
+// TWO LINES: profile + pipeline on .dtile-v, engines muted on .dtile-v2.
+const wide = html.slice(html.indexOf('dtile-wide'));
+const line1 = (wide.match(/dtile-v">([^<]*)</) || [])[1] || '';
+const line2 = (wide.match(/dtile-v2">([^<]*)</) || [])[1] || '';
+t('12a row 1 is the profile and its pipeline, and ONLY that',
+  /^Evenings \(Cloud, Gemini 2\.5 Flash\)$/.test(line1), JSON.stringify(line1));
+t('12b row 2 is the engines, muted and separate', /STT/.test(line2) && !/Evenings/.test(line2), JSON.stringify(line2));
+t('12c the engines are NOT also on row 1 (that was the one-line form)', !/STT/.test(line1), JSON.stringify(line1));
 
 // A device on DEFAULT says Default, not the profile's name.
 device.settings.voice = {};
