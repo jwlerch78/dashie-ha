@@ -2282,7 +2282,35 @@ const DevicesDetailModals = {
     _alsoTargets: new Set(),
 
     /** Called by every modal opener. One place, so a new modal cannot forget. */
-    _resetAlso() { this._alsoOpen = false; this._alsoTargets = new Set(); },
+    _resetAlso() { this._alsoOpen = false; this._alsoTargets = new Set(); this._alsoChanged = new Set(); },
+
+    /**
+     * The keys the user has actually CHANGED while this dialog has been open, as
+     * 'category.key'. Cleared by _resetAlso(), which every openX() calls.
+     *
+     * 🔴 John, 2026-09-25, after an "apply all" of a wake time silently disabled
+     * "show clock during sleep" on his Mio tablets: *"apply this change to is the
+     * right approach."* Before this, _fanOutTo copied EVERY key the dialog manages,
+     * so changing one field and pressing Apply overwrote eight others on every
+     * ticked device with whatever the source happened to hold.
+     *
+     * ⚠️ And it did not merely copy the source's values — sleepEffective() RESOLVES
+     * an absent toggle to `false`, so a source device that had never had an opinion
+     * about the clock manufactured one and wrote it. That is the half that made this
+     * data loss rather than a surprise: nothing was copied, something was invented.
+     *
+     * 📌 Recorded by DevicesPage._onSettingChange, which every dialog's writes go
+     * through — including the voice-setup dialog, whose staged edits land one
+     * _onSettingChange call at a time on submit. So a new dialog is covered without
+     * being told about, the same reasoning as _isAnyDetailModalOpen.
+     */
+    _alsoChanged: new Set(),
+
+    /** Record a key the user just changed on the device a dialog is open for. */
+    noteAlsoChange(category, key) {
+        if (!this._openApplyAllSpec()) return;   // no dialog with a fan-out spec is open
+        this._alsoChanged.add(`${category}.${key}`);
+    },
 
     /**
      * Is ANY settings dialog open right now?
@@ -2318,7 +2346,8 @@ const DevicesDetailModals = {
         const spec = this._openApplyAllSpec();
         if (!spec) return [];
         const srcId = this[spec.idKey];
-        return (DevicesPage._devices || []).filter(d => d.is_active !== false && d.device_id !== srcId);
+        // One holder — see DevicesPage._fanOutEligible for why this is not filtered here.
+        return DevicesPage._fanOutEligible(srcId);
     },
 
     _alsoFooter() {
@@ -2355,9 +2384,13 @@ const DevicesDetailModals = {
                 </button>
                 ${rows}
                 ${n ? `<div class="also-save">
-                    <button type="button" class="btn btn-primary btn-sm" ${this._alsoBusy ? 'disabled' : ''}
+                    <button type="button" class="btn btn-primary btn-sm"
+                            ${this._alsoBusy || this._alsoChanged.size === 0 ? 'disabled' : ''}
                             onclick="DevicesDetailModals._alsoApply()">
-                        ${this._alsoBusy ? 'Applying…' : `Apply ${DevicesPage._escape(spec.label)} to ${n} device${n === 1 ? '' : 's'}`}
+                        ${this._alsoBusy ? 'Applying…'
+                          : this._alsoChanged.size === 0
+                            ? 'Change a setting to apply'
+                            : `Apply ${this._alsoChangedLabel(spec)} to ${n} device${n === 1 ? '' : 's'}`}
                     </button>
                 </div>` : ''}
             </div>`;
@@ -2372,6 +2405,23 @@ const DevicesDetailModals = {
     _alsoAll(on) {
         this._alsoTargets = on ? new Set(this._alsoCandidates().map(d => d.device_id)) : new Set();
         App.renderPage();
+    },
+
+    /**
+     * What the Apply button promises to copy — the CHANGED keys, not the dialog's name.
+     *
+     * 🔴 The old label said "Apply sleep schedule to 3 devices" whatever you had
+     * touched, which is how John expected a wake-time change and got eight other keys.
+     * A button that names the whole dialog while copying one field is a promise the
+     * action does not keep; naming the field is what makes the new behaviour legible.
+     * Falls back to the dialog's label only when several keys changed and listing them
+     * would be longer than it is useful.
+     */
+    _alsoChangedLabel(spec) {
+        const keys = (spec?.keys || []).filter(([c, k]) => this._alsoChanged.has(`${c}.${k}`));
+        if (keys.length === 0 || keys.length > 2) return DevicesPage._escape(spec?.label || 'settings');
+        const pretty = (k) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (m) => m.toUpperCase()).trim().toLowerCase();
+        return DevicesPage._escape(keys.map(([, k]) => pretty(k)).join(' and '));
     },
 
     _alsoBusy: false,
@@ -2478,8 +2528,10 @@ const DevicesDetailModals = {
         const src = DevicesPage._findDevice(this[spec.idKey]);
         if (!src) return;
         const wanted = new Set(targetIds || []);
-        const others = (DevicesPage._devices || [])
-            .filter(d => d.is_active !== false && d.device_id !== src.device_id && wanted.has(d.device_id));
+        // The SAME holder the picker listed from. If these two ever diverge, the user
+        // ticks one set of boxes and a different set of devices changes.
+        const others = DevicesPage._fanOutEligible(src.device_id)
+            .filter((d) => wanted.has(d.device_id));
         // Group by category so we write each category once per device.
         // 🔴 Resolve the SHOWN values, not the stored ones. A sparse blob (a
         // device never configured for sleep) used to skip every key and fan out
@@ -2499,8 +2551,13 @@ const DevicesDetailModals = {
                     ? src.settings.voice.profileId : '',
             },
         };
+        // 🔴 ONLY WHAT CHANGED. "Also apply to" means "apply THIS change to", not "make
+        // these devices match mine" — see _alsoChanged. A dialog opened and applied
+        // without an edit copies nothing, and says so below rather than quietly
+        // stamping nine keys across the fleet.
+        const changed = spec.keys.filter(([cat, key]) => this._alsoChanged.has(`${cat}.${key}`));
         const byCat = {};
-        for (const [cat, key] of spec.keys) {
+        for (const [cat, key] of changed) {
             // Prefer the RESOLVED value, but only where the resolver actually has
             // one — `display` is resolved for screenOffBehavior alone, and the
             // Theme dialog writes display.themeFamily through the same category.
@@ -2513,8 +2570,11 @@ const DevicesDetailModals = {
         // A fan-out that writes nothing is a silent no-op; say so rather than
         // returning quietly (CLAUDE.md: no silent drops).
         if (Object.keys(byCat).length === 0) {
-            console.warn(`DROP: apply-to-all found no values to copy for ${JSON.stringify(spec.keys)} on ${src.device_id}`);
-            Toast?.error?.('Nothing to apply — this device has no values set for that dialog.');
+            console.warn(`DROP: apply-to-all had nothing to copy on ${src.device_id} — `
+                + `changed=${JSON.stringify([...this._alsoChanged])} spec=${JSON.stringify(spec.keys)}`);
+            Toast?.error?.(this._alsoChanged.size === 0
+                ? 'Nothing to apply — change a setting here first, then apply it to the others.'
+                : 'Nothing to apply — this device has no value set for what you changed.');
             return;
         }
         for (const device of others) {

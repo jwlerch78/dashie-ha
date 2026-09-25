@@ -615,6 +615,33 @@ const DevicesPage = {
         return age > this.ARCHIVE_THRESHOLD_DAYS * 86400 * 1000;
     },
 
+    /**
+     * Devices a bulk action ("Also apply to") may target — the household's CURRENTLY
+     * ASSOCIATED devices.
+     *
+     * 🔴 John, 2026-09-25: the picker offered 13 where it should have offered 4. The
+     * filter was `is_active !== false` alone, which is not what this page means by
+     * associated: it also excludes ARCHIVED devices (nothing seen for 30+ days) and
+     * ones the user has explicitly DISMISSED. Both are hidden from the main list, so
+     * the picker was offering to write settings to devices the user had already put
+     * out of sight — and the row would report success, because the write does land.
+     *
+     * 🔴 ONE HOLDER, and that is the point. This rule was written out THREE times —
+     * here in _onSettingChange, in _alsoCandidates (what the picker LISTS) and in
+     * _fanOutTo (what the picker WRITES). Three copies of "which devices count" is how
+     * a list and a write come to disagree, and that disagreement is invisible: you tick
+     * four boxes and a fifth device changes.
+     *
+     * @param {string} [excludeDeviceId] the device being edited, which is written separately
+     */
+    _fanOutEligible(excludeDeviceId) {
+        return (this._devices || []).filter((d) =>
+            d.is_active !== false
+            && !this._isArchived(d)
+            && !this._isDismissed(d)
+            && d.device_id !== excludeDeviceId);
+    },
+
     /** Has the user explicitly hidden this device from the Offline list?
      *  Distinct from the time-based Archive bucket — Archive is automatic
      *  (30d+ since last_seen), Dismiss is an explicit per-user choice
@@ -1169,10 +1196,15 @@ const DevicesPage = {
             ? DevicesDetailModals._alsoTargets : new Set();
         const self = [this._findDevice(deviceId)].filter(Boolean);
         const extra = picked.size
-            ? (this._devices || []).filter(d => d.is_active !== false
-                && d.device_id !== deviceId && picked.has(d.device_id))
+            ? this._fanOutEligible(deviceId).filter((d) => picked.has(d.device_id))
             : [];
         const targets = [...self, ...extra];
+
+        // Record the edit so "Also apply to" fans out THIS change rather than every key
+        // the dialog manages (John, 2026-09-25). Noted before the write, not after, so a
+        // failed save still counts as "the user changed this" — the retry is theirs to
+        // make and the intent was real.
+        if (typeof DevicesDetailModals !== 'undefined') DevicesDetailModals.noteAlsoChange?.(category, key);
 
         const savingKey = `${deviceId}_${key}`;
         this._saving[savingKey] = true;
