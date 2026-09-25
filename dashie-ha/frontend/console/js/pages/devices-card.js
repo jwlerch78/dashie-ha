@@ -249,6 +249,20 @@ const DevicesCard = {
      * unconditionally and John hit it on a device holding `fern` (2026-09-21). A
      * second hand-copy of the condition is how that comes back.
      */
+    /**
+     * Does this household have at least one NAMED profile?
+     *
+     * Same rule as the Voice & AI switcher (§7): with only Default there is nothing to
+     * assign, so the tile is absent rather than present-and-inert. Null-safe on purpose —
+     * AccountSettingsStore.get() returns null until the load resolves, and "not known yet"
+     * must render no tile rather than one that appears a beat later.
+     */
+    _hasNamedProfiles() {
+        const named = window.VoiceProfileKeys?.named?.(
+            window.AccountSettingsStore?.get?.() ?? null);
+        return !!named && Object.keys(named).length > 0;
+    },
+
     _themeEditable() {
         return (typeof FeatureGate === 'undefined')
             || FeatureGate.optionAllowed('display.themeFamily');
@@ -353,18 +367,22 @@ const DevicesCard = {
         const aiVoice = settings.aiVoice || {};
         const photos = settings.photos || {};
 
-        // Theme IS a tile again (John, 2026-09-25: *"use the empty 6th slot"*), placed
-        // immediately before the voice tiles so the card reads device-then-voice. The
-        // header swatch stays: it is glanceable down a column of cards and carries the
-        // colour itself, which a text tile cannot. Both open the same modal and both
-        // ask _themeEditable() — see that function for why the condition has one holder.
+        // VOICE PROFILE is the 6th tile, and it leads the voice group (John, 2026-09-25:
+        // *"it should be the first voice item on the card"*). I first built this slot as
+        // Theme, which was a misreading — theme stays on the header swatch where it has
+        // always been.
         //
-        // The FAMILY-only rule still holds: dark/light is a SEPARATE control (Quick
-        // Controls) and is deliberately NOT folded into the theme name (2026-07-06).
+        // 🔴 IT MUST CARRY AN ICON. `.dtile-l` is screen-reader-only (components.css), so
+        // on a tile the ICON *is* the visible label: without one the value renders alone.
+        // The Theme version shipped iconless in 0.9.47 and drew as the bare word
+        // "Default", which John read as the voice profile — a theme family and a profile
+        // are both called Default. An unlabelled tile is not a cosmetic problem, it is an
+        // unidentifiable control.
         //
-        // ⚠️ No icon, deliberately: the icon set has no palette/theme glyph, and the
-        // candidates all mislead (icon-sun is light/dark, which is the control this one
-        // is explicitly not). The detail page's Theme row carries no icon either.
+        // Hidden entirely until the household HAS a named profile, matching the Voice & AI
+        // switcher (§7). With only Default there is nothing to assign to, and a tile
+        // reading "Default" that opens a one-item picker is a control that cannot do
+        // anything — the shape this card already got wrong once.
 
         // AI Personality — the device blob stores personalityId (template key or
         // custom uuid); resolve it to the catalog's display name.
@@ -462,15 +480,17 @@ const DevicesCard = {
                              { icon: 'icon-moon.svg' })}
                 ${this._tile('Photos', photoAlbum, `DevicesDetailModals.openPhotos('${id}')`,
                              { icon: 'icon-photos.svg' })}
-                ${this._themeEditable() ? this._tile('Theme', DevicesDetailModals.buildThemeSummary(display),
-                             `DevicesDetailModals.openTheme('${id}')`) : ''}
+                ${this._hasNamedProfiles() ? this._tile('Voice profile',
+                             DevicesDetailModals._profileNow(device),
+                             `DevicesDetailModals.openProfile('${id}')`,
+                             { icon: 'icon-voice.svg' }) : ''}
                 ${this._tile('Voice', voiceShown, `DevicesDetailModals.openVoiceSetup('${id}')`,
                              { icon: 'icon-sliders.svg', diff: voice.custom })}
                 ${this._tile('Wake word', wakeShown, `DevicesDetailModals.openWakeWord('${id}')`,
                              { icon: 'icon-microphone.svg', diff: wakeDiffers, household: houseWake })}
                 ${this._tile('Personality', aiPersonality, `DevicesDetailModals.openVoicePersonality('${id}')`,
                              { icon: 'icon-persona.svg' })}
-                ${this._themeEditable() ? '' : this._tileSpacer()}
+                ${this._hasNamedProfiles() ? '' : this._tileSpacer()}
             </div>
         `;
     },
