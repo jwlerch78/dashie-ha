@@ -2218,6 +2218,11 @@
 .dtile-i { flex: none; display: inline-flex; align-items: center; opacity: .42; }
 .dtile-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .dtile.is-spacer { pointer-events: none; background: none; cursor: default; }
+/* The full-width VOICE & AI row (John, 2026-09-25). It sits BELOW .dtiles rather than
+   inside it, so it needs the grid's borders drawn on itself: no right border (nothing
+   beside it) and a bottom border to close the block. `width: 100%` because a flex
+   button outside a grid does not stretch on its own. */
+.dtile-wide { width: 100%; border-right: 0; }
 /* The label is VISUALLY HIDDEN, not removed. The mock is icon + value only, which
    is the compact form John asked for - but the icon is aria-hidden, so deleting the
    label would leave the button's accessible name as a bare value ("10pm-7am", with

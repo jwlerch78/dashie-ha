@@ -58,58 +58,78 @@ const sandbox = {
   DevicesRename: { conflictHaName:()=>null, conflictDevices:()=>[], renderBanner:()=>'' },
   DevicesClaim: { renderBanner:()=>'', fetch: async()=>{} },
   DevicesCamera: { _open:false },
-  BRAND: { consoleName:'Dashie Console' },
   iconImg: () => '<img>',
   VoiceAiApi: { DEFAULTS: { 'ai.defaultPersonalityId':'dashie' }, defaultWakeWord: () => 'hey_dashie' },
   AccountSettingsStore: { get: () => ACCOUNT, ensure(){} },
-  VoiceProfileKeys: { named: (settings) => (settings?.voiceProfiles ?? null) },
+  VoiceProfileKeys: {
+    named: (settings) => (settings?.voiceProfiles ?? null),
+    inherited: (settings, device, cat, key, acct) => ({ value: device?.settings?.[cat]?.[key] || acct || '' }),
+    DEFAULT_PROFILE_ID: 'default',
+  },
+  HaEngines: { raw: null },
   setTimeout, clearTimeout, setInterval, clearInterval,
   fetch: async () => { throw new Error('no network'); },
 };
 let FAM = true;
 let PROFILE_LABEL = 'Evenings';
-let ACCOUNT = { ai: { defaultPersonalityId: 'dashie' }, voiceProfiles: { evenings: { name: 'Evenings' } } };
+let ACCOUNT = {
+  ai: { defaultPersonalityId: 'dashie', model: 'gemini-2.5-flash' },
+  voice: { pipelinePreset: 'cloud', sttProvider: 'dashie_cloud', ttsProvider: 'dashie_cloud' },
+  voiceProfiles: { evenings: { name: 'Evenings' } },
+};
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
+// 🔴 The REAL brand and model catalog, not stubs. Stubbing them is how leg 12 first
+// "failed": the summary was correct and the harness could not spell the label. A stub
+// that is thinner than the shipped collaborator produces findings about the stub.
+vm.runInContext(readFileSync(`${B}/../lib/brand.js`,'utf8'), ctx, { filename:'brand.js' });
+vm.runInContext(readFileSync(`${B}/../lib/ai-models-catalog.js`,'utf8'), ctx, { filename:'ai-models-catalog.js' });
+vm.runInContext(readFileSync(`${B}/../lib/voice-ai-options.js`,'utf8'), ctx, { filename:'voice-ai-options.js' });
+vm.runInContext(readFileSync(`${B}/../lib/voice-pipeline-summary.js`,'utf8'), ctx, { filename:'voice-pipeline-summary.js' });
 vm.runInContext(readFileSync(`${B}/devices.js`,'utf8'), ctx, { filename:'devices.js' });
 vm.runInContext(readFileSync(`${B}/devices-card.js`,'utf8'), ctx, { filename:'devices-card.js' });
 const DC = vm.runInContext('DevicesCard', ctx);
-const device = { device_id:'dev-1', device_type:'tablet', settings:{ display:{ themeFamily:'fern' }, sleep:{}, aiVoice:{}, photos:{} } };
+const device = { device_id:'dev-1', device_type:'tablet', settings:{
+  display:{ themeFamily:'fern' }, sleep:{}, aiVoice:{}, photos:{},
+  voice:{ profileId:'evenings' } } };
 let pass=0, fail=0;
 const t=(n,c,d)=>{ if(c){pass++;console.log(`  PASS  ${n}`);} else {fail++;console.log(`  FAIL  ${n}${d?' — '+d:''}`);} };
 
+// The summary holder is the real module -- loaded below beside the page files -- so
+// these legs exercise the shipped sentence, not a stub of it.
 const html = DC._renderSimpleSettings(device, {});
-t('1 a Voice profile tile is rendered', html.includes('>Voice profile<'), 'no Voice profile label in the grid');
-t('2 it shows the profile NAME', html.includes('>Evenings<'));
-t('3 it opens the profile modal for THIS device', html.includes("openProfile('dev-1')"), 'wrong or undefined device id');
-t('4 no undefined id leaked into any handler', !html.includes('undefined'), 'an onclick carries undefined');
-// 🔴 `.dtile-l` is screen-reader-only, so the ICON is the visible label. A tile without
-// one renders as its bare value -- which is how the 0.9.47 Theme tile drew as just
-// "Default" and read as the voice profile.
-// Counted in the RENDERED output, not read off the source: `_tile` emits a
-// `.dtile-i` span only when an icon was passed, so six tiles must produce six. An
-// iconless tile is an unlabelled one, which is exactly what shipped in 0.9.47.
-const iconCount = (h) => (h.match(/dtile-i/g) || []).length;
-t('5 every rendered tile carries an icon (the icon IS the visible label)',
-  iconCount(html) === 6, `${iconCount(html)} icon(s) across 6 tiles`);
-t('6 it leads the voice group (before Voice)', html.indexOf('>Voice profile<') < html.indexOf('>Voice<'));
-t('7 it sits after Photos', html.indexOf('>Photos<') < html.indexOf('>Voice profile<'));
-t('8 the spacer is gone now the grid is full', !html.includes('is-spacer'));
-t('9 Theme did NOT come back as a tile (it lives on the header swatch)', !html.includes('>Theme<'));
 
-// No NAMED profile => no tile at all (§7). With only Default there is nothing to assign.
-ACCOUNT = { ai: { defaultPersonalityId: 'dashie' } };
-const html2 = DC._renderSimpleSettings(device, {});
-t('10 no named profile => no tile', !html2.includes('>Voice profile<'));
-t('11 ...and the spacer returns so the 2-column rhythm holds', html2.includes('is-spacer'));
-t('12 CONTROL: the other five tiles still render in that state',
-  html2.includes('>Voice<') && html2.includes('>Personality<') && html2.includes('>Sleep<'));
-t('12b CONTROL: the icon count tracks the tile count (so leg 5 can fail)',
-  iconCount(html2) === 5, `${iconCount(html2)} icon(s) across 5 tiles`);
+// ── the 2x2 tile grid ───────────────────────────────────────────────────────
+t('1 four tiles remain', ['>Sleep<','>Photos<','>Wake word<','>Personality<'].every(x => html.includes(x)));
+t('2 the Voice profile TILE is gone (absorbed by the wide row)', !html.includes('>Voice profile<'));
+t('3 the Voice TILE is gone (absorbed by the wide row)',
+  !/>Voice<\/span>/.test(html), 'a standalone Voice tile is still rendered');
+t('4 no spacer -- 4 tiles is already a clean 2x2', !html.includes('is-spacer'));
+t('5 every tile still carries an icon (the icon IS the visible label)',
+  (html.match(/dtile-i/g) || []).length === 5, `${(html.match(/dtile-i/g) || []).length} icons across 4 tiles + 1 row`);
 
-// The account store answering null (not loaded yet) must render no tile, not an empty one.
+// ── the full-width Voice & AI row ───────────────────────────────────────────
+t('6 the wide row is rendered', html.includes('dtile-wide'));
+t('7 it is labelled Voice & AI', html.includes('Voice &amp; AI</span>'));
+t('8 it opens the voice-setup dialog for THIS device', html.includes("openVoiceSetup('dev-1')"));
+t('9 no undefined id leaked into any handler', !html.includes('undefined'));
+// 🔴 The sentence must carry the PROFILE, the preset and the model -- John's shape:
+// "Default (Cloud, Gemini 2.5 Flash) - Dashie Cloud STT - On-Device".
+t('10 the summary names the profile', html.includes('Evenings'));
+t('11 ...the preset', /Evenings \(Cloud/.test(html), html.slice(html.indexOf('dtile-wide'), html.indexOf('dtile-wide') + 400));
+t('12 ...and the AI model', html.includes('Gemini 2.5 Flash'));
+
+// A device on DEFAULT says Default, not the profile's name.
+device.settings.voice = {};
+const htmlDef = DC._renderSimpleSettings(device, {});
+t('13 a device on Default says Default', /Default \(/.test(htmlDef));
+t('14 ...and not the other profile', !htmlDef.includes('Evenings'));
+
+// Nothing known yet => no row, rather than an empty one reading as "no voice setup".
 ACCOUNT = null;
-t('13 account not loaded yet => no tile, no throw', !DC._renderSimpleSettings(device, {}).includes('>Voice profile<'));
+t('15 account not loaded => no wide row, no throw', !DC._renderSimpleSettings(device, {}).includes('dtile-wide'));
+t('16 CONTROL: the four tiles still render in that state',
+  DC._renderSimpleSettings(device, {}).includes('>Sleep<'));
 
 console.log(`check-device-card-tiles: ${pass} pass, ${fail} fail`);
 if (!fail) console.log('\u2705 the card tile grid renders and every tile targets its own device');
