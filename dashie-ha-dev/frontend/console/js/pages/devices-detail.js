@@ -67,7 +67,11 @@ const DevicesDetail = {
         const aiVoice = settings.aiVoice || {};
         const voice = settings.voice || {};
         const photos = settings.photos || {};
-        const m = device.metrics || {};
+        // Worker feed (5s) over the Supabase row (30s), via the one holder.
+        // Reading `device.metrics` here is what made this page disagree with the
+        // card about the very same control, and made a value the user had just
+        // set flip back on the next 30s refresh (John, 2026-09-30).
+        const m = DeviceControlState.metricsFor(device);
         const icon = DevicesPage._deviceIcon(device.device_type);
         const conflict = DevicesPage._conflictHaName(device);
         const conflictBadge = conflict ? `
@@ -171,7 +175,7 @@ const DevicesDetail = {
 
         // Screen on/off
         if (controls.screen !== undefined) {
-            const on = controls.screen !== false;
+            const on = DeviceControlState.resolve(device, 'screen') !== false;
             const busy = !!DevicesCard._busyControl[`${device.device_id}:screen`];
             buttons.push(this._toggleBtn(idAttr, 'screen', on, busy,
                 'icon-tv.svg',
@@ -181,7 +185,7 @@ const DevicesDetail = {
 
         // Dark mode
         if (controls.dark_mode !== undefined) {
-            const dark = !!controls.dark_mode;
+            const dark = !!DeviceControlState.resolve(device, 'dark_mode');
             const busy = !!DevicesCard._busyControl[`${device.device_id}:dark_mode`];
             buttons.push(this._toggleBtn(idAttr, 'dark_mode', dark, busy,
                 dark ? 'icon-moon.svg' : 'icon-sun.svg',
@@ -825,7 +829,7 @@ const DevicesDetail = {
         if (switches.length === 0) return '';
         const idAttr = DevicesPage._escape(device.device_id);
         const rows = switches.map(s => {
-            const on = !!controls[s.role];
+            const on = !!DeviceControlState.resolve(device, s.role);
             const busy = !!DevicesCard._busyControl[`${device.device_id}:${s.role}`];
             return `
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb);">

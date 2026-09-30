@@ -1,5 +1,5 @@
 {
-  "sha": "f95118ecaf882cb09fadb6e1c87fea363863f6a6",
-  "shortSha": "f95118eca",
+  "sha": "6907f14fde5d9d3c470cdf6f3dfaa8f586df74e1",
+  "shortSha": "6907f14fd",
   "builtFrom": "supabase/functions/voice-conversation/orchestrator.ts"
 }

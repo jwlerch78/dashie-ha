@@ -1861,3 +1861,72 @@ Deno.test('options.grounding absent → shipped behaviour, unchanged', async () 
   await runOrchestration(deps(), m.io);
   assertEquals(m.grounded(), true);                  // the default for a non-sports Gemini turn
 });
+
+// ── PREP MARKS (2026-09-30) ──────────────────────────────────────────────────────────────
+// The pre-model region (t0 → pass 1) was never measured: ai_interactions.total_latency_ms is the
+// model PASS only, and on cascade_brain the unexplained remainder is ~1.2s on EVERY turn.
+//
+// 🔴 THESE LEGS EXIST BECAUSE THE FIRST DESIGN WAS WRONG IN A WAY THAT WOULD HAVE SHIPPED GREEN.
+// The marks were going to ride the Turn's `stages` array — which is CALLER-visible (types.ts:256)
+// and is never written to ai_interactions. That would have changed the wire shape for every
+// consumer AND produced a measurement nobody could ever query. Caught by reading the writer, not
+// by a test. So the chain itself is now pinned.
+
+Deno.test('prep marks REACH ai_interactions via tool_trace — the hop that silently drops', async () => {
+  const m = makeIO(['{"type":"response","voice":"It is sunny"}']);
+  await runOrchestration(deps(), m.io);
+  const trace = m.logs.at(-1)!.tool_trace as { prep?: Array<{ name: string; latency_ms: number }> };
+  assert(Array.isArray(trace?.prep), 'tool_trace.prep must exist — this is the only channel to the DB');
+  const names = trace.prep!.map((s) => s.name);
+  assert(names.includes('prep_gather'), `expected prep_gather, got ${names.join(',')}`);
+  assert(names.includes('prep_total'), 'the region total must be present');
+  assert(names.includes('prep_unattributed'), 'the remainder must travel with the marks, always');
+});
+
+Deno.test('🔑 the remainder is REPORTED, not hidden — total minus the named parts', async () => {
+  // The number the instrument exists for. If a future change starts folding the remainder away,
+  // the gap stops being visible and "the brain is slow" becomes unanswerable again.
+  const m = makeIO(['{"type":"response","voice":"It is sunny"}']);
+  await runOrchestration(deps(), m.io);
+  const prep = (m.logs.at(-1)!.tool_trace as { prep: Array<{ name: string; latency_ms: number }> }).prep;
+  const total = prep.find((s) => s.name === 'prep_total')!.latency_ms;
+  const rest = prep.find((s) => s.name === 'prep_unattributed')!.latency_ms;
+  const named = prep
+    .filter((s) => s.name !== 'prep_total' && s.name !== 'prep_unattributed')
+    .reduce((a, s) => a + s.latency_ms, 0);
+  assertEquals(rest, total - named, 'remainder must equal total minus everything named');
+});
+
+Deno.test('CONTROL — the Turn\'s caller-visible `stages` is UNCHANGED by the marks', async () => {
+  // The wire-shape promise. A prep mark leaking into `stages` would change what every existing
+  // consumer receives, and this is the leg that fails if it ever does.
+  const m = makeIO(['{"type":"response","voice":"It is sunny"}']);
+  const turn = await runOrchestration(deps(), m.io);
+  assertEquals(turn.stages.length, 1, 'still exactly the one pass stage');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1']);
+});
+
+Deno.test('a genuinely TWO-PASS turn logs prep on its terminal row', async () => {
+  // secondPass threads prep through 11 call sites; a miss there would leave TOOL turns — the slow
+  // ones, the ones most worth measuring — with no prep at all.
+  //
+  // ⚠️ THE FIRST VERSION OF THIS TEST DID NOT RUN TWO PASSES. It used a tool the harness reports
+  // as unsupported, so the turn DROPped to the caller's native path after one pass — and the
+  // assertion passed anyway, because a one-pass row also carries prep. A green test whose name
+  // claims coverage it does not have is worse than no test (traps 133). The controls below are
+  // what make the two-pass claim real.
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"weather"}',
+    '{"type":"response","voice":"It is 78"}',
+  ], { model: 'claude-haiku-4-5' });
+  const turn = await runOrchestration(deps(), m.io);
+  // CONTROLS: prove it actually took the second pass before asserting anything about prep.
+  assertEquals(m.gatewayCalls(), 2, 'CONTROL: two model calls, i.e. secondPass really ran');
+  assertEquals(turn.stages.map((s) => s.name), ['pass1', 'fetch_search', 'pass2']);
+  assertEquals(m.logs.length, 2, 'CONTROL: two logged rows');
+
+  const trace = m.logs.at(-1)!.tool_trace as { prep?: Array<{ name: string }> };
+  assert(Array.isArray(trace?.prep), 'the TERMINAL row of a two-pass turn must carry prep');
+  assert(trace.prep!.some((s) => s.name === 'prep_total'), 'including its total');
+  assert(trace.prep!.some((s) => s.name === 'prep_unattributed'), 'and its remainder');
+});
