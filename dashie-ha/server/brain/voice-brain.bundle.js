@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: f95118ecaf882cb09fadb6e1c87fea363863f6a6
+   Source git SHA: 6907f14fde5d9d3c470cdf6f3dfaa8f586df74e1
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -4800,6 +4800,37 @@ function templateWeather(data, query = {}) {
   return { voice, text: null, card: null };
 }
 
+// supabase/functions/voice-conversation/prep-timing.ts
+function newPrepSink() {
+  return [];
+}
+async function timed(name, sink, fn) {
+  const start = Date.now();
+  try {
+    return await fn();
+  } finally {
+    sink.push({ name, latency_ms: Date.now() - start });
+  }
+}
+function mark(name, sink, latencyMs) {
+  if (!Number.isFinite(latencyMs) || latencyMs < 0) return;
+  sink.push({ name, latency_ms: Math.round(latencyMs) });
+}
+var PREP_TOTAL = "prep_total";
+var PREP_UNATTRIBUTED = "prep_unattributed";
+function unattributed(sink) {
+  const total = sink.find((s) => s.name === PREP_TOTAL)?.latency_ms;
+  if (typeof total !== "number") return null;
+  const named = sink.filter((s) => s.name !== PREP_TOTAL && s.name !== PREP_UNATTRIBUTED).reduce((acc, s) => acc + (s.latency_ms || 0), 0);
+  return total - named;
+}
+function sealPrep(sink) {
+  if (sink.some((s) => s.name === PREP_UNATTRIBUTED)) return sink;
+  const rest = unattributed(sink);
+  if (rest !== null) sink.push({ name: PREP_UNATTRIBUTED, latency_ms: rest });
+  return sink;
+}
+
 // supabase/functions/voice-conversation/multi-dispatch.ts
 var ZERO_USAGE = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
 function addUsage(a, u) {
@@ -5021,6 +5052,7 @@ async function orchestrate(deps, io, voiceCtx) {
   );
   logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
+  const prep = newPrepSink();
   if (isLikelyNoise(req.text)) {
     io.logInteraction(token, {
       miss: true,
@@ -5041,7 +5073,7 @@ async function orchestrate(deps, io, voiceCtx) {
   }
   if (isEndIntent(req.text)) return endIntentTurn(t0);
   const sessionId = req.conversation_id || crypto.randomUUID();
-  const [personality, retainEnabled, spend, account, rateLimit] = await Promise.all([
+  const [personality, retainEnabled, spend, account, rateLimit] = await timed("prep_gather", prep, () => Promise.all([
     io.resolvePersonality(supabase, userId, req.endpoint_id, req.options?.personality_id),
     io.readRetainTranscripts(supabase, userId),
     // CR1 pre-flight credit gate — folded into the existing parallel reads (no added
@@ -5052,9 +5084,9 @@ async function orchestrate(deps, io, voiceCtx) {
     io.readAccountAiConfig ? io.readAccountAiConfig(supabase, userId) : Promise.resolve({ model: null, webSearchEnabled: null, retrievePicturesEnabled: null, zipCode: null, calendarWriteAccess: null }),
     // CR3: per-account rate-limit backstop. Absent IO → allowed. Inert until enabled.
     io.checkRateLimit ? io.checkRateLimit(supabase, userId) : Promise.resolve({ allowed: true, retryAfterSeconds: 0 })
-  ]);
-  const voiceKey = io.resolveEffectiveVoiceKey ? await io.resolveEffectiveVoiceKey(supabase, userId, req.endpoint_id, personality) || DEFAULT_VOICE_KEY : personality?.voice || DEFAULT_VOICE_KEY;
-  const resolvedVoice = io.resolveVoiceId ? await io.resolveVoiceId(supabase, voiceKey) : null;
+  ]));
+  const voiceKey = io.resolveEffectiveVoiceKey ? await timed("prep_voice_key", prep, () => io.resolveEffectiveVoiceKey(supabase, userId, req.endpoint_id, personality)) || DEFAULT_VOICE_KEY : personality?.voice || DEFAULT_VOICE_KEY;
+  const resolvedVoice = io.resolveVoiceId ? await timed("prep_voice_id", prep, () => io.resolveVoiceId(supabase, voiceKey)) : null;
   voiceCtx.voiceId = resolvedVoice?.voiceId ?? null;
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
   if (io.checkSpendable) {
@@ -5068,7 +5100,7 @@ async function orchestrate(deps, io, voiceCtx) {
   const byokBrain = io.billing === "byok";
   if (!spend.spendable && !byokBrain) return insufficientCreditsTurn(t0, spend.balance);
   const paidToolsOk = spend.spendable && io.paidTools !== false;
-  const modelId = req.options?.model || account.model || await io.getDefaultModel(supabase);
+  const modelId = req.options?.model || account.model || await timed("prep_model", prep, () => io.getDefaultModel(supabase));
   const provider = providerForModel(modelId);
   const webSearchAllowed = account.webSearchEnabled !== false && paidToolsOk;
   const retrievePictures = (req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false)) && paidToolsOk;
@@ -5164,6 +5196,8 @@ ${p1PromptBase}` : p1PromptBase;
     context: `forced web_search (mutable entity: ${forced})`,
     processing_message: "Looking that up"
   }) : null;
+  mark(PREP_TOTAL, prep, Date.now() - t0);
+  sealPrep(prep);
   const pass1 = forcedContent ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } } : await io.callGateway({ provider, prompt: p1Prompt, modelId, grounding: geminiGrounds, kind: "decide", temperature: req.options?.route_temperature, thinkingBudget: req.options?.thinking_budget ?? 0 });
   if (geminiGrounds && pass1.ok && pass1.raw) {
     if (pass1.raw.grounding_queries === void 0) {
@@ -5201,6 +5235,7 @@ ${p1PromptBase}` : p1PromptBase;
       await logPass(
         io,
         deps,
+        prep,
         REQUEST_TYPE,
         req.endpoint_id,
         sessionId,
@@ -5216,6 +5251,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5271,6 +5307,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5296,14 +5333,14 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "web_search") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const queryStr = typeof p1Parsed.query === "string" ? p1Parsed.query : p1Parsed.query?.query || p1Parsed.query?.q || req.text;
     if (!webSearchAllowed) {
       const NO_SEARCH_SENTINEL = {
         note: "Web search is turned OFF for this user. Do NOT claim to have searched. Answer the question from your own knowledge; if you are not certain of a current fact, say you are not able to look it up right now.",
         query: queryStr
       };
-      return await secondPass(io, deps, t0, "web-search", NO_SEARCH_SENTINEL, [p1Stage, { name: "web_search_disabled", latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
+      return await secondPass(io, deps, t0, prep, "web-search", NO_SEARCH_SENTINEL, [p1Stage, { name: "web_search_disabled", latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
     }
     if (provider === "gemini" && geminiGrounds) {
       const GROUNDED_SENTINEL = {
@@ -5311,7 +5348,7 @@ ${p1PromptBase}` : p1PromptBase;
         query: queryStr
       };
       const groundedStage = { name: "grounded_search", latency_ms: 0, provider: "google-grounding" };
-      return await secondPass(io, deps, t0, "web-search", GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+      return await secondPass(io, deps, t0, prep, "web-search", GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
     const tFetch = Date.now();
     let search;
@@ -5334,20 +5371,20 @@ ${p1PromptBase}` : p1PromptBase;
       latency_ms: search?.latency ?? fetchStage.latency_ms,
       success: true
     });
-    return await secondPass(io, deps, t0, "web-search", search, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, "web-search", search, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "home_assistant") {
     const entities = req.provided_context?.ha_entities;
     if (!entities) {
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
       return finalize({ t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: "home_assistant", sessionId, route });
     }
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const commandHint = p1Parsed.query?.command_hint || req.text;
-    return await secondPass(io, deps, t0, "home-assistant", { entities, command_hint: commandHint }, [p1Stage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, "home-assistant", { entities, command_hint: commandHint }, [p1Stage], pass1, provider, modelId, context, sessionId, retain, route);
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "sports") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const sportsQuery = typeof p1Parsed.query === "object" && p1Parsed.query ? p1Parsed.query : { team: req.text };
     if (req.timezone && sportsQuery.tz == null) sportsQuery.tz = req.timezone;
     {
@@ -5385,7 +5422,7 @@ ${p1PromptBase}` : p1PromptBase;
       console.warn("DROP: sports lookup failed upstream \u2014 declining, NOT web-grounding");
     }
     if ((sports?.games?.length || 0) === 0 && !sports?.lookup_failed && groundingAvailable) {
-      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+      return await secondPass(io, deps, t0, prep, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
     const cardForGames = () => {
       const n = sports?.games?.length ?? 0;
@@ -5396,7 +5433,7 @@ ${p1PromptBase}` : p1PromptBase;
       return templateSports(sports, sportsQuery, { timezone: req.timezone }).structured_data ?? void 0;
     };
     if ((sports?.games?.length || 0) > 0 && (wantsGameDetail(req.text) || !templateCanAnswer(req.text))) {
-      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
+      return await secondPass(io, deps, t0, prep, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const synth = templateSports(sports, sportsQuery, { timezone: req.timezone });
     if ((wantsSlate || synth.fallback) && (sports?.games?.length ?? 0) !== 1) {
@@ -5411,6 +5448,7 @@ ${p1PromptBase}` : p1PromptBase;
         await logPass(
           io,
           deps,
+          prep,
           REQUEST_TYPE,
           req.endpoint_id,
           sessionId,
@@ -5432,7 +5470,7 @@ ${p1PromptBase}` : p1PromptBase;
           route
         });
       }
-      return await secondPass(io, deps, t0, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
+      return await secondPass(io, deps, t0, prep, "sports", sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const parsed = { type: "response", voice: synth.voice, text: synth.text, action: null };
     const templatePass = {
@@ -5443,6 +5481,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5471,6 +5510,7 @@ ${p1PromptBase}` : p1PromptBase;
       await logPass(
         io,
         deps,
+        prep,
         REQUEST_TYPE,
         req.endpoint_id,
         sessionId,
@@ -5491,7 +5531,7 @@ ${p1PromptBase}` : p1PromptBase;
         route
       });
     }
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5511,6 +5551,7 @@ ${p1PromptBase}` : p1PromptBase;
       await logPass(
         io,
         deps,
+        prep,
         REQUEST_TYPE,
         req.endpoint_id,
         sessionId,
@@ -5538,6 +5579,7 @@ ${p1PromptBase}` : p1PromptBase;
       await logPass(
         io,
         deps,
+        prep,
         REQUEST_TYPE,
         req.endpoint_id,
         sessionId,
@@ -5558,7 +5600,7 @@ ${p1PromptBase}` : p1PromptBase;
         route
       });
     }
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5572,7 +5614,7 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "music") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5586,7 +5628,7 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "video_feeds") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5600,7 +5642,7 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "schedule_action") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5637,6 +5679,7 @@ ${p1PromptBase}` : p1PromptBase;
       await logPass(
         io,
         deps,
+        prep,
         REQUEST_TYPE,
         req.endpoint_id,
         sessionId,
@@ -5657,7 +5700,7 @@ ${p1PromptBase}` : p1PromptBase;
         route
       });
     }
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
       parsed: p1Parsed,
@@ -5683,6 +5726,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5718,6 +5762,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5739,7 +5784,7 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "dashie_help") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const hq = typeof p1Parsed.query === "object" && p1Parsed.query ? String(p1Parsed.query.question ?? req.text) : typeof p1Parsed.query === "string" && p1Parsed.query ? p1Parsed.query : req.text;
     const tFetch = Date.now();
     const help = await dashieHelpTool.execute({ question: hq }, { timezone: req.timezone });
@@ -5754,10 +5799,10 @@ ${p1PromptBase}` : p1PromptBase;
       note: "No product-documentation entry matched this question. Do NOT invent settings locations, steps, prices, or features. Say you are not sure about that one.",
       question: hq
     };
-    return await secondPass(io, deps, t0, "dashie-help", helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, "dashie-help", helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "wikipedia") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const wq = typeof p1Parsed.query === "object" && p1Parsed.query ? String(p1Parsed.query.query ?? req.text) : typeof p1Parsed.query === "string" && p1Parsed.query ? p1Parsed.query : req.text;
     const tFetch = Date.now();
     const wiki = await wikipediaTool.execute({ query: wq }, { timezone: req.timezone });
@@ -5772,10 +5817,10 @@ ${p1PromptBase}` : p1PromptBase;
       note: "No Wikipedia article matched. Do NOT answer from your own knowledge instead \u2014 say you could not find anything on that.",
       query: wq
     };
-    return await secondPass(io, deps, t0, "wikipedia", wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, "wikipedia", wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
   if (p1Parsed.type === "info_request" && (p1Parsed.tool === "place_search" || p1Parsed.tool === "directions")) {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const q = typeof p1Parsed.query === "object" && p1Parsed.query ? p1Parsed.query : {};
     const isPlaces = p1Parsed.tool === "place_search";
     const tFetch = Date.now();
@@ -5806,10 +5851,10 @@ ${p1PromptBase}` : p1PromptBase;
       note: isPlaces ? "No matching place was found. Do NOT invent a business, address or opening hours \u2014 say you could not find it." : "No route could be worked out. Do NOT estimate a distance or drive time yourself \u2014 say you could not work it out."
     };
     const inquiryType = isPlaces ? "place-search" : "directions";
-    return await secondPass(io, deps, t0, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "personalities") {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const tFetch = Date.now();
     const choices = io.listPersonalities ? await io.listPersonalities(supabase) : await listAvailablePersonalities(supabase);
     const fetchStage = {
@@ -5821,7 +5866,7 @@ ${p1PromptBase}` : p1PromptBase;
       found: false,
       note: "Could not read the personality list. Say you had trouble checking just now and to try again in a moment. Do NOT name personalities from memory and do NOT switch."
     };
-    const pTurn = await secondPass(io, deps, t0, "personalities", catalogData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    const pTurn = await secondPass(io, deps, t0, prep, "personalities", catalogData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
     const enrichedRow = enrichSetPersonalityAction(pTurn.action, choices);
     const greeting = enrichedRow?.greeting_fallback?.trim();
     if (greeting) pTurn.voice = greeting;
@@ -5831,7 +5876,7 @@ ${p1PromptBase}` : p1PromptBase;
   if (p1Parsed.type === "multi") {
     const stepsIn = p1Parsed.steps ?? [];
     if (stepsIn.length < 2) {
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
       const emptyMulti = { type: "response", voice: "", text: null, action: null };
       return finalize({ t0, parsed: emptyMulti, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: "multi", sessionId, route: "multi" });
     }
@@ -5846,6 +5891,7 @@ ${p1PromptBase}` : p1PromptBase;
     await logPass(
       io,
       deps,
+      prep,
       REQUEST_TYPE,
       req.endpoint_id,
       sessionId,
@@ -5869,7 +5915,7 @@ ${p1PromptBase}` : p1PromptBase;
     });
   }
   console.warn(`[orchestrator] DROP: pass-1 routed to unsupported tool '${p1Parsed.tool}' \u2014 falling back to caller's native path`);
-  await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+  await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
   return finalize({ t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: p1Parsed.tool, sessionId, route });
 }
 function routeOf(parsed) {
@@ -5880,7 +5926,7 @@ function routeOf(parsed) {
   if (parsed.type === "info_request") return parsed.tool || "unknown";
   return "direct";
 }
-async function secondPass(io, deps, t0, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false, card2 = void 0) {
+async function secondPass(io, deps, t0, prep, inquiryType, retrievedData, priorStages, pass1, provider, modelId, context, sessionId, retain, route, grounding = false, card2 = void 0) {
   const promptBase = buildPrompt({ userRequest: deps.req.text, inquiryType, retrievedData, context });
   const benchOverride2 = resolveBenchPromptPrefix(
     deps.req.bench_prompt_prefix,
@@ -5920,6 +5966,7 @@ ${promptBase}` : promptBase;
   await logPass(
     io,
     deps,
+    prep,
     REQUEST_TYPE,
     deps.req.endpoint_id,
     sessionId,
@@ -6152,10 +6199,14 @@ function formatHistory(history) {
 ${lines.join("\n")}
 `;
 }
-async function logPass(io, deps, requestType, endpointId, sessionId, prompt, pass, retainText = {}, meta = {}) {
+async function logPass(io, deps, prep, requestType, endpointId, sessionId, prompt, pass, retainText = {}, meta = {}) {
   const usage = pass.raw?.usage || {};
   const trace = meta.tool_trace;
-  const logMeta = trace && trace.args != null ? { ...meta, tool_trace: { ...trace, args: await redactToolArgs(trace.args) } } : meta;
+  const redacted = trace && trace.args != null ? { ...meta, tool_trace: { ...trace, args: await redactToolArgs(trace.args) } } : meta;
+  const logMeta = {
+    ...redacted,
+    tool_trace: { ...redacted.tool_trace ?? {}, prep }
+  };
   const isTemplate = pass.raw?.provider === "template";
   const parsed = parseContent(pass.raw?.content ?? "");
   const parsedOk = isTemplate ? null : !!parsed;
@@ -6211,4 +6262,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "f95118ecaf882cb09fadb6e1c87fea363863f6a6";
+module.exports.BRAIN_SOURCE_SHA = "6907f14fde5d9d3c470cdf6f3dfaa8f586df74e1";

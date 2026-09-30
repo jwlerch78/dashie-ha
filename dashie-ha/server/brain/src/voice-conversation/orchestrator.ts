@@ -78,6 +78,7 @@ import type { GatewayResult, WebSearchResult, LogData, WebSearchLogData, SportsL
 import type { SportsResult } from '../_shared/tools/sports.ts';
 import type { WeatherLocation, WeatherResult } from './weather.ts';
 import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest, WebGuidanceMode } from './types.ts';
+import { timed, mark, newPrepSink, sealPrep, PREP_TOTAL, type PrepSink } from './prep-timing.ts';
 import { dispatchMultiTurn, recoverHaAction } from './multi-dispatch.ts';
 
 export interface OrchestrationDeps {
@@ -512,6 +513,11 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   );
   logBenchOverride(benchOverride, userId);
   const t0 = Date.now();
+  // PREP MARKS: what happens between here and the first model call. `ai_interactions.
+  // total_latency_ms` is the model PASS only (see finalize), so this region has never been
+  // measured — and on cascade_brain it is 1.0-1.6s on every turn. Per-request sink, never
+  // module-level: a Deno isolate serves concurrent requests. See prep-timing.ts.
+  const prep: PrepSink = newPrepSink();
 
   // False-activation guard: a pure-noise transcript (no letters in any script)
   // is a wake-word misfire — return a terminal "didn't catch that" with no AI
@@ -548,7 +554,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
 
   // ai_interactions.session_id is NOT NULL — always supply one (conversation_id when present).
   const sessionId = req.conversation_id || crypto.randomUUID();
-  const [personality, retainEnabled, spend, account, rateLimit] = await Promise.all([
+  const [personality, retainEnabled, spend, account, rateLimit] = await timed('prep_gather', prep, () => Promise.all([
     io.resolvePersonality(supabase, userId, req.endpoint_id, req.options?.personality_id),
     io.readRetainTranscripts(supabase, userId),
     // CR1 pre-flight credit gate — folded into the existing parallel reads (no added
@@ -565,7 +571,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     io.checkRateLimit
       ? io.checkRateLimit(supabase, userId)
       : Promise.resolve({ allowed: true, retryAfterSeconds: 0 }),
-  ]);
+  ]));
 
   // D3 (voice follows personality) + WS-G Round B: resolve the effective voice key → concrete
   // TTS voice id once; the wrapper stamps it onto the returned Turn. Chain (§13.2, voice lock
@@ -573,10 +579,17 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // personality's preferred voice → DEFAULT_VOICE_KEY. Absent IO (Node shell / older tests) →
   // the pre-WS-G personality.voice behavior. Every turn then carries a voice + provider →
   // native routes purely on voice_provider.
+  // ⚠️ These two are SEQUENTIAL and land AFTER the parallel gather above — two more round trips
+  // before the model is asked anything. Measured here, NOT changed: whether they matter is what
+  // this instrument is for, and a fix aimed at them before the numbers exist could be aimed at
+  // the wrong await entirely.
   const voiceKey = io.resolveEffectiveVoiceKey
-    ? (await io.resolveEffectiveVoiceKey(supabase, userId, req.endpoint_id, personality)) || DEFAULT_VOICE_KEY
+    ? (await timed('prep_voice_key', prep, () =>
+        io.resolveEffectiveVoiceKey!(supabase, userId, req.endpoint_id, personality))) || DEFAULT_VOICE_KEY
     : (personality?.voice || DEFAULT_VOICE_KEY);
-  const resolvedVoice = io.resolveVoiceId ? await io.resolveVoiceId(supabase, voiceKey) : null;
+  const resolvedVoice = io.resolveVoiceId
+    ? await timed('prep_voice_id', prep, () => io.resolveVoiceId!(supabase, voiceKey))
+    : null;
   voiceCtx.voiceId = resolvedVoice?.voiceId ?? null;
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
 
@@ -607,7 +620,8 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
 
   // T3 resolution — request override → ACCOUNT setting → global default. This is what
   // makes the console's model/tool choices actually take effect (§16.7 item 4).
-  const modelId = req.options?.model || account.model || (await io.getDefaultModel(supabase));
+  const modelId = req.options?.model || account.model
+    || (await timed('prep_model', prep, () => io.getDefaultModel(supabase)));
   const provider = providerForModel(modelId);
   // web search: ON unless the account explicitly disabled it (null/unset → ON, unchanged).
   // paidToolsOk gates the Dashie-funded tools on a BYOK out-of-credits turn.
@@ -816,6 +830,13 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       processing_message: 'Looking that up',
     })
     : null;
+  // The whole pre-model region, closed here — immediately before the first model call, so the
+  // total covers everything the named marks are subtracted from. sealPrep appends
+  // `prep_unattributed` = total − the named parts: THE number this instrument exists to report,
+  // and the one a tidy summary would drop. A large remainder is a result ("the cost is real and
+  // it is in no step we thought to measure"), never a reason to redefine the total.
+  mark(PREP_TOTAL, prep, Date.now() - t0);
+  sealPrep(prep);
   const pass1: GatewayResult = forcedContent
     ? { ok: true, latency_ms: 0, raw: { content: forcedContent, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } } }
     // Gemini: native Google Search available on pass-1 — current-events queries ground and
@@ -918,13 +939,13 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       console.warn(`[orchestrator] DROP→decline: pass-1 emitted unparseable JSON for unoffered tool '${blobTool}' — speaking the device-capability decline`);
       const declineVoice = KNOWN_DEVICE_TOOL_DECLINES[blobTool];
       const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
         retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
       return finalize({ t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, retain, sessionId, route });
     }
     const clarifyVoice = "Sorry, I didn't quite catch that — could you say it again?";
     const clarify = { type: 'response', voice: clarifyVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
       retainFields(retain.serverPersist, retain.userText, clarifyVoice, null), turnMeta);
     return finalize({ t0, parsed: clarify, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, retain, sessionId, route });
   }
@@ -1009,7 +1030,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           ? { tool_used: 'calendar_context', response_type: p1Parsed?.type ?? null,
               tool_trace: { route: 'calendar', tool: 'calendar_context', args: { time_range: providedCalendar.time_range ?? null }, caps } }
           : turnMeta;
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
       retainFields(retain.serverPersist, retain.userText, responseTextOf(p1Parsed, pass1.raw), p1Parsed?.text ?? null), logMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
@@ -1025,7 +1046,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // ── info_request → web_search (self-fulfilled) ────────────────────────────
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'web_search') {
     // Non-terminal pass: token/cost logged, but no transcript text (pass2 is terminal).
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const queryStr = typeof p1Parsed.query === 'string'
       ? p1Parsed.query
       : ((p1Parsed.query as Record<string, string>)?.query || (p1Parsed.query as Record<string, string>)?.q || req.text);
@@ -1040,7 +1061,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         note: 'Web search is turned OFF for this user. Do NOT claim to have searched. Answer the question from your own knowledge; if you are not certain of a current fact, say you are not able to look it up right now.',
         query: queryStr,
       };
-      return await secondPass(io, deps, t0, 'web-search', NO_SEARCH_SENTINEL, [p1Stage, { name: 'web_search_disabled', latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
+      return await secondPass(io, deps, t0, prep, 'web-search', NO_SEARCH_SENTINEL, [p1Stage, { name: 'web_search_disabled', latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
     }
 
     // Gemini models: native Google Search grounding — the model fetches live results
@@ -1067,7 +1088,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         query: queryStr,
       };
       const groundedStage: Stage = { name: 'grounded_search', latency_ms: 0, provider: 'google-grounding' };
-      return await secondPass(io, deps, t0, 'web-search', GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+      return await secondPass(io, deps, t0, prep, 'web-search', GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
 
     const tFetch = Date.now();
@@ -1090,7 +1111,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       latency_ms: search?.latency ?? fetchStage.latency_ms,
       success: true,
     });
-    return await secondPass(io, deps, t0, 'web-search', search, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, 'web-search', search, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
 
   // ── info_request → home_assistant (entities from provided_context) ────────
@@ -1099,18 +1120,18 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if (!entities) {
       // Brain can't fetch HA entities; caller didn't supply them. Surface as unsupported
       // so the caller can fall back to its native HA path. Not a Dashie spoken turn → no transcript.
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
       return finalize({ t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: 'home_assistant', sessionId, route });
     }
     // Non-terminal pass: no transcript text (pass2 is terminal).
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const commandHint = (p1Parsed.query as Record<string, string>)?.command_hint || req.text;
-    return await secondPass(io, deps, t0, 'home-assistant', { entities, command_hint: commandHint }, [p1Stage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, 'home-assistant', { entities, command_hint: commandHint }, [p1Stage], pass1, provider, modelId, context, sessionId, retain, route);
   }
 
   // ── info_request → sports (self-fulfilled via sports-gateway) ─────────────
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'sports') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const sportsQuery = (typeof p1Parsed.query === 'object' && p1Parsed.query) ? p1Parsed.query as Record<string, unknown> : { team: req.text };
     // The user's zone rides along so the gateway anchors "today" on the USER's calendar
     // day — the server is UTC, where 8 PM Eastern is already tomorrow.
@@ -1177,7 +1198,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       console.warn('DROP: sports lookup failed upstream — declining, NOT web-grounding');
     }
     if ((sports?.games?.length || 0) === 0 && !sports?.lookup_failed && groundingAvailable) {
-      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+      return await secondPass(io, deps, t0, prep, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, true);
     }
     // The card the templates would emit for this result — attached to the SYNTHESIS passes
     // too (John 2026-07-28): a model-voiced sports answer with no card on screen reads as
@@ -1197,7 +1218,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // question. The second half is the 2026-07-16 inversion (see templateCanAnswer): the template
     // used to be the catch-all and would read the fixture back at a roster question forever.
     if ((sports?.games?.length || 0) > 0 && (wantsGameDetail(req.text) || !templateCanAnswer(req.text))) {
-      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
+      return await secondPass(io, deps, t0, prep, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     // ── Tier-1 structured tool: template the answer (no pass-2 LLM) ───────────
     // The gateway already returned structured games[]; synthesize deterministically
@@ -1220,7 +1241,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           ok: true, latency_ms: 0,
           raw: { content: slate.voice, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
         };
-        await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, '(sports slate template)', slatePass,
+        await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, '(sports slate template)', slatePass,
           retainFields(retain.serverPersist, retain.userText, slate.voice, null), turnMeta);
         return finalize({
           t0, parsed: parsedSlate, raw: pass1.raw!, stages: [p1Stage, fetchStage],
@@ -1229,7 +1250,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           retain, sessionId, route,
         });
       }
-      return await secondPass(io, deps, t0, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
+      return await secondPass(io, deps, t0, prep, 'sports', sports, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route, false, cardForGames());
     }
     const parsed = { type: 'response', voice: synth.voice, text: synth.text, action: null } as ReturnType<typeof parseContent>;
     // Log the synthesis as a zero-token "template" pass so the Analysis step and
@@ -1238,7 +1259,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ok: true, latency_ms: 0,
       raw: { content: synth.voice, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
     };
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, '(sports template)', templatePass,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, '(sports template)', templatePass,
       retainFields(retain.serverPersist, retain.userText, synth.voice, synth.text), turnMeta);
     return finalize({
       t0, parsed, raw: pass1.raw!, stages: [p1Stage, fetchStage],
@@ -1266,7 +1287,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if (!callerFulfills(req, 'calendar')) {
       const declineVoice = "You don't have calendar access set up on this device yet.";
       const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
         retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
       return finalize({
         t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
@@ -1275,7 +1296,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     }
     // turnMeta so the device-fulfilled turn still carries route/tool/args(redacted)/caps —
     // the "calendar with time_range=next_week vs next_weekend" diagnostic the trace exists for.
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'calendar', query: p1Parsed.query }, sessionId, route,
@@ -1297,7 +1318,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if (!voiceCalendarWrites) {
       const declineVoice = "Making calendar changes by voice is turned off. You can turn it on in Calendar settings.";
       const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
         retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
       return finalize({
         t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
@@ -1308,14 +1329,14 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if (!Array.isArray(caps) || !caps.includes('calendar_write')) {
       const declineVoice = "I can read the calendar here, but I can't make calendar changes from this device yet.";
       const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
         retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
       return finalize({
         t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
         latency: pass1.latency_ms, retain, sessionId, route,
       });
     }
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'calendar_write', query: p1Parsed.query }, sessionId, route,
@@ -1328,7 +1349,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // the query, the device fulfills + speaks deterministically. No pass-2.
   // Design: 20260711_AI_MUSIC_TOOL_DESIGN.md §3.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'music') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'music', query: p1Parsed.query }, sessionId, route,
@@ -1348,7 +1369,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // Capability-gated upstream: the tool isn't in the prompt at all unless the caller declared
   // 'video_feeds', so a device with no cameras can't route here.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'video_feeds') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'video_feeds', query: p1Parsed.query }, sessionId, route,
@@ -1362,7 +1383,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // prompt, label}; ScheduleActionDirective.kt creates the action and speaks
   // the ack. Plan 20260710_VOICE_ID_CONDITION_ALERTS_PLAN.md WS5-a.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'schedule_action') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'schedule_action', query: p1Parsed.query }, sessionId, route,
@@ -1402,7 +1423,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         }
       }
       const synth = { type: 'response', voice: synthVoice, text: null, action: null } as ReturnType<typeof parseContent>;
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
         retainFields(retain.serverPersist, retain.userText, synthVoice, null), turnMeta);
       return finalize({
         t0, parsed: synth, raw: pass1.raw, stages: [p1Stage, fetchStage], usage: pass1.raw.usage,
@@ -1410,7 +1431,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       });
     }
     // Device-fulfilled weather: same turnMeta stamp as calendar above (route/tool/args/caps).
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
       latency: pass1.latency_ms, client_tool: { tool: 'weather', query: p1Parsed.query }, sessionId, route,
@@ -1430,7 +1451,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ok: true, latency_ms: 0,
       raw: { content: spoken, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
     };
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, '(current_time template)', templatePass,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, '(current_time template)', templatePass,
       retainFields(retain.serverPersist, retain.userText, spoken, null), turnMeta);
     return finalize({
       t0, parsed, raw: pass1.raw!, stages: [p1Stage],
@@ -1467,7 +1488,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ok: true, latency_ms: 0,
       raw: { content: spoken, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, model: 'template', provider: 'template' },
     };
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, `(${p1Parsed.tool} template)`, templatePass,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, `(${p1Parsed.tool} template)`, templatePass,
       retainFields(retain.serverPersist, retain.userText, spoken, null), turnMeta);
     return finalize({
       t0, parsed, raw: pass1.raw!, stages: [p1Stage],
@@ -1483,7 +1504,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // to say it is not sure rather than invent settings paths or prices.
   // Design: 20260711_DASHIE_SKILL_DESIGN.md §4.2.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'dashie_help') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const hq = (typeof p1Parsed.query === 'object' && p1Parsed.query)
       ? String((p1Parsed.query as Record<string, unknown>).question ?? req.text)
       : (typeof p1Parsed.query === 'string' && p1Parsed.query ? p1Parsed.query : req.text);
@@ -1500,7 +1521,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         'locations, steps, prices, or features. Say you are not sure about that one.',
       question: hq,
     };
-    return await secondPass(io, deps, t0, 'dashie-help', helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, 'dashie-help', helpData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
 
   // ── info_request → wikipedia (SERVER-fetched + pass-2) ────
@@ -1514,7 +1535,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // bare found:false invites the model to fall back on its own recollection, which is the exact
   // failure the tool was added to remove.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'wikipedia') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const wq = (typeof p1Parsed.query === 'object' && p1Parsed.query)
       ? String((p1Parsed.query as Record<string, unknown>).query ?? req.text)
       : (typeof p1Parsed.query === 'string' && p1Parsed.query ? p1Parsed.query : req.text);
@@ -1530,7 +1551,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         'you could not find anything on that.',
       query: wq,
     };
-    return await secondPass(io, deps, t0, 'wikipedia', wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, 'wikipedia', wikiData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
 
   // ── info_request → place_search / directions (SERVER-fetched via maps-gateway + pass-2) ────
@@ -1542,7 +1563,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // miss with an explicit do-not-invent note — an address or a drive time guessed from memory is
   // exactly the failure class these tools exist to close.
   if (p1Parsed.type === 'info_request' && (p1Parsed.tool === 'place_search' || p1Parsed.tool === 'directions')) {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const q = (typeof p1Parsed.query === 'object' && p1Parsed.query ? p1Parsed.query : {}) as Record<string, unknown>;
     const isPlaces = p1Parsed.tool === 'place_search';
     const tFetch = Date.now();
@@ -1584,7 +1605,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // inquiryType must match the INQUIRY_BY_TYPE key (hyphenated), NOT the tool name — a
     // mismatch silently discards the retrieved data (see the DROP marker in prompt.ts).
     const inquiryType = isPlaces ? 'place-search' : 'directions';
-    return await secondPass(io, deps, t0, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    return await secondPass(io, deps, t0, prep, inquiryType, data, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
   }
 
   // ── info_request → personalities (self-fulfilled: catalog read + synthesis) ────
@@ -1595,7 +1616,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // resolves the spoken words to a real `key` it can see, instead of guessing one that would
   // fail closed at the client.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'personalities') {
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
     const tFetch = Date.now();
     const choices = io.listPersonalities
       ? await io.listPersonalities(supabase)
@@ -1612,7 +1633,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
         note: 'Could not read the personality list. Say you had trouble checking just now and ' +
           'to try again in a moment. Do NOT name personalities from memory and do NOT switch.',
       };
-    const pTurn = await secondPass(io, deps, t0, 'personalities', catalogData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
+    const pTurn = await secondPass(io, deps, t0, prep, 'personalities', catalogData, [p1Stage, fetchStage], pass1, provider, modelId, context, sessionId, retain, route);
     // Deterministic voice enrichment (VOICE_SINGLE_PATH Batch 3 item 11): the catalog rows are
     // RIGHT HERE, so attach the switched-to personality's voice fields to the action instead of
     // making every client re-lookup the template (native Kotlin has no template service at all —
@@ -1640,7 +1661,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // confirmation would claim work we never did). Surface as unsupported so the caller can retry
     // via its native path — same treatment as an unfulfillable tool.
     if (stepsIn.length < 2) {
-      await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
       const emptyMulti = { type: 'response', voice: '', text: null, action: null } as ReturnType<typeof parseContent>;
       return finalize({ t0, parsed: emptyMulti, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: 'multi', sessionId, route: 'multi' });
     }
@@ -1654,7 +1675,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     });
     // The brain speaks ONE confirmation for the whole turn — retain it as the spoken text (the
     // device fulfills the steps but the user hears `voice`).
-    await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
       retainFields(retain.serverPersist, retain.userText, typeof p1Parsed.voice === 'string' ? p1Parsed.voice : '', null), turnMeta);
     const multiParsed = { type: 'multi', voice: p1Parsed.voice, text: null, action: null } as ReturnType<typeof parseContent>;
     return finalize({
@@ -1671,7 +1692,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // Graceful by design, but LOUD: the model routing to a tool with no brain branch is
   // prompt/schema drift (a renamed tool, or a hand-list ghost) — logPass alone hides it.
   console.warn(`[orchestrator] DROP: pass-1 routed to unsupported tool '${p1Parsed.tool}' — falling back to caller's native path`);
-  await logPass(io, deps, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
+  await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1);
   return finalize({ t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage, latency: pass1.latency_ms, unsupported_tool: p1Parsed.tool, sessionId, route });
 }
 
@@ -1695,6 +1716,7 @@ async function secondPass(
   io: OrchestratorIO,
   deps: OrchestrationDeps,
   t0: number,
+  prep: Stage[],
   inquiryType: string,
   retrievedData: unknown,
   priorStages: Stage[],
@@ -1786,7 +1808,7 @@ async function secondPass(
     }
   }
   // Tool decision comes from pass-1 (the info_request that triggered this synthesis) + the route.
-  await logPass(io, deps, REQUEST_TYPE, deps.req.endpoint_id, sessionId, prompt, pass2,
+  await logPass(io, deps, prep, REQUEST_TYPE, deps.req.endpoint_id, sessionId, prompt, pass2,
     retainFields(retain.serverPersist, retain.userText, responseTextOf(parsed, pass2.raw), parsed?.text ?? null),
     toolMeta(parseContent(pass1.raw?.content ?? ''), route, (context as { caps?: CapsSnapshot } | null)?.caps));
   const p2Stage = passStage('pass2', pass2, parsed?.type);
@@ -2223,6 +2245,11 @@ function formatHistory(history?: VoiceRequest['history']): string {
 async function logPass(
   io: OrchestratorIO,
   deps: OrchestrationDeps,
+  // 🔴 REQUIRED. logPass is the SINGLE writer of every ai_interactions row, so this is the one
+  // place the prep marks can reach the database — `stages` does NOT: it rides `turn.meta` to the
+  // CALLER and is never logged. Required, not defaulted: 29 call sites, and a forgotten one would
+  // write a row with no prep and no error, which reads downstream as a turn that had no prep cost.
+  prep: Stage[],
   requestType: string,
   endpointId: string,
   sessionId: string,
@@ -2239,9 +2266,17 @@ async function logPass(
   // mutating meta (the same args object is referenced by the Turn's client_tool, which the
   // device needs intact to fulfill the tool). Structured enum args pass through verbatim.
   const trace = meta.tool_trace as { args?: unknown } | undefined;
-  const logMeta = (trace && trace.args != null)
+  const redacted = (trace && trace.args != null)
     ? { ...meta, tool_trace: { ...trace, args: await redactToolArgs(trace.args) } }
     : meta;
+  // PREP MARKS → tool_trace, the only channel that reaches ai_interactions. Kept OUT of the Turn's
+  // `stages` deliberately: that array is caller-visible (types.ts:256) and adding to it would
+  // change the wire shape for every consumer, while STILL never reaching the database. Nested
+  // under its own key so it cannot collide with a route's existing trace fields.
+  const logMeta = {
+    ...redacted,
+    tool_trace: { ...((redacted.tool_trace as Record<string, unknown>) ?? {}), prep },
+  };
   // Parse once, reuse for BOTH parsed_ok and the miss classification below.
   // A template pass is locally synthesized prose (provider='template'), not model JSON.
   const isTemplate = pass.raw?.provider === 'template';
