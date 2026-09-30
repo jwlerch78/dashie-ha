@@ -18,11 +18,11 @@ const DevicesCard = {
         const idAttr = DevicesPage._escape(device.device_id);
         const live = DevicesPage._isLive(device);
         const conflict = DevicesPage._conflictHaName(device);
-        // Prefer the worker's freshly-extracted metrics (refreshed every 5s)
-        // over the Supabase-cached row (refreshed every 30s) so motion/face
-        // and other live bits show up promptly.
-        const fresh = DevicesPage._freshDeviceFor(device.device_id);
-        const m = fresh?.metrics || device.metrics || {};
+        // Worker metrics (5s) over the Supabase-cached row (30s), resolved by
+        // the ONE holder that owns that precedence. Writing it inline here is
+        // what let the detail page read the 30s row while this card read the 5s
+        // feed — same control, two answers. See device-control-state.js.
+        const m = DeviceControlState.metricsFor(device);
 
         const statusBadge = live
             ? '<span class="status-dot online" title="Live"></span>'
@@ -111,7 +111,7 @@ const DevicesCard = {
     _renderCompactHeader(device, idAttr, conflict, live) {
         const icon = DevicesPage._deviceIcon(device.device_type);
         const fam = (device.settings?.display?.themeFamily || 'default').toLowerCase();
-        const dark = device.settings?.display?.displayMode === 'dark';
+        const dark = device.settings?.display?.darkMode === true;
         const conflictChip = conflict
             ? `<span title="HA: ${DevicesPage._escape(conflict)}" style="color: var(--accent); font-size: 11px;">⚠</span>`
             : '';
@@ -546,8 +546,8 @@ const DevicesCard = {
 
     _renderSimpleControls(device, idAttr, m) {
         if (!this._controlsAvailable()) return '';
-        const dark = !!m.controls?.dark_mode;
-        const screenOn = m.controls?.screen !== false;
+        const dark = !!DeviceControlState.resolve(device, 'dark_mode');
+        const screenOn = DeviceControlState.resolve(device, 'screen') !== false;
         const reloadBusy = !!this._busyControl[`${device.device_id}:reload`];
         const screenBusy = !!this._busyControl[`${device.device_id}:screen`];
         const darkBusy = !!this._busyControl[`${device.device_id}:dark_mode`];
@@ -580,13 +580,14 @@ const DevicesCard = {
 
         // Volume — small chip showing current value, click opens slider.
         let volumeBtn = '';
-        if (m.controls?.volume != null) {
-            const display = this._scaleTo10(m.controls.volume, m.controls.volume_max);
-            const muted = m.controls.volume === 0;
+        const vol = DeviceControlState.resolve(device, 'volume');
+        if (vol != null) {
+            const display = this._scaleTo10(vol, m.controls?.volume_max);
+            const muted = vol === 0;
             const volIcon = muted ? 'icon-volume-mute.svg' : 'icon-volume-high.svg';
             volumeBtn = `
                 <button class="device-card-detail" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px; background: #f3f4f6; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 999px;" title="Adjust volume"
-                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'volume', ${m.controls.volume}, ${m.controls.volume_max ?? 'null'})">
+                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'volume', ${vol}, ${m.controls?.volume_max ?? 'null'})">
                     ${iconImg(volIcon, 14)}<span style="font-size: 13px;">${muted ? 'Muted' : display}</span>
                 </button>
             `;
@@ -623,7 +624,7 @@ const DevicesCard = {
      * lower-opacity for unlocked.
      */
     _buildLockChip(device, idAttr) {
-        const locked = !!device.metrics?.controls?.lock;
+        const locked = !!DeviceControlState.resolve(device, 'lock');
         const lockBusy = !!this._busyControl[`${device.device_id}:lock`];
         const lockBg = locked ? '#f97316' : 'transparent';
         const lockBorder = locked ? '#f97316' : '#d1d5db';
@@ -694,22 +695,24 @@ const DevicesCard = {
         const room = device.metrics?.ha_area || device.ha_area;
         if (room) chips.push(`<span class="device-card-detail">🏠 ${DevicesPage._escape(room)}</span>`);
 
-        if (m.controls?.volume != null) {
-            const display = this._scaleTo10(m.controls.volume, m.controls.volume_max);
-            const muted = m.controls.volume === 0;
+        const vol = DeviceControlState.resolve(device, 'volume');
+        if (vol != null) {
+            const display = this._scaleTo10(vol, m.controls?.volume_max);
+            const muted = vol === 0;
             const volIcon = muted ? 'icon-volume-mute.svg' : 'icon-volume-high.svg';
             chips.push(`
                 <span class="device-card-detail" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Adjust volume"
-                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'volume', ${m.controls.volume}, ${m.controls.volume_max ?? 'null'})">
+                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'volume', ${vol}, ${m.controls?.volume_max ?? 'null'})">
                     ${iconImg(volIcon, 12)}${muted ? 'Muted' : display}
                 </span>
             `);
         }
-        if (m.controls?.brightness != null) {
-            const display = this._scaleTo10(m.controls.brightness, m.controls.brightness_max);
+        const bright = DeviceControlState.resolve(device, 'brightness');
+        if (bright != null) {
+            const display = this._scaleTo10(bright, m.controls?.brightness_max);
             chips.push(`
                 <span class="device-card-detail" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Adjust brightness"
-                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'brightness', ${m.controls.brightness}, ${m.controls.brightness_max ?? 'null'})">
+                    onclick="event.stopPropagation(); DevicesCard.openSlider('${idAttr}', 'brightness', ${bright}, ${m.controls?.brightness_max ?? 'null'})">
                     ${iconImg('icon-sun.svg', 12)}${display}
                 </span>
             `);
@@ -784,9 +787,12 @@ const DevicesCard = {
                    <img src="${cameraSrc}" alt="camera" style="${imgStyle}" onerror="DevicesCard.onCameraError('${idAttr}')">
                </div>`
             : cameraOffPanel;
-        const dark = !!m.controls?.dark_mode;
-        const screenOn = m.controls?.screen !== false;
-        const cameraOn = !!(m.controls?.camera_streaming || m.controls?.camera_stream_enabled);
+        const dark = !!DeviceControlState.resolve(device, 'dark_mode');
+        const screenOn = DeviceControlState.resolve(device, 'screen') !== false;
+        // camera_streaming is read-only status; camera_stream_enabled is the
+        // role we drive, so only that half goes through resolve().
+        const cameraOn = !!(m.controls?.camera_streaming
+            || DeviceControlState.resolve(device, 'camera_stream_enabled'));
         const motion = !!m.presence?.motion;
         const face = !!m.presence?.face;
         // *_active comes from whether HA reports the binary sensor as
@@ -1131,16 +1137,19 @@ const DevicesCard = {
         const key = `${deviceId}:${role}`;
         if (this._busyControl[key]) return;
         this._busyControl[key] = true;
-        // Optimistic: flip the visible state immediately so the icon
-        // turns orange/black on click instead of waiting ~200-500ms for
-        // the round-trip. We revert on error.
         const device = DevicesPage._findDevice(deviceId);
-        const target = !currentlyOn;
-        if (device) {
-            device.metrics = device.metrics || {};
-            device.metrics.controls = device.metrics.controls || {};
-            device.metrics.controls[role] = target;
-        }
+        // 🔴 Recompute from resolve() rather than trusting `currentlyOn`, which
+        // was baked into the onclick attribute when the card last rendered and
+        // can be up to a full refresh cycle old. A stale baked value is how a
+        // click came to send the device the value it was ALREADY at — which is
+        // John's "and then another click did nothing" (2026-09-30).
+        const resolved = device ? DeviceControlState.resolve(device, role) : currentlyOn;
+        const wasOn = (role === 'screen') ? resolved !== false : !!resolved;
+        const target = !wasOn;
+        // Optimistic, but recorded as an INTENT rather than written into
+        // `device.metrics` — which on this card is not the object being
+        // rendered, so the old write could never move the pill.
+        DeviceControlState.note(deviceId, role, target);
         App.renderPage();
         try {
             await this.control(deviceId, role, target);
@@ -1156,12 +1165,10 @@ const DevicesCard = {
         } catch (e) {
             console.error(`[DevicesCard] toggle ${role} failed:`, e);
             Toast.error(Toast.friendly(e, `toggle ${role.replace('_', ' ')}`));
-            // Revert the optimistic flip — the next poll would also fix
-            // it, but reverting now means the user immediately sees that
-            // the action didn't take effect instead of a stale wrong state.
-            if (device?.metrics?.controls) {
-                device.metrics.controls[role] = currentlyOn;
-            }
+            // Drop the intent — the next poll would also fix it, but dropping
+            // now means the user immediately sees that the action didn't take
+            // effect instead of a stale wrong state.
+            DeviceControlState.forget(deviceId, role);
         } finally {
             delete this._busyControl[key];
             App.renderPage();
@@ -1313,12 +1320,7 @@ const DevicesCard = {
         const actualValue = s.scaleMax === 10 ? s.value : Math.round(s.value / 10 * s.scaleMax);
         try {
             await this.control(s.deviceId, s.role, actualValue);
-            const device = DevicesPage._findDevice(s.deviceId);
-            if (device) {
-                device.metrics = device.metrics || {};
-                device.metrics.controls = device.metrics.controls || {};
-                device.metrics.controls[s.role] = actualValue;
-            }
+            DeviceControlState.note(s.deviceId, s.role, actualValue);
             Toast.success(`${s.label} set to ${s.value}/10`);
         } catch (e) {
             console.error(`[DevicesCard] slider ${s.role} failed:`, e);
@@ -1384,12 +1386,7 @@ const DevicesCard = {
         App.renderPage();
         try {
             await this.control(s.deviceId, s.role, actualValue);
-            const device = DevicesPage._findDevice(s.deviceId);
-            if (device) {
-                device.metrics = device.metrics || {};
-                device.metrics.controls = device.metrics.controls || {};
-                device.metrics.controls[s.role] = actualValue;
-            }
+            DeviceControlState.note(s.deviceId, s.role, actualValue);
             Toast.success(displayValue === 0 ? `${s.label} muted` : `${s.label} set to ${displayValue}/10`);
         } catch (e) {
             Toast.error(Toast.friendly(e, `set ${s.role}`));

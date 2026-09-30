@@ -267,6 +267,15 @@ node "$ADDON_ROOT/scripts/check-card-dialogs.mjs"
 echo "==> Checking the device card tile grid renders"
 node "$ADDON_ROOT/scripts/check-device-card-tiles.mjs"
 
+# ...and a control on those surfaces must have ONE state. The card rendered from
+# the 5s worker feed, the detail page from the 30s Supabase row, and
+# toggleSwitch's optimistic write went into the row only -- so on the card the
+# pill could not move at all, and on the detail page it moved and was then walked
+# back by the next stale refresh. One defect, two opposite symptoms, every line
+# correct in its own file (John, dark/light on the Fire TV, 2026-09-30).
+echo "==> Checking live device controls have one state and clicks stick"
+node "$ADDON_ROOT/scripts/check-control-state.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver

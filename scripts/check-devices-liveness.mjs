@@ -107,6 +107,11 @@ try {
     // Leg 6 needs the card renderer. OPTIONAL: an older vendored tree may not
     // carry it beside devices.js, and a missing sibling must skip that leg
     // rather than fail the whole gate.
+    // DeviceControlState is a real collaborator of the card's control row (it
+    // owns the fresh-over-cached precedence and the pending-intent overlay), so
+    // it loads BEFORE the card or leg 6 throws a ReferenceError at render.
+    const DCS = FILE.replace(/pages\/devices\.js$/, 'lib/device-control-state.js');
+    if (existsSync(DCS)) vm.runInContext(readFileSync(DCS, 'utf8'), ctx, { filename: DCS });
     const CARD = FILE.replace(/devices\.js$/, 'devices-card.js');
     if (existsSync(CARD)) vm.runInContext(readFileSync(CARD, 'utf8'), ctx, { filename: CARD });
 } catch (e) {
