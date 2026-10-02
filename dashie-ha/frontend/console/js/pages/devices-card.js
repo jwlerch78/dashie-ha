@@ -157,7 +157,7 @@ const DevicesCard = {
                     ${this._modelHeadHtml(device)}
                 </div>
                 <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
-                    ${swatch}${this._buildLockChip(device, idAttr)}
+                    ${swatch}${this._buildSettingsChip(idAttr)}${this._buildLockChip(device, idAttr)}
                 </div>
             </div>
         `;
@@ -347,7 +347,7 @@ const DevicesCard = {
                     </div>
                     <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(DevicesPage._typeLabel(device))}</div>
                 </div>
-                <div style="flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; gap: 4px;">${this._buildLockChip(device, idAttr)}</div>
+                <div style="flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; gap: 4px;">${this._buildSettingsChip(idAttr)}${this._buildLockChip(device, idAttr)}</div>
             </div>
         `;
     },
@@ -623,6 +623,40 @@ const DevicesCard = {
      * Offline section per UX request. Colored badge for locked, outline +
      * lower-opacity for unlocked.
      */
+    /**
+     * Settings chip — the DISCOVERABLE way into the device's full settings.
+     *
+     * The whole card has always been clickable (onclick -> showDetail), and the
+     * only visible hint was the "All settings >" link in the footer. John,
+     * 2026-10-02: "it's not intuitive that clicking on the card goes to
+     * settings." So the affordance is explicit now, sized and shaped exactly
+     * like the lock chip beside it.
+     *
+     * Deliberately styled as the UNLOCKED lock is (transparent fill, gray
+     * border, 0.6 opacity) rather than as a filled button: it is a navigation
+     * hint sitting next to a live control, and should not compete with it.
+     *
+     * ⚠️ stopPropagation matters even though the card's own handler does the
+     * same thing — without it the click runs showDetail twice.
+     *
+     * Added to both LIVE headers — _renderCompactHeader (simple card) and
+     * _renderHeader (tech card) — because a chip on only the layout you happen
+     * to be looking at is the class of bug this card keeps producing.
+     *
+     * ⚠️ It is also in _renderSimpleHeader, which has NO CALLER: grepped
+     * 2026-10-02 and its only other mention is this sentence. Left in place
+     * rather than deleted (removing dead code is not this change's job) but
+     * recorded here so nobody counts it as a third shipped surface.
+     */
+    _buildSettingsChip(idAttr) {
+        return `
+            <button title="Open device settings" aria-label="Open device settings"
+                onclick="event.stopPropagation(); DevicesPage.showDetail('${idAttr}')"
+                style="background: transparent; border: 1px solid #d1d5db; cursor: pointer; padding: 3px; border-radius: 50%; line-height: 0; opacity: 0.6;">
+                ${iconImg('icon-settings.svg', 12)}
+            </button>`;
+    },
+
     _buildLockChip(device, idAttr) {
         const locked = !!DeviceControlState.resolve(device, 'lock');
         const lockBusy = !!this._busyControl[`${device.device_id}:lock`];
@@ -657,7 +691,7 @@ const DevicesCard = {
                     </div>
                     <div class="device-card-type" style="margin-top: 2px;">${DevicesPage._escape(DevicesPage._typeLabel(device))}</div>
                 </div>
-                <div style="flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; gap: 4px;">${this._buildLockChip(device, idAttr)}</div>
+                <div style="flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; gap: 4px;">${this._buildSettingsChip(idAttr)}${this._buildLockChip(device, idAttr)}</div>
             </div>
         `;
     },

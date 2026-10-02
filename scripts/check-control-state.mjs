@@ -240,6 +240,30 @@ DCS.forget(DEV_ID, 'screen');
 t('9 forget() drops the intent so a failed command shows the truth',
   DCS.resolve(device, 'screen') === true);
 
+// ── 9b the settings chip is DISCOVERABLE on every live card layout ──────────
+// John, 2026-10-02: "it's not intuitive that clicking on the card goes to
+// settings." The card was always clickable; nothing said so. Driven through
+// render(), because the defect this guards against is a chip added to one of
+// the card's layouts and not the other.
+const chip = (h) => (h.match(/aria-label="Open device settings"/g) || []).length;
+t('9b the settings chip renders on BOTH live card layouts',
+  chip(cardHtml(false)) === 1 && chip(cardHtml(true)) === 1,
+  `simple=${chip(cardHtml(false))} tech=${chip(cardHtml(true))}`);
+// 🔴 This leg must read the CHIP'S OWN button, not the page. Its first version
+// tested the whole card html for `stopPropagation(); showDetail('dev-firetv')`
+// and passed with stopPropagation deleted from the chip — because the footer's
+// "All settings >" link carries the identical onclick. An anchor that is not
+// unique to the subject is not an anchor. (Caught by fault injection.)
+const chipBtn = (h) => {
+  const i = h.indexOf('aria-label="Open device settings"');
+  if (i < 0) return '';
+  return h.slice(h.lastIndexOf('<button', i), h.indexOf('</button>', i));
+};
+t('9c ...and it opens THIS device, with stopPropagation so the card handler cannot double-fire',
+  /event\.stopPropagation\(\);\s*DevicesPage\.showDetail\('dev-firetv'\)/.test(chipBtn(cardHtml(false)))
+  && /event\.stopPropagation\(\);\s*DevicesPage\.showDetail\('dev-firetv'\)/.test(chipBtn(cardHtml(true))),
+  JSON.stringify(chipBtn(cardHtml(false)).slice(0, 180)));
+
 // ── 10-12 the old shapes may not come back ─────────────────────────────────
 // Comments are stripped first: a doc block that QUOTES the old shape is not a
 // violation of it, and a gate that counts its own prose reports itself.
