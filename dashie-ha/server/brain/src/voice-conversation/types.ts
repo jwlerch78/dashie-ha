@@ -271,6 +271,7 @@ export interface PromptContext {
   timezone?: string;           // client IANA zone → formatDateTime() for {{DATE_TIME}}
   providedSports?: unknown;     // §23.6: pre-fetched sports → pass-1 voices it in personality
   providedCalendar?: unknown;   // 20260711: pre-fetched calendar window → pass-1 digests it directly
+  haEntities?: HaEntity[];      // 20261002: pass-1 only — the home's device/room NAMES (ha-devices-block.ts)
   webSearchEnabled?: boolean;   // T3: false → omit web_search from the offered tools list
   /** Gemini native Google Search grounding for THIS turn (`geminiGrounds`, orchestrator.ts:568).
    *  NOT the same as `webSearchEnabled === false`: that is also false when the sports guard fires

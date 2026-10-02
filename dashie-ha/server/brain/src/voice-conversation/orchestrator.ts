@@ -818,6 +818,8 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       ...context,
       ...(providedSports ? { providedSports } : {}),
       ...(providedCalendar ? { providedCalendar } : {}),
+      // Pass 1 only: the home's device/room names (ha-devices-block.ts). Absent → prompt unchanged.
+      ...(req.provided_context?.ha_entities?.length ? { haEntities: req.provided_context.ha_entities } : {}),
     },
   });
   // Prefixed, not substituted — the same layering prompt-probe/household-probe use, so a deployed

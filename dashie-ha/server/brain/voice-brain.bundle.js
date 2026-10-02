@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: f04a09bee7f1c3025c38f00bfc62a4b67f8e9ed5
+   Source git SHA: be8c448b8a12ce208565c7992dd11c2daeb717ee
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -41,6 +41,35 @@ __export(orchestrator_exports, {
   wantsGameDetail: () => wantsGameDetail
 });
 module.exports = __toCommonJS(orchestrator_exports);
+
+// supabase/functions/voice-conversation/ha-devices-block.ts
+var CRITICAL_ANCHOR = "CRITICAL: Respond ONLY with raw JSON";
+function deviceLine(e) {
+  const name = e.friendly_name || e.entity_id;
+  const also = e.aliases?.length ? ` (also called: ${e.aliases.join(", ")})` : "";
+  return `- ${name}${also} \u2014 ${e.domain} \u2014 ${e.area ?? "no room"}`;
+}
+function haDevicesBlock(entities) {
+  return `## Devices in this home
+These are the user's smart-home devices (name \u2014 type \u2014 room). You cannot see their state here, but the home_assistant tool can.
+${entities.map(deviceLine).join("\n")}
+
+Any question about the current state of one of these devices or rooms ("is the back door locked", "what's the office temperature", "which lights are on in the kitchen"), and any command to one of them, is an info_request with tool: "home_assistant". Never answer those from your own knowledge \u2014 you do not know this home's current state. A general question that merely mentions a device TYPE ("what's a good dehumidifier brand") is NOT about this home.
+
+`;
+}
+function injectHaDevices(prompt, entities) {
+  if (!entities?.length) return prompt;
+  const block = haDevicesBlock(entities);
+  const at = prompt.indexOf(CRITICAL_ANCHOR);
+  if (at < 0) {
+    console.warn("DROP: ha-devices block anchor (CRITICAL line) not found in pass-1 prompt \u2014 appended at the END, an UNMEASURED position");
+    return `${prompt}
+
+${block}`;
+  }
+  return prompt.slice(0, at) + block + prompt.slice(at);
+}
 
 // supabase/functions/voice-conversation/templates.ts
 var BASE_CONTEXT = `# Base Context
@@ -2359,6 +2388,7 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
     if (context.multiEnabled) {
       prompt = injectMultiBlock(prompt);
     }
+    prompt = injectHaDevices(prompt, context.haEntities);
   }
   if (context.userLocation) {
     prompt += `
@@ -5220,7 +5250,9 @@ async function orchestrate(deps, io, voiceCtx) {
     context: {
       ...context,
       ...providedSports ? { providedSports } : {},
-      ...providedCalendar ? { providedCalendar } : {}
+      ...providedCalendar ? { providedCalendar } : {},
+      // Pass 1 only: the home's device/room names (ha-devices-block.ts). Absent → prompt unchanged.
+      ...req.provided_context?.ha_entities?.length ? { haEntities: req.provided_context.ha_entities } : {}
     }
   });
   const p1Prompt = benchOverride.active ? `${benchOverride.prefix}
@@ -6299,4 +6331,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "f04a09bee7f1c3025c38f00bfc62a4b67f8e9ed5";
+module.exports.BRAIN_SOURCE_SHA = "be8c448b8a12ce208565c7992dd11c2daeb717ee";

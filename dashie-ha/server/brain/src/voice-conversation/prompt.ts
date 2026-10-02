@@ -5,6 +5,7 @@
 // templates.ts (single source: js/ai/prompts/*.md via scripts/bundle-ai-prompts.js). Synchronous —
 // no fetch/loadTemplate; templates are imported directly.
 
+import { injectHaDevices } from './ha-devices-block.ts';
 import {
   AVAILABLE_TOOLS_LIST,
   BASE_CONTEXT,
@@ -605,6 +606,9 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
     if (context.multiEnabled) {
       prompt = injectMultiBlock(prompt);
     }
+    // The home's device/room names, so a thinking-off router routes state questions instead of
+    // answering them from model knowledge. Measured + rationale: ha-devices-block.ts.
+    prompt = injectHaDevices(prompt, context.haEntities);
   }
 
   // ── WHERE THE HOUSEHOLD IS (need ⑧, John: "supply the zip code / address grounding") ─────────
