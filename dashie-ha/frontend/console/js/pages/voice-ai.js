@@ -55,7 +55,10 @@ const VoiceAiPage = {
     _previewAudio: null,    // the ▶ voice sample currently playing (never two at once)
 
     setTab(tab) {
-        if (tab !== 'settings' && tab !== 'personalities' && tab !== 'chat' && tab !== 'analysis' && tab !== 'benchmark') return;
+        // 'benchmark' deliberately absent (John, 2026-10-02 — cut for the HA
+        // console's first release). A bookmarked ?tab=benchmark now falls through
+        // to the default tab rather than rendering an empty frame.
+        if (tab !== 'settings' && tab !== 'personalities' && tab !== 'chat' && tab !== 'analysis') return;
         this._activeTab = tab;
         if (tab === 'chat' && typeof VoiceAiChat !== 'undefined' && !VoiceAiChat._open) {
             VoiceAiChat.open();
@@ -167,12 +170,6 @@ const VoiceAiPage = {
             return `${tabBar}${html}${editorHtml}`;
         }
 
-        if (this._activeTab === 'benchmark') {
-            const html = (typeof VoiceAiBenchmark !== 'undefined')
-                ? VoiceAiBenchmark.render()
-                : `<div style="color: var(--text-muted); padding: 40px 0; text-align: center;">Benchmark unavailable.</div>`;
-            return `${tabBar}${html}${editorHtml}`;
-        }
 
         if (!this._defaults && !this._loading && !this._error) {
             this._fetch();
@@ -207,7 +204,6 @@ const VoiceAiPage = {
                 ${tab('personalities', 'Personalities')}
                 ${tab('chat', 'AI Chat Interface')}
                 ${tab('analysis', 'History')}
-                ${tab('benchmark', 'Benchmark')}
             </div>`;
     },
 
@@ -226,9 +222,6 @@ const VoiceAiPage = {
         // log) — delegate to it so a click pulls fresh interactions.
         if (this._activeTab === 'analysis' && typeof VoiceAiAnalysis !== 'undefined') {
             return VoiceAiAnalysis.refresh();
-        }
-        if (this._activeTab === 'benchmark' && typeof VoiceAiBenchmark !== 'undefined') {
-            return VoiceAiBenchmark.refresh();
         }
         // Top-bar refresh forces a fresh engine scan — so re-detecting after
         // installing a Piper/Whisper add-on is just "refresh the page".

@@ -125,6 +125,19 @@
         // Already shipped and already routed; these entries move the existing
         // api-keys.js array into the shared list rather than inventing anything.
         {
+            // ⚠️ RETIRED FROM THE PICKER 2026-10-02 (John: "Remove the openrouter
+            // key") — for the HA console's first release, to cut the surface
+            // area that has to be debugged.
+            //
+            // 🔴 Retired, not DELETED, and the difference is not pedantry: an
+            // account that already stored an OpenRouter key would, on a hard
+            // delete, have a live key it can no longer see or remove — stored,
+            // billable, and unreachable. `retired` reuses the `orphaned` path
+            // Bedrock already uses: hidden from everyone who has no key, still
+            // rendered (and removable) for anyone who does.
+            //
+            // To bring it back: delete this one flag.
+            retired: true,
             id: 'openrouter', name: 'OpenRouter', kind: 'brain', group: 'universal',
             surfaces: ['api-keys', 'onboarding'],
             capabilities: [CAP.LLM], credential: CRED_STATIC,
@@ -171,7 +184,10 @@
             auth: AUTH.API_KEY, required: true, adapter: ADAPTER.SHIPPED,
             unlocks: 'Nova models',
             keySource: { url: 'https://console.aws.amazon.com/iam/', free: 'Pay per use' },
-            note: 'Not routable directly — OpenRouter covers Nova instead.',
+            // Was "OpenRouter covers Nova instead" — untrue once OpenRouter left
+            // the picker, and a remedy that names an option the user cannot
+            // reach is worse than naming none.
+            note: 'Not routable directly — no key here can serve Nova yet.',
             fields: [
                 { id: 'accessKeyId', label: 'Access key ID', placeholder: 'AKIA…', secret: true },
                 { id: 'secretAccessKey', label: 'Secret access key', placeholder: '', secret: true },

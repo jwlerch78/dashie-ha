@@ -88,7 +88,10 @@
     <script src="js/pages/voice-ai-personality-edit.js?v=20260712a"></script>
     <script src="js/pages/voice-ai-chat.js?v=20260725a"></script>
     <script src="js/pages/voice-ai-analysis.js?v=20260725a"></script>
-    <script src="js/pages/voice-ai-benchmark.js?v=20260712a"></script>
+    <!-- voice-ai-benchmark.js is NOT loaded: the Benchmark tab was cut for the
+         HA console's first release (John, 2026-10-02). The module is left on
+         disk so restoring the tab is re-adding this line plus its four call
+         sites in voice-ai.js. -->
     <!-- engine-resolution.js is GENERATED (contract #29) and must load BEFORE
          engines-store.js, which reads window.ENGINE_RESOLUTION from it. -->
     <script src="js/lib/engine-resolution.js?v=20260716a"></script>

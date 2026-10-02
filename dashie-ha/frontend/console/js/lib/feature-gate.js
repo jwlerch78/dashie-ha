@@ -487,9 +487,18 @@ const FeatureGate = {
         // user, signed in or not (see LOCAL_MODE_PAGES).
         videoFeeds: 'addon',
 
-        // Credits / token-bank / BYOK — the beta cohort meters cloud voice/AI and
-        // gets starter credits, so it's a beta gate now (was alpha).
-        credits:    'beta-only',
+        // Credits / token-bank / BYOK.
+        //
+        // ⚠️ 2026-10-02 (John): back to ALPHA for the HA console's first release.
+        // Not because the feature is unready — because metered credits are a
+        // harder sell into the HA community as an opening move, and surface we
+        // do not show is surface we do not have to debug. Reversible in one
+        // word: this is a gate, NOT a removal, and every credits code path is
+        // intact behind it.
+        //
+        // History: alpha → beta on 2026-07-03 (access-tier restructure), beta →
+        // alpha here. Nothing about the beta cohort changed; the release did.
+        credits:    'alpha-only',
 
         // API Keys (BYO model-provider keys) — stored on the HA box's add-on
         // /data volume, so the page only exists inside the add-on console.

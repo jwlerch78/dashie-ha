@@ -59,13 +59,15 @@ const ApiKeysPage = {
                 ...M.bySurface('api-keys', 'tool').filter(p => p.group === 'speech')];
     },
 
-    /** Page sections, in render order. Direct provider keys lead (preferred — no markup);
-     *  OpenRouter is the single-key catch-all (and the only path to Amazon Nova). */
+    /** Page sections, in render order. Direct provider keys lead (preferred — no
+     *  markup). The 'universal' section renders only for an account that still
+     *  holds a retired OpenRouter key — the group collapses to nothing when its
+     *  card list is empty, which is the normal case from 2026-10-02 on. */
     GROUPS: [
         { id: 'direct', title: 'Provider keys',
           blurb: `Add a key for the models you use — ${BRAND.productName} runs its brain directly on it, no markup.` },
         { id: 'universal', title: 'One key for everything',
-          blurb: 'A single OpenRouter key unlocks every model, including Amazon Nova. Direct keys above skip OpenRouter’s markup.' },
+          blurb: 'A key you added previously. Dashie no longer offers this provider — remove it here when you no longer want it stored.' },
         { id: 'speech', title: 'Speech',
           blurb: 'Optional upgrades over Home Assistant’s own Whisper and Piper, which work without any key. Billed by the provider to your own account.' },
     ],
@@ -152,6 +154,10 @@ const ApiKeysPage = {
             // change exists to add, and then, once a key was stored, badged them
             // "Not used" with brain-specific remedy copy. Their availability is
             // the manifest's `adapter` field, rendered below.
+            // A RETIRED provider is hidden from anyone who has no key for it, and
+            // still shown to anyone who does, so an already-stored key stays
+            // visible and removable rather than becoming unreachable.
+            .filter(p => !p.retired || this._providers?.[p.id]?.set)
             .filter(p => p.group === 'speech' || routable.includes(p.id) || this._providers?.[p.id]?.set)
             .map(p => (p.group === 'speech' || routable.includes(p.id) ? p : { ...p, orphaned: true }));
     },
@@ -199,7 +205,7 @@ const ApiKeysPage = {
                     ${p.orphaned ? '' : pill}
                 </div>
                 ${p.orphaned ? `<div style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 12px;">
-                    ${BRAND.productName} can’t run its brain on this key yet, so it currently does <strong>nothing</strong> — your turns still use ${BRAND.productName} credits. Use an <strong>OpenRouter</strong> key to run these models on your own account, and remove this one.
+                    ${BRAND.productName} can’t run its brain on this key yet, so it currently does <strong>nothing</strong> — your turns still use ${BRAND.productName} credits. Remove it, and add a key for a provider listed above.
                 </div>` : ''}
                 <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
                     ${inputs}
