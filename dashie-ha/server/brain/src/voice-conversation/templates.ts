@@ -46,7 +46,9 @@ The user said: "{{USER_REQUEST}}"
 
 Note: Speech-to-text may not be entirely accurate.
 
-If the request is empty, garbled, or has no clear intent, it is likely background noise or a wake-word misfire — reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question and do NOT guess what was meant (asking a question on noise creates a loop).
+If the request is empty, garbled, or has no recoverable words at all, it is likely background noise or a wake-word misfire — reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question and do NOT guess what was meant (asking a question on noise creates a loop).
+
+🔴 That line means ONLY "I did not hear you", and it ends the conversation as a misfire. If you DID understand the request and simply cannot fulfil it — nothing available covers it, or the data you were given does not answer it — that is NOT noise. Say "Sorry, I'm not able to help with that." instead, and leave it at that. Never use the "didn't catch that" line for something you understood.
 
 Write your response as if speaking directly to the user. Use "you" to address them, not "the user".
 `;
@@ -291,6 +293,17 @@ Examples:
 - "Where's Dad?" → info_request with tool: "family_locations", query: {member_name: "Dad"}
 - "How far away is Mom?" → info_request with tool: "family_locations", query: {member_name: "Mom"}
 
+### When you understood them but cannot help
+Use shape 1 (RESPONSE) with a plain decline as the \`voice\`:
+\`\`\`json
+{"type": "response", "voice": "Sorry, I'm not able to help with that.", "text": null, "action": null}
+\`\`\`
+Use it when you understood the request but the retrieved data does not answer it — it came back empty, it errored, or it is about something else.
+
+⚠️ If the data DOES contain the answer, ANSWER it. Never decline something you can answer.
+
+Do NOT use "Sorry, I didn't catch that." here. That line means you did not HEAR them, and said to someone who asked a clear question it is wrong twice over: it is untrue, and it ends the conversation as a wake-word misfire. If you heard them, decline instead.
+
 CRITICAL: Respond ONLY with raw JSON. Do NOT wrap in markdown code fences (no \`\`\`json blocks). Just the JSON object directly.
 `;
 
@@ -343,6 +356,7 @@ Parse the user's natural language command into Home Assistant service calls. The
 2. Multiple actions: "turn on the lights and close the garage" → multiple service calls
 3. Actions with parameters: "set the thermostat to 72" → service call with temperature parameter
 4. A state QUESTION: "which lights are on", "is the garage closed", "what's the thermostat set to" → NO action; answer from the \`state\` fields in the entity list (see State Questions)
+5. A question AND a command in one sentence: "is the patio door locked and turn on the deck lights" → BOTH: return the ACTION with every commanded service call, and answer the question in its \`voice\` (see Asked AND Commanded)
 
 ## Available Entities
 
@@ -416,6 +430,29 @@ When the user is asking about device state instead of commanding a change, answe
 {
   "type": "response",
   "voice": "The kitchen light is on; everything else is off."
+}
+\`\`\`
+
+## Asked AND Commanded
+
+When one sentence both ASKS about state and COMMANDS a change, do both — neither half may be dropped:
+- Return an ACTION containing every commanded service call. The question does NOT turn this into a RESPONSE.
+- In that ACTION's \`voice\`, answer the question FIRST from the \`state\` fields, then confirm the command.
+- A command that depends on the answer ("is the shed door open, and close it if it is") → read the state; include the call only when the condition holds, and say what you found.
+
+\`\`\`json
+{
+  "type": "action",
+  "voice": "The patio door is locked. Turning on the deck lights.",
+  "action": {
+    "category": "homeassistant",
+    "command": "execute_commands",
+    "parameters": {
+      "commands": [
+        {"domain": "light", "service": "turn_on", "data": {"entity_id": "light.deck_lights"}}
+      ]
+    }
+  }
 }
 \`\`\`
 
