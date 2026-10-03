@@ -18,6 +18,8 @@
 // "Mio 15\" Dashie"). But every device has a `sensor.<slug>_device_id` — that's the
 // reliable integration fingerprint.
 
+const { availableControlRoles } = require('./ha-control-map');
+
 // Map entity_id role suffix → JSONB fragment. Deep-merged per device.
 // Roles are derived from the entity_id, e.g. `sensor.fire_tv_battery` → "battery".
 const METRIC_MAP = {
@@ -327,12 +329,27 @@ function _buildViaRegistry(states, entityRegistry) {
         const friendlyName = anchor.attributes?.friendly_name || '';
         const deviceName = friendlyName.replace(/ Device ID$/, '').trim() || slug || haDeviceId;
 
+        // Which controls this device can actually be told to do. `metrics.controls`
+        // CANNOT answer this: it is built from METRIC_MAP, which mirrors switch /
+        // number / sensor STATE, and a button has no state to mirror — so every
+        // button role is permanently absent from it. That is why all six Admin
+        // Actions sat greyed out reading "Not supported on this device" on a device
+        // that supports all six. Resolved by the same function /api/ha/control uses,
+        // then existence-checked against HA's own states, so this can never be more
+        // optimistic than a press.
+        const availableControls = availableControlRoles({
+            lookupEntityId: (suffix) => entityIdsByRole[suffix],
+            slug,
+            hasEntity: (entityId) => !!stateById[entityId],
+        });
+
         results.push({
             deviceName,
             slug,
             dashieDeviceId,
             metrics,
             entityIdsByRole,
+            availableControls,
             entityCount: deviceEntities.length,
             hasLiveData: hasAnyLiveData(metrics),
         });
@@ -360,6 +377,9 @@ function _buildViaSlug(states) {
     }).filter(x => x.slug);
 
     const allSlugs = anchorSlugs.map(x => x.slug);
+    // This path has no stateById (that is the registry path's); build the one
+    // lookup availableControlRoles needs, once, rather than per role per device.
+    const entityIdsPresent = new Set(states.map(x => x.entity_id));
 
     const results = [];
     for (const { anchor, slug } of anchorSlugs) {
@@ -405,12 +425,27 @@ function _buildViaSlug(states) {
             ? null
             : rawDeviceId;
 
+        // Which controls this device can actually be told to do. `metrics.controls`
+        // CANNOT answer this: it is built from METRIC_MAP, which mirrors switch /
+        // number / sensor STATE, and a button has no state to mirror — so every
+        // button role is permanently absent from it. That is why all six Admin
+        // Actions sat greyed out reading "Not supported on this device" on a device
+        // that supports all six. Resolved by the same function /api/ha/control uses,
+        // then existence-checked against HA's own states, so this can never be more
+        // optimistic than a press.
+        const availableControls = availableControlRoles({
+            lookupEntityId: (suffix) => entityIdsByRole[suffix],
+            slug,
+            hasEntity: (entityId) => entityIdsPresent.has(entityId),
+        });
+
         results.push({
             deviceName,
             slug,
             dashieDeviceId,
             metrics,
             entityIdsByRole,
+            availableControls,
             entityCount: siblings.length,
             hasLiveData: hasAnyLiveData(metrics),
         });

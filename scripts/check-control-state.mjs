@@ -36,6 +36,8 @@ import vm from 'node:vm';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const C = `${ROOT}/dashie-ha/frontend/console/js`;
@@ -295,6 +297,130 @@ t('14a ...before every page that renders through it',
   && idx('js/lib/device-control-state.js') < idx('js/pages/devices-card.js')
   && idx('js/lib/device-control-state.js') < idx('js/pages/devices-detail.js'),
   'a holder defined after its callers is a ReferenceError at first render');
+
+// ── 15 Admin Actions: availability is a RESOLVE question, not a STATE one ───
+// John, 2026-10-03: "fix the dead admin commands on settings". All six rows were
+// disabled forever, titled "Not supported on this device", on a Fire TV that
+// supports all six. `metrics.controls` is built from METRIC_MAP, which mirrors
+// switch/number/sensor STATE — a button has no state, so no button role was ever
+// in it. Measured on the live box the same day: button.fire_tv_restart_app etc.
+// all exist, so the press path was fine the whole time; only the gate lied.
+//
+// 🔴 The near-miss this leg exists to pin: `entityIds[role]` is NOT the fix.
+// There are THREE names per control (Console role / entity_id suffix / the
+// integration's unique_id tail), and they disagree for exactly the broken ones.
+// relaunch is `restart_app` as an entity and `restart` as an entityIds key. So
+// keying on the role lights up three buttons and leaves three dead — which reads
+// precisely like a working fix.
+const { availableControlRoles, resolveControlEntityId } =
+  require(`${ROOT}/dashie-ha/server/ha-control-map.js`);
+
+// Keys as ha-metrics really writes them (unique_id tails), entities as HA really
+// names them (entity_id tails). Both halves taken from source + a live read.
+const realLookup = (suffix) => ({
+  refresh_webview: 'button.probe_refresh_webview',
+  restart:         'button.probe_restart_app',
+  foreground:      'button.probe_bring_to_foreground',
+}[suffix]);
+const realEntities = new Set([
+  'button.probe_refresh_webview', 'button.probe_restart_app',
+  'button.probe_bring_to_foreground', 'button.probe_clear_cache', 'button.probe_clear_storage',
+]);  // deliberately NO button.probe_reboot_device
+const roles = availableControlRoles({
+  lookupEntityId: realLookup, slug: 'probe',
+  hasEntity: (id) => realEntities.has(id),
+});
+t('15 the two roles whose entityIds key differs from their entity suffix resolve anyway',
+  roles.includes('relaunch') && roles.includes('bring_to_foreground'),
+  `relaunch/bring_to_foreground missing from [${roles}] — the name mismatch is back`);
+t('15a ...and the ones keyed identically still resolve',
+  roles.includes('refresh') && roles.includes('clear_cache') && roles.includes('clear_storage'));
+t('15b CONTROL: a role whose entity HA does NOT have is absent (a leg that can fail)',
+  !roles.includes('reboot'),
+  'reboot was listed although button.probe_reboot_device is not in the fixture');
+
+t('15c /api/ha/control resolves through the SAME function, not its own copy',
+  (() => { const api = readFileSync(`${ROOT}/dashie-ha/server/api/ha.js`, 'utf8');
+           return /resolveControlEntityId\(/.test(api)
+             && !/`\$\{map\.domain\}\.\$\{slug\}_\$\{map\.suffix\}`/.test(api); })(),
+  'the gate and the press must not be able to drift — that is how the tooltip lied');
+
+// ── 15d-f the rendered rows, driven through the top-level detail render ─────
+// _renderAdminSection ignores its `m` argument now, so no caller can hand it the
+// answer (trap 13) — but drive render() anyway, since that is what a user sees.
+const adminBtn = (html, role) => {
+  const i = html.indexOf(`'${DEV_ID}', '${role}'`);
+  if (i < 0) return null;
+  const a = html.lastIndexOf('<button', i);
+  return a < 0 ? null : html.slice(a, html.indexOf('</button>', a));
+};
+const fresh0 = DP._haStatus.lastRun.freshDevices[0];
+
+// Admin Actions ships COLLAPSED (defaultExpanded: false), and _section() emits
+// the body only when expanded — so the first version of these legs anchored on
+// markup that was never in the render, and four of them "failed" for reasons
+// that had nothing to do with the fix. Expand it, then PROVE the body arrived
+// before asserting anything about it.
+DD._loadSections();
+DD._sectionExpanded.admin = true;
+
+fresh0.available_controls = ['relaunch'];
+let dh = detailHtml();
+t('15d0 the admin body is actually in the render (guard: the next legs are blind without it)',
+  dh.includes('Reboot Device') && dh.includes('_pressDestructive'),
+  'the section rendered header-only — every leg below would pass or fail by accident');
+t('15d a supported admin row is live, and its own button is the anchor',
+  adminBtn(dh, 'relaunch') && !/disabled/.test(adminBtn(dh, 'relaunch')),
+  'Relaunch stayed disabled although the worker published it as available');
+t('15e ...while an unpublished row on the SAME render stays disabled',
+  /disabled/.test(adminBtn(dh, 'reboot') || ''),
+  'reboot enabled although it was not in available_controls — the gate is a no-op');
+t('15f ...and says the true reason, not "not supported"',
+  /Not supported on this device/.test(adminBtn(dh, 'reboot') || ''));
+
+fresh0.available_controls = [];
+t('15g CONTROL: an empty list disables the row 15d just enabled',
+  /disabled/.test(adminBtn(detailHtml(), 'relaunch') || ''),
+  'the enabled state in 15d did not come from available_controls at all');
+
+delete fresh0.available_controls;
+t('15h unknown is NOT the same as none — the accessor returns null',
+  DP._availableControlsForDevice(DEV_ID) === null);
+t('15i ...and the row says so rather than asserting unsupported',
+  (() => { const b = adminBtn(detailHtml(), 'reboot') || '';
+           return /Still reading/.test(b) && !/Not supported/.test(b); })(),
+  'a device the worker has not answered for yet was told it lacks the feature');
+fresh0.available_controls = ['relaunch'];
+
+t('15j the old state-derived gate cannot come back',
+  !/controls\[a\.role\]/.test(detailSrc),
+  'metrics.controls can never contain a button role — that was the bug');
+
+// ── 15k end to end: the real extractor, on states shaped like the real box ──
+const haMetrics = require(`${ROOT}/dashie-ha/server/ha-metrics.js`);
+const ADMIN = ['refresh', 'relaunch', 'bring_to_foreground', 'clear_cache', 'clear_storage', 'reboot'];
+const mkStates = (slug, name, buttons) => [
+  { entity_id: `sensor.${slug}_device_id`, state: `${slug}-id`,
+    attributes: { friendly_name: `${name} Device ID` } },
+  ...buttons.map(b => ({ entity_id: `button.${slug}_${b}`, state: 'unknown',
+    attributes: { friendly_name: `${name} ${b}` } })),
+];
+const e2e = haMetrics.buildDeviceMetrics([
+  ...mkStates('probe_tv', 'Probe TV',
+    ['refresh_webview', 'restart_app', 'bring_to_foreground', 'clear_cache', 'clear_storage', 'reboot_device']),
+  ...mkStates('bare_tv', 'Bare TV', []),
+]);
+const probe = e2e.find(d => d.slug === 'probe_tv');
+const bare  = e2e.find(d => d.slug === 'bare_tv');
+t('15k buildDeviceMetrics publishes all six admin roles for a fully-equipped device',
+  ADMIN.every(r => probe?.availableControls?.includes(r)),
+  `got [${probe?.availableControls}]`);
+t('15l CONTROL: a device with no button entities publishes none of them',
+  ADMIN.every(r => !bare?.availableControls?.includes(r)),
+  `a bare device claimed [${bare?.availableControls}] — availability is not being read`);
+t('15m CONTROL: the OLD gate would have found zero on the equipped device',
+  ADMIN.every(r => probe?.metrics?.controls?.[r] === undefined),
+  'metrics.controls now carries button roles, so this gate is measuring the wrong thing');
 
 console.log(`check-control-state: ${pass} pass, ${fail} fail`);
 if (!fail) console.log('✅ one control, one state: clicks land and stale polls cannot walk them back');

@@ -164,6 +164,10 @@ async function runPoll(reason = 'tick') {
             // (whose entity_id slug doesn't match the anchor slug)
             // still address the right HA entity.
             entity_ids: d.entityIdsByRole || {},
+            // Roles a press will actually resolve. The Console gates its control
+            // rows on this instead of on metrics.controls, which is state-derived
+            // and so can never contain a button. See server/ha-control-map.js.
+            available_controls: d.availableControls || [],
             has_live_data: d.hasLiveData,
         }));
 

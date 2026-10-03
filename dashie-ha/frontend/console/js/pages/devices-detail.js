@@ -866,8 +866,13 @@ const DevicesDetail = {
     // =========================================================
 
     _renderAdminSection(device, m) {
-        const controls = m.controls || {};
         const live = DevicesPage._isLive(device);
+        // NOT m.controls — see server/ha-control-map.js. metrics.controls mirrors
+        // entity STATE, and a button has no state, so every role below was always
+        // `undefined` there and all six rows were permanently dead. null means the
+        // worker has not answered yet, which is a different sentence to the user
+        // than "this device cannot do that".
+        const available = DevicesPage._availableControlsForDevice(device.device_id);
         // Each entry: role, label, description, destructive (confirm + red)
         const actions = [
             { role: 'refresh',             label: 'Refresh WebView',       description: 'Hard-refresh the dashboard' },
@@ -879,22 +884,29 @@ const DevicesDetail = {
         ];
         const idAttr = DevicesPage._escape(device.device_id);
         const rows = actions.map(a => {
-            // If the device reports this button entity, show it; otherwise gray it out with a hint.
-            const available = controls[a.role] !== undefined;
+            const supported = available === null ? null : available.includes(a.role);
+            const enabled = live && supported === true;
+            // Three states, three sentences. The old single "Not supported on this
+            // device" was asserted for all three — including for a device that
+            // supports every one of them.
+            const why = !live ? 'Device is offline'
+                : supported === null ? 'Still reading this device’s entities'
+                : supported ? a.description
+                : 'Not supported on this device';
             const busy = !!DevicesCard._busyControl[`${device.device_id}:${a.role}`];
             const handlerName = a.destructive ? '_pressDestructive' : '_pressAdmin';
             const btnColor = a.destructive ? '#c00' : 'var(--text-primary)';
             const btnBorder = a.destructive ? '#fca5a5' : 'var(--border, #d1d5db)';
             return `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb); ${!available || !live ? 'opacity: 0.5;' : ''}">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb); ${!enabled ? 'opacity: 0.5;' : ''}">
                     <div style="flex: 1; min-width: 0;">
                         <div style="font-weight: 500;">${a.label}</div>
                         <div style="color: var(--text-muted); font-size: var(--font-size-sm); margin-top: 2px;">${a.description}</div>
                     </div>
-                    <button title="${available ? a.description : 'Not supported on this device'}"
-                        ${!available || !live || busy ? 'disabled' : ''}
+                    <button title="${DevicesPage._escape(why)}"
+                        ${!enabled || busy ? 'disabled' : ''}
                         onclick="DevicesDetail.${handlerName}('${idAttr}', '${a.role}', '${DevicesPage._escape(a.label)}')"
-                        style="padding: 6px 14px; border-radius: 6px; border: 1px solid ${btnBorder}; background: #fff; color: ${btnColor}; cursor: ${busy ? 'wait' : (available && live ? 'pointer' : 'not-allowed')}; font-size: 13px; font-weight: 500;">
+                        style="padding: 6px 14px; border-radius: 6px; border: 1px solid ${btnBorder}; background: #fff; color: ${btnColor}; cursor: ${busy ? 'wait' : (enabled ? 'pointer' : 'not-allowed')}; font-size: 13px; font-weight: 500;">
                         ${busy ? 'Running…' : 'Run'}
                     </button>
                 </div>
