@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: be8c448b8a12ce208565c7992dd11c2daeb717ee
+   Source git SHA: 8b300885fe9f602b174cf9861efd7b86e1eaf605
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -44,6 +44,7 @@ module.exports = __toCommonJS(orchestrator_exports);
 
 // supabase/functions/voice-conversation/ha-devices-block.ts
 var CRITICAL_ANCHOR = "CRITICAL: Respond ONLY with raw JSON";
+var OVERHEARD_RULE = `Not everything you hear is a request to you. If the speech is people talking to each other \u2014 half of a conversation, with "he", "she" or "it" pointing at something nobody told you about (for example "Did you find where she left the car keys? Okay, never mind.") \u2014 it is overheard, not a question about this home: reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question.`;
 function deviceLine(e) {
   const name = e.friendly_name || e.entity_id;
   const also = e.aliases?.length ? ` (also called: ${e.aliases.join(", ")})` : "";
@@ -55,6 +56,7 @@ These are the user's smart-home devices (name \u2014 type \u2014 room). You cann
 ${entities.map(deviceLine).join("\n")}
 
 Any question about the current state of one of these devices or rooms ("is the back door locked", "what's the office temperature", "which lights are on in the kitchen"), and any command to one of them, is an info_request with tool: "home_assistant". Never answer those from your own knowledge \u2014 you do not know this home's current state. A general question that merely mentions a device TYPE ("what's a good dehumidifier brand") is NOT about this home.
+${OVERHEARD_RULE}
 
 `;
 }
@@ -3251,7 +3253,7 @@ function clockTime(startTime, tz) {
 }
 function scheduleWhen(g, tz) {
   const day = relativeDay(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  const time = g.allDay === true ? "" : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -3259,7 +3261,7 @@ function scheduleWhen(g, tz) {
 }
 function scheduleWhenSpoken(g, tz) {
   const day = relativeDaySpoken(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  const time = g.allDay === true ? "" : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -6331,4 +6333,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "be8c448b8a12ce208565c7992dd11c2daeb717ee";
+module.exports.BRAIN_SOURCE_SHA = "8b300885fe9f602b174cf9861efd7b86e1eaf605";

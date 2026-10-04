@@ -21,6 +21,18 @@ import type { HaEntity } from './types.ts';
 
 const CRITICAL_ANCHOR = 'CRITICAL: Respond ONLY with raw JSON';
 
+// 20261002 (VH s8): the block alone turned overheard people-talk into a clarifying question —
+// "Is that Dave? Okay. Good. Did he bring it?" got "I'm not sure what 'it' refers to…" 15/16 vs 6/16
+// without the block (pass1-chatter.ts, p=0.001), which leaves the mic open on a bystander. This one
+// sentence took it to 0/16 with routing 38/39 and over-routing 0/12 unchanged, and held-out chatter
+// 8/16 → 5/16 (pass1-chatter-fix.ts, results/pass1-chatter-fix.json). Its example deliberately shares
+// no words with any test line. Change the wording and re-measure.
+const OVERHEARD_RULE =
+  'Not everything you hear is a request to you. If the speech is people talking to each other — half of a ' +
+  "conversation, with \"he\", \"she\" or \"it\" pointing at something nobody told you about (for example \"Did you " +
+  "find where she left the car keys? Okay, never mind.\") — it is overheard, not a question about this home: reply only " +
+  'with "Sorry, I didn\'t catch that." Do NOT ask a clarifying question.';
+
 function deviceLine(e: HaEntity): string {
   const name = e.friendly_name || e.entity_id;
   const also = e.aliases?.length ? ` (also called: ${e.aliases.join(', ')})` : '';
@@ -33,6 +45,7 @@ These are the user's smart-home devices (name — type — room). You cannot see
 ${entities.map(deviceLine).join('\n')}
 
 Any question about the current state of one of these devices or rooms ("is the back door locked", "what's the office temperature", "which lights are on in the kitchen"), and any command to one of them, is an info_request with tool: "home_assistant". Never answer those from your own knowledge — you do not know this home's current state. A general question that merely mentions a device TYPE ("what's a good dehumidifier brand") is NOT about this home.
+${OVERHEARD_RULE}
 
 `;
 }

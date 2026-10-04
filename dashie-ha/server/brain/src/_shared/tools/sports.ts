@@ -35,6 +35,17 @@ export interface Game {
   league?: string; status?: string; detail?: string; startTime?: string; venue?: string;
   /** ESPN's `venue.indoor`, carried by the gateway. `undefined` = not measured, never `false`. */
   indoorVenue?: boolean;
+  /**
+   * TRUE when the provider has no kickoff yet, only a date. ⚠️ `undefined` = NOT MEASURED, never
+   * `false` — the test is `allDay === true`, never `allDay !== false`.
+   *
+   * 🔴 IT MUST BE DECLARED HERE OR THE CARD BUILDER CANNOT SEE IT. The gateway carried this field and
+   * guarded `card.start` with it, but `Game` never declared it, so `scheduleWhen` formatted
+   * `startTime` unconditionally. ESPN parks an untimed game at MIDNIGHT EASTERN (`startTime: ev.date`,
+   * espn-provider.ts:797), so the card's detail read "Sun, Jan 10, 12:00 AM" — a kickoff nobody has —
+   * while `start` was correctly absent. John reported it on the widget 2026-10-03.
+   */
+  allDay?: boolean;
   home?: string; away?: string; homeScore?: number | null; awayScore?: number | null;
   winner?: 'home' | 'away' | null;
   // Penalty-shootout result of a knockout game that ended level after regulation/ET.
@@ -360,7 +371,11 @@ export function clockTime(startTime: string | undefined, tz?: string): string {
  *  so a bare "Scheduled" is dropped) when there's no tz/startTime. */
 export function scheduleWhen(g: Game, tz?: string): string {
   const day = relativeDay(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  // 🔴 `=== true` ONLY. An untimed game's `startTime` is ESPN's midnight-EASTERN placeholder, not a
+  // kickoff, so formatting it states a fact nobody has — and west of Eastern it states the WRONG DAY
+  // too (midnight ET = 9 PM PT the previous day). `undefined` means NOT MEASURED and must keep its
+  // time, or every game from a pre-`timeValid` recording silently loses its kickoff.
+  const time = g.allDay === true ? '' : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -378,7 +393,9 @@ export function scheduleWhen(g: Game, tz?: string): string {
  *  caller's job; this function can only format what it's given. */
 export function scheduleWhenSpoken(g: Game, tz?: string): string {
   const day = relativeDaySpoken(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  // Same guard as its twin, and it matters MORE here: this string is fed straight to TTS, so the
+  // unguarded version had Dashie SAY "midnight" about a game with no announced time.
+  const time = g.allDay === true ? '' : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
