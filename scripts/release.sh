@@ -283,6 +283,17 @@ node "$ADDON_ROOT/scripts/check-control-state.mjs"
 echo "==> Checking the prompt modes store free text and share one set of house rules"
 node "$ADDON_ROOT/scripts/check-prompt-modes.mjs"
 
+# A prompt change has no symptom anyone notices while clicking around — it shows
+# up weeks later as the assistant behaving differently, which nobody traces back
+# to a refactor. So the assembled text for a fixed set of configs is committed and
+# a diff is the review. Also asserts the one thing no snapshot can: the function
+# declarations are EXACTLY the enabled set, so a tool the user switched off cannot
+# keep reaching the model — and that no catalog row claims a capability the brain
+# does not serve (a "Photos and albums" tool was drawn during the mockups; it does
+# not exist). Regenerate deliberately: check-prompt-golden.mjs --update
+echo "==> Checking the assembled prompt matches the golden and declares only enabled tools"
+node "$ADDON_ROOT/scripts/check-prompt-golden.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver
