@@ -115,6 +115,24 @@ const VoiceAiApi = {
         'voice.customizePipeline': false,
         'voice.sttProvider': 'dashie_cloud',
         'voice.ttsProvider': 'dashie_cloud',
+        // ── AI Prompt & Tools (2026-10-04) ──────────────────────────────
+        // 'dynamic' = Dashie builds the prompt per turn; 'freeform' = the user
+        // writes it and Dashie adds only the switched-on tools as functions.
+        'ai.promptMode': 'dynamic',
+        // A few standing lines the household wants obeyed. The SAME store in
+        // both modes: switching to Freeform seeds the box from these, so a user
+        // who has already written rules does not get an empty box.
+        'ai.houseRules': '',
+        // The Freeform box itself — Jinja, rendered by HA, never by us.
+        'ai.freeformPrompt': '',
+        // automatic | custom | off — whether the device's resolved personality
+        // is appended to the prompt. 'custom' hands the wording to the user and
+        // drops the personality's voice link, which the editor says out loud.
+        'ai.personalityMode': 'automatic',
+        // Comma-joined tool ids. ⚠️ MUST stay byte-equal to
+        // PromptToolCatalog.defaultEnabled() — check-prompt-modes asserts it,
+        // because this file loads before the catalog and cannot import it.
+        'ai.toolsEnabled': 'home_assistant,live_context,calendar,weather,chores,music,answer',
         'ai.webSearchEnabled': true,
         'ai.retrievePicturesEnabled': false,
         // Defaults ON, matching the native settings page (getPromptForFeedbackEnabled

@@ -152,7 +152,14 @@ const VoiceAiPage = {
     },
 
     render() {
-        const editorHtml = (typeof VoiceAiPersonalityEdit !== 'undefined') ? VoiceAiPersonalityEdit.render() : '';
+        // Every overlay on this tab renders into the same slot. They are mutually
+        // exclusive by construction (each only renders when its own _open is set),
+        // so concatenating is safe and keeps one insertion point rather than three.
+        const editorHtml = [
+            (typeof VoiceAiPersonalityEdit !== 'undefined') ? VoiceAiPersonalityEdit.render() : '',
+            (typeof VoiceAiHouseRules !== 'undefined') ? VoiceAiHouseRules.render() : '',
+            (typeof VoiceAiFreeform !== 'undefined') ? VoiceAiFreeform.render() : '',
+        ].join('');
         const tabBar = this._renderTabBar();
 
         if (this._activeTab === 'chat') {
@@ -483,7 +490,12 @@ const VoiceAiPage = {
             'voice.searxngUrl', 'voice.localTtsUrl', 'voice.localTtsVoiceId', 'voice.localSttUrl',
             'voice.localLlmKey',   // BYO-model API key (remote endpoints) — WS-I; read server-side by node-io.js
             // engine-direct HA voice (detection-gated picker)
-            'voice.haTtsEngineId', 'voice.haTtsVoiceId', 'voice.haSttEngineId'];
+            'voice.haTtsEngineId', 'voice.haTtsVoiceId', 'voice.haSttEngineId',
+            // AI Prompt & Tools. ⚠️ Every one of these is FREE TEXT or an enum —
+            // omitting any from this list silently stores `false` for it, because
+            // the else-branch below coerces everything unlisted to a boolean. A
+            // house-rules paragraph would become the boolean false with no error.
+            'ai.promptMode', 'ai.houseRules', 'ai.freeformPrompt', 'ai.personalityMode', 'ai.toolsEnabled'];
         if (dottedKey === 'ai.conversationTimeout') value = Number(rawValue);
         else if (STRING_KEYS.includes(dottedKey)) value = String(rawValue);
         else value = (rawValue === true || rawValue === 'true');
@@ -672,6 +684,44 @@ const VoiceAiPage = {
      *  any granular provider the new preset filters out — Customize can diverge
      *  afterwards. Explicitly guarded: an unavailable preset never saves
      *  (degradation rule — no silent fall-through to metered usage). */
+    // =========================================================
+    //  AI Prompt & Tools
+    // =========================================================
+
+    /**
+     * Switch between Dashie Dynamic Context and Freeform.
+     *
+     * 🔴 Switching to Freeform SEEDS the box from the house rules when the box
+     * is still empty (John, 2026-10-04). House rules and the Freeform prompt are
+     * the same thing said two ways — a few standing lines the household wants
+     * obeyed — so a user who has written rules and then switches must not be
+     * handed a blank page and asked to write them again. It seeds ONCE, only
+     * into an empty box: a second seed would overwrite prose the user wrote.
+     */
+    setPromptMode(id) {
+        const mode = id === 'freeform' ? 'freeform' : 'dynamic';
+        if (mode === this._defaults['ai.promptMode']) return;
+        if (mode === 'freeform' && !String(this._defaults['ai.freeformPrompt'] || '').trim()) {
+            this.saveDefault('ai.freeformPrompt', window.FreeformPrompt.seed(this._defaults['ai.houseRules']));
+        }
+        this.saveDefault('ai.promptMode', mode);
+    },
+
+    /** The editor is an overlay, not a route — same shape as the personality
+     *  editor beside it. It is reached from one place and returns to it, so a
+     *  route would add a navigable URL nobody links to and a back button that
+     *  loses an unsaved prompt. */
+    openPromptEditor() { window.VoiceAiFreeform.open(); },
+
+    openHouseRules() { window.VoiceAiHouseRules.open(); },
+
+    /** Flip one tool on or off. The catalog owns the stored shape so the order
+     *  stays stable and a renamed function cannot switch a tool off. */
+    toggleTool(id, on) {
+        const next = window.PromptToolCatalog.toggled(this._defaults['ai.toolsEnabled'], id, !!on);
+        this.saveDefault('ai.toolsEnabled', next);
+    },
+
     selectPreset(id) {
         const O = window.VoiceAiOptions;
         if (!O.PRESETS.some(p => p.id === id)) return;
@@ -1754,8 +1804,20 @@ const VoiceAiPage = {
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
             // FeatureGate.shouldShow('promptForFeedback').
-            FeatureGate.shouldShow('chores') ? this._toggleRow('Always use AI for chores', 'Disable the fast path — routes all chore commands through AI (uses more tokens).', 'voice.alwaysUseAI', d['voice.alwaysUseAI']) : '',
+            // 'Always use AI for chores' HIDDEN 2026-10-04 (John: "we probably won't
+            // be using that in HA really ever"). The key and its behaviour are
+            // untouched — only the row is gone, so an account that already set it
+            // keeps whatever it chose. Restore by putting this row back.
         ].filter(Boolean).join('');
+
+        // AI Prompt & Tools: the mode choice, the pickers, the tools summary and
+        // (dynamic only) house rules. The component owns the order.
+        const promptSectionArgs = {
+            mode: d['ai.promptMode'],
+            houseRules: d['ai.houseRules'],
+            tools: d['ai.toolsEnabled'],
+        };
+        const promptBody = window.VoiceAiPromptSection.render({ ...promptSectionArgs, pickers: toolsPickers });
 
         // Summaries: what each section says when shut. Read from the SAME ids the
         // cards render from, so a collapsed page cannot disagree with an open one.
@@ -1766,6 +1828,7 @@ const VoiceAiPage = {
             showPipeline ? lbl(ttsAll, ttsSelectedId) : '',
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
+            ...window.VoiceAiPromptSection.summary(promptSectionArgs),
             showPipeline ? lbl(searchOptions, searchSelected) : '',
             // John, 2026-09-23: the summary must capture conversation mode. It is the
             // one setting in here that changes how every single turn behaves, so a
@@ -1798,11 +1861,11 @@ const VoiceAiPage = {
             })}
             ${isHaAssist ? '' : S.render({
                 id: 'tools',
-                title: 'AI Tools & Settings',
+                title: 'AI Prompt & Tools',
                 summary: toolsSummary,
                 body: `
-                    ${toolsPickers}
-                    <div class="card" style="margin-top: ${toolsPickers ? '10px' : '0'};"><div class="card-body">
+                    ${promptBody}
+                    <div class="card" style="margin-top: 10px;"><div class="card-body">
                         ${toolToggles}
                     </div></div>`,
             })}

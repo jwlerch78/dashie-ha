@@ -276,6 +276,13 @@ node "$ADDON_ROOT/scripts/check-device-card-tiles.mjs"
 echo "==> Checking live device controls have one state and clicks stick"
 node "$ADDON_ROOT/scripts/check-control-state.mjs"
 
+# saveDefault coerces every key not in its STRING_KEYS list to a BOOLEAN. Four of
+# the five AI Prompt & Tools keys are free text or enums, so a key added to the
+# page without being added to that list stores `false` for a house-rules
+# paragraph — no error, and the row renders empty on the next load.
+echo "==> Checking the prompt modes store free text and share one set of house rules"
+node "$ADDON_ROOT/scripts/check-prompt-modes.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver
