@@ -72,6 +72,68 @@ async function getState(entityId) {
 }
 
 /**
+ * Render a Jinja template through HA's own template engine.
+ *
+ * 🔴 WE DO NOT RENDER JINJA OURSELVES, ON PURPOSE. The Freeform prompt box is
+ * the same box HA users already fill in on their own conversation agent, so it
+ * has to behave identically — `now()`, `states()`, `areas()`, every filter and
+ * every extension. Re-implementing a subset in Node would be a second Jinja
+ * that is subtly wrong, and the failures would look like our bugs.
+ *
+ * ⚠️ VARIABLE NAMES MUST BE NAMESPACED. HA already defines `device_name()` and
+ * `device_area()` as template FUNCTIONS (DeviceExtension). Passing variables
+ * under those names shadows them, so a user's `{{ device_name('switch.x') }}`
+ * silently stops working. Measured 2026-10-03: with no variables passed,
+ * `{{ device_name }}` renders as "<function DeviceExtension.device_name at
+ * 0x...>". Hence dashie_* for everything we inject.
+ *
+ * Returns { ok: true, rendered } or { ok: false, error } — HA's own message,
+ * passed through verbatim, because HA's wording about a Jinja error is better
+ * than anything we would write and matches what the user sees elsewhere in HA.
+ */
+let _haNameCache = { value: null, at: 0 };
+
+/** HA's location_name, which `{{ ha_name }}` must resolve to. Cached briefly:
+ *  the editor renders on every press of Render, and the house does not move. */
+async function _haName(config) {
+    if (_haNameCache.value !== null && Date.now() - _haNameCache.at < 60000) return _haNameCache.value;
+    try {
+        const resp = await fetch(`${config.baseUrl}/api/config`, {
+            headers: { Authorization: `Bearer ${config.token}` },
+        });
+        if (!resp.ok) return _haNameCache.value || '';
+        const name = (await resp.json())?.location_name || '';
+        _haNameCache = { value: name, at: Date.now() };
+        return name;
+    } catch { return _haNameCache.value || ''; }
+}
+
+async function renderTemplate(template, variables = {}) {
+    const config = getConfig();
+    if (!config) throw new Error('HA client not configured');
+    // 🔴 ha_name and user_name are VARIABLES HA's conversation layer passes in
+    // (core 2026.9.3 chat_log.py _async_expand_prompt_template), NOT template
+    // globals. Rendering `{{ ha_name }}` through /api/template without them
+    // yields an EMPTY STRING, so the default prompt reads "You are the voice
+    // assistant for ." — correct-looking output, silently missing the house.
+    // Measured 2026-10-04. Ours are injected here, under HA's names, so the box
+    // behaves exactly like the Instructions box in the user's own agent.
+    const withContext = { ha_name: await _haName(config), user_name: '', ...variables };
+    const resp = await fetch(`${config.baseUrl}/api/template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template, variables: withContext }),
+    });
+    const body = await resp.text();
+    if (resp.ok) return { ok: true, rendered: body };
+    // HA answers a bad template with 400 and {"message":"Error rendering
+    // template: UndefinedError: ..."}. Keep the message; drop the envelope.
+    let message = body;
+    try { message = JSON.parse(body).message || body; } catch { /* not JSON — show it raw */ }
+    return { ok: false, error: message, status: resp.status };
+}
+
+/**
  * Get history for a single entity between two ISO timestamps.
  * Uses `minimal_response` + `no_attributes` so HA only returns
  * {state, last_changed} per sample — the chart doesn't need the
@@ -147,6 +209,7 @@ async function clearTranscripts() {
 }
 
 module.exports = {
+    renderTemplate,
     getConfig,
     isAvailable,
     checkConnection,
