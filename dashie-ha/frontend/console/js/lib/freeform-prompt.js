@@ -38,9 +38,30 @@
     //                      DATE_TIME_PROMPT   # only when no GetDateTime tool,
     //                      extra_system_prompt ]
     //
-    // The user's text is FIRST and nothing structural follows it. Tool schemas appear
-    // nowhere in the prompt — they go to the model as declarations — which is why
-    // nothing a user writes can break them.
+    // The user's text is FIRST. ⚠️ TWO THINGS THAT COMMENT USED TO CLAIM WERE FALSE OF
+    // THIS FILE, corrected 2026-10-05 — an overstatement in a docstring is how the next
+    // person concludes the design forbids something it already does:
+    //
+    //   1. "nothing structural follows it" — `raw()` DOES append: a live-context
+    //      behavior line, the date line, and a TOOLS block. This is HA-faithful in
+    //      spirit rather than in letter: HA appends `api_prompt` and `DATE_TIME_PROMPT`
+    //      after the user prompt too. What is true is that nothing REWRITES or wraps
+    //      the user's text, and nothing structural precedes it.
+    //
+    //   2. "Tool schemas appear nowhere in the prompt" — they appear right here, as the
+    //      TOOLS block. In HA they would be function DECLARATIONS, never prompt text.
+    //      Ours are prompt text because `functionCall` support is **0 across all four
+    //      ai-gateway providers** (bedrock/claude/gemini/openai, verified 2026-10-05),
+    //      so declarations are not available to us yet. That is a CONSTRAINT we are
+    //      working around, not a design choice — and it is why a user's text cannot be
+    //      trusted to leave the tool list intact the way HA's can.
+    //
+    // 🔴 CONSEQUENCE FOR TOOL ROUTING, which is the thing to understand before editing
+    // this file: the add-on's pass 1 routes a tool only when `parseContent` yields
+    // `{type:'info_request', tool}` (orchestrator.ts:943). An unparseable pass 1 falls
+    // into the TERMINAL branch (`:976` leads with `!p1Parsed`), so pass 2 never runs —
+    // and pass 2 is what produces cards. A Freeform prompt that replaces our format
+    // instructions therefore costs cards unless this assembly supplies them.
     //
     // ── WHY THE DEFAULT BOX IS NOT EMPTY ───────────────────────────────────────────
     // HA's own default is three lines (helpers/llm.py DEFAULT_INSTRUCTIONS_PROMPT),
