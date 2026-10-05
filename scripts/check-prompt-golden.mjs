@@ -33,7 +33,8 @@
  * 🔴 WHAT THIS GATE DOES **NOT** COVER, so nobody reads a green as more than it
  * is: it checks what the CONSOLE assembles and previews. The brain's actual send
  * is Stage 2 and does not exist — `dashie__Answer` is not yet a declaration
- * anywhere. CONTRACTS row 180 is the standing note that these two must meet.
+ * anywhere. CONTRACTS #183 is the standing note that these two must meet (it was
+ * filed as 180, which CL's plan-gate row already owned — renumbered 2026-10-04).
  */
 process.env.TZ = 'UTC';   // before the first Date touch — see leg 0.
 
