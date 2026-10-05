@@ -46,29 +46,42 @@
 // `id` is what persists (comma-joined in ai.toolsEnabled). It is deliberately NOT
 // the fn name: renaming a function must not silently switch a tool off for everyone
 // who had it on.
+//
+// 🔴 THREE NAMES PER TOOL, AND THE DIFFERENCE IS LOAD-BEARING:
+//   id    — what persists in ai.toolsEnabled. Never changes.
+//   fn    — the HA-style `dashie__*` name. For the FUTURE, when tools go to the
+//           model as function DECLARATIONS. Nothing sends these today, because
+//           functionCall support is 0 across all four ai-gateway providers.
+//   brain — the name `parseContent` actually recognises in
+//           `{type:'info_request', tool:'<brain>'}` (KNOWN_TOOLS in parse.ts).
+//           THIS is what reaches the model under option 1, and therefore what the
+//           Raw view must print — printing `fn` while sending `brain` would make the
+//           preview a confident non-answer about the one thing it claims to show.
+//   brain: null — behavioral only, not callable. `live_context` is a prompt line;
+//           `answer` means "use the response envelope", which IS the format block.
 
 /** Ordered as the sidebar renders them: what an HA household reaches for first at
  *  the top. `on` is the default for an account that has never set this, chosen to
  *  match what the dynamic prompt already offers today. */
 const TOOLS = [
-    { id: 'home_assistant', label: 'Home Assistant', fn: 'dashie__ControlHome', args: 'command_hint', on: true },
-    { id: 'live_context', label: 'Live entity state', fn: 'dashie__GetLiveContext', args: 'name?, domain?, area?', on: true },
-    { id: 'calendar', label: 'Family calendar', fn: 'dashie__GetCalendarEvents', args: 'time_range, member?', on: true },
-    { id: 'calendar_write', label: 'Add & change events', fn: 'dashie__WriteCalendarEvent', args: 'action, title?, date?, time?', on: false },
-    { id: 'weather', label: 'Weather', fn: 'dashie__GetWeather', args: 'timeframe, location?', on: true },
-    { id: 'chores', label: 'Chores & rewards', fn: 'dashie__GetChores', args: 'hint?, member_hint?', on: true },
-    { id: 'locations', label: 'Where is everyone', fn: 'dashie__GetFamilyLocations', args: 'member_name?', on: false },
-    { id: 'music', label: 'Music', fn: 'dashie__ControlMusic', args: 'action, query?, speaker?', on: true },
-    { id: 'video_feeds', label: 'Camera feeds', fn: 'dashie__ShowVideoFeed', args: 'action, camera?, time?', on: false },
-    { id: 'sports', label: 'Sports scores', fn: 'dashie__GetSports', args: 'sport, league, team, type', on: false },
-    { id: 'schedule', label: 'Timers & reminders', fn: 'dashie__ScheduleAction', args: 'time|delay_minutes, kind, label', on: false },
-    { id: 'web_search', label: 'Web search', fn: 'dashie__SearchWeb', args: 'query', on: false },
+    { id: 'home_assistant', label: 'Home Assistant', fn: 'dashie__ControlHome', args: 'command_hint', on: true , brain: 'home_assistant' },
+    { id: 'live_context', label: 'Live entity state', fn: 'dashie__GetLiveContext', args: 'name?, domain?, area?', on: true , brain: null },
+    { id: 'calendar', label: 'Family calendar', fn: 'dashie__GetCalendarEvents', args: 'time_range, member?', on: true , brain: 'calendar_events' },
+    { id: 'calendar_write', label: 'Add & change events', fn: 'dashie__WriteCalendarEvent', args: 'action, title?, date?, time?', on: false , brain: 'calendar_write' },
+    { id: 'weather', label: 'Weather', fn: 'dashie__GetWeather', args: 'timeframe, location?', on: true , brain: 'weather_data' },
+    { id: 'chores', label: 'Chores & rewards', fn: 'dashie__GetChores', args: 'hint?, member_hint?', on: true , brain: 'chores' },
+    { id: 'locations', label: 'Where is everyone', fn: 'dashie__GetFamilyLocations', args: 'member_name?', on: false , brain: 'family_locations' },
+    { id: 'music', label: 'Music', fn: 'dashie__ControlMusic', args: 'action, query?, speaker?', on: true , brain: 'music' },
+    { id: 'video_feeds', label: 'Camera feeds', fn: 'dashie__ShowVideoFeed', args: 'action, camera?, time?', on: false , brain: 'video_feeds' },
+    { id: 'sports', label: 'Sports scores', fn: 'dashie__GetSports', args: 'sport, league, team, type', on: false , brain: 'sports' },
+    { id: 'schedule', label: 'Timers & reminders', fn: 'dashie__ScheduleAction', args: 'time|delay_minutes, kind, label', on: false , brain: 'schedule_action' },
+    { id: 'web_search', label: 'Web search', fn: 'dashie__SearchWeb', args: 'query', on: false , brain: 'web_search' },
     // The response envelope. It is a tool because that is the only way to get a
     // schema the API enforces: function calling, structured output and Google
     // grounding are mutually exclusive in one Gemini call (measured 2026-10-03), so
     // the envelope cannot ride on responseSchema alongside the tools above. Off =
     // the model answers in prose and we speak it, which is how HA's agents behave.
-    { id: 'answer', label: 'Answer on screen', fn: 'dashie__Answer', args: 'voice, text?, display_events?', on: true },
+    { id: 'answer', label: 'Answer on screen', fn: 'dashie__Answer', args: 'voice, text?, display_events?', on: true , brain: null },
 ];
 
 function byId(id) { return TOOLS.find((t) => t.id === id) || null; }
@@ -106,12 +119,27 @@ function summary(stored) {
     return enabled(stored).map((t) => t.label).join(' · ');
 }
 
-/** The TOOLS block of the Raw view — what the model is actually handed, aligned so
- *  a signature is readable at a glance. */
+/** The enabled tools the model can actually CALL — i.e. those with a brain name.
+ *  `live_context` and `answer` are behavioral and deliberately excluded. */
+function callable(stored) {
+    return enabled(stored).filter((t) => !!t.brain);
+}
+
+/**
+ * The TOOLS block — what the model is actually handed, aligned so a signature reads
+ * at a glance.
+ *
+ * 🔴 Prints the BRAIN name, not `fn`. `parseContent` recognises
+ * `{type:'info_request', tool:'calendar_events'}`; it has never heard of
+ * `dashie__GetCalendarEvents`. Printing `fn` here while the model must emit `brain`
+ * would make the Raw view — sold to the user as "everything that will be sent" —
+ * wrong about the single thing it exists to show, and would route nothing.
+ * `fn` returns when tools become real declarations (option 2).
+ */
 function signatures(stored) {
-    const on = enabled(stored);
+    const on = callable(stored);
     if (!on.length) return '';
-    const sigs = on.map((t) => ({ sig: `${t.fn}(${t.args})`, label: t.label }));
+    const sigs = on.map((t) => ({ sig: `${t.brain}(${t.args})`, label: t.label }));
     const w = Math.max(...sigs.map((s) => s.sig.length));
     return sigs.map((s) => `${s.sig.padEnd(w + 4)}${s.label}`).join('\n');
 }
@@ -124,5 +152,6 @@ module.exports = {
     toggled,
     enabled,
     summary,
+    callable,
     signatures,
 };

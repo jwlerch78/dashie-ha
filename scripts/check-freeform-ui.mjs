@@ -203,9 +203,9 @@ const rawText = (() => {
     } catch (e) { return `THREW ${e.message}`; }
 })();
 t('7 the Raw view assembles without throwing', typeof rawText === 'string' && !/^THREW/.test(rawText), String(rawText).slice(0, 160));
-t('7a ...and names an ENABLED tool\'s function', typeof rawText === 'string' && rawText.includes('dashie__GetCalendarEvents'));
+t('7a ...and names an ENABLED tool\'s function', typeof rawText === 'string' && rawText.includes('calendar_events('));
 t('7b CONTROL: and NOT a disabled one (a leg that can fail)',
-  typeof rawText === 'string' && !rawText.includes('dashie__GetSports'),
+  typeof rawText === 'string' && !rawText.includes('sports('),
   'a tool that is off is reaching the Raw view the user is told is what gets sent');
 
 } catch (e) {

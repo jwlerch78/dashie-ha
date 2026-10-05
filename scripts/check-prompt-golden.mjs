@@ -174,7 +174,11 @@ t('1a CONTROL: the golden is not empty and names a config (so leg 1 can fail)',
 
 // ── 2 declarations == enabled, exactly ──────────────────────────────────────
 for (const stored of [undefined, '', ALL_ON, THREE_OFF, 'calendar', 'calendar,weather,music']) {
-    const want = CAT.enabled(stored).map((x) => x.fn);
+    // ⚠️ CALLABLE, by BRAIN name. The printed TOOLS block lists the names
+    // `parseContent` recognises, and `live_context`/`answer` are behavioral rather
+    // than callable, so comparing against enabled()/fn would be comparing the Raw
+    // view to a set the model was never offered.
+    const want = CAT.callable(stored).map((x) => x.brain);
     const got = declared(stored);
     const label = stored === undefined ? '(defaults)' : stored === '' ? '(empty)' : stored.length > 28 ? stored.slice(0, 28) + '…' : stored;
     t(`2 declarations == enabled for ${label}`,
@@ -183,33 +187,34 @@ for (const stored of [undefined, '', ALL_ON, THREE_OFF, 'calendar', 'calendar,we
     t(`2a ...and no duplicate declaration for ${label}`, new Set(got).size === got.length);
 }
 t('2b CONTROL: a tool switched off is absent from the declarations',
-  !declared(THREE_OFF).includes('dashie__ControlMusic')
-  && declared(CAT.defaultEnabled()).includes('dashie__ControlMusic'),
+  !declared(THREE_OFF).includes('music')
+  && declared(CAT.defaultEnabled()).includes('music'),
   'signatures() ignores the enabled list — every tool reaches the model');
 t('2c CONTROL: an unknown id contributes no declaration',
   declared('calendar,photos_and_albums').length === 1,
   'a fabricated id renders a signature the brain cannot serve');
-t('2d every enabled tool also reaches the raw prompt body',
-  (() => { const raw = FP.raw({ catalog: CAT, rendered: 'x', toolsStored: ALL_ON }); return CAT.enabled(ALL_ON).every((x) => raw.includes(`${x.fn}(`)); })(),
+t('2d every CALLABLE tool also reaches the raw prompt body',
+  (() => { const raw = FP.raw({ catalog: CAT, rendered: 'x', toolsStored: ALL_ON }); return CAT.callable(ALL_ON).every((x) => raw.includes(`${x.brain}(`)); })(),
   'raw() drops a declaration the sidebar says is on');
+
+t('2e the two BEHAVIORAL tools are never printed as callable',
+  (() => { const d = declared(ALL_ON); return !d.includes('live_context') && !d.includes('answer') && !d.some((n) => n.startsWith('dashie__')); })(),
+  'live_context/answer are prompt behaviour, not tools the model can call');
+t('2f the format block appears when a tool or the envelope is on, and NOT when neither is',
+  FP.raw({ catalog: CAT, rendered: 'x', toolsStored: 'calendar' }).includes('HOW TO REPLY')
+  && !FP.raw({ catalog: CAT, rendered: 'x', toolsStored: '' }).includes('HOW TO REPLY'),
+  'without it a Freeform turn cannot route a tool, so pass 2 never runs and cards are lost');
+t('2g the format block names the shape parseContent actually accepts',
+  FP.raw({ catalog: CAT, rendered: 'x', toolsStored: 'calendar' }).includes('"type":"info_request"'));
 
 // ── 3 no invented tools ─────────────────────────────────────────────────────
 // Every catalog id maps to a tool the brain offers, or is declared new HERE —
 // deliberately in the gate and not in the catalog, so adding a row fails until
 // somebody states which brain tool serves it.
-const MAPS_TO = {
-    home_assistant: 'home_assistant',
-    calendar: 'calendar_events',
-    calendar_write: 'calendar_write',
-    weather: 'weather_data',
-    chores: 'chores',
-    locations: 'family_locations',
-    music: 'music',
-    video_feeds: 'video_feeds',
-    sports: 'sports',
-    schedule: 'schedule_action',
-    web_search: 'web_search',
-};
+// The mapping now lives on the CATALOG (`brain:` per row), because the runtime needs
+// it too — it is what the prompt prints. This gate verifies it against the brain's
+// own list rather than owning a second copy of it.
+const MAPS_TO = Object.fromEntries(CAT.TOOLS.filter((t) => t.brain).map((t) => [t.id, t.brain]));
 const NEW_IN_FREEFORM = {
     live_context: 'HA\'s GetLiveContext shape. The brain has no counterpart: it inlines live '
         + 'state into the prompt instead of offering a tool. Freeform needs the tool form '

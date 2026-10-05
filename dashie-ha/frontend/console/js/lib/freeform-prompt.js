@@ -120,7 +120,14 @@
         // lives in the declarations.
         const ids = catalog ? catalog.parse(toolsStored) : [];
         if (ids.includes('live_context')) {
-            parts.push('You can read the current state of this home with dashie__GetLiveContext.\n'
+            // ⚠️ This line must NOT name a function. It used to say "with
+            // dashie__GetLiveContext" — a name nothing declares and the model cannot
+            // call, so it told the model it had a tool that does not exist. Under
+            // option 1 there are no declarations at all (functionCall is 0 across the
+            // gateway), and live state arrives either inlined or via the
+            // `home_assistant` tool. Naming a callable that isn't is the same
+            // confident-non-answer shape this whole surface keeps producing.
+            parts.push('You can see the current state of the devices in this home.\n'
                 + 'Do not say you lack that ability.');
         }
 
@@ -130,6 +137,38 @@
 
         const sigs = catalog ? catalog.signatures(toolsStored) : '';
         if (sigs) parts.push(`TOOLS\n${sigs}`);
+
+        // ── THE FORMAT BLOCK (John's option 1, 2026-10-05) ─────────────────────────
+        //
+        // 🔴 WITHOUT THIS, A FREEFORM PROMPT COSTS CARDS. The user's text replaces our
+        // format instructions, so pass 1 can no longer emit
+        // `{type:'info_request', tool}` — and `parseContent` returning null drops the
+        // turn into the TERMINAL branch (orchestrator.ts:976 leads with `!p1Parsed`),
+        // so pass 2 never runs. Pass 2 is what produces cards. John ruled cards must
+        // keep working, so the assembly supplies the format the user's text removed.
+        //
+        // It goes LAST on purpose: highest recency is where a format rule holds best,
+        // and it is the one part of this prompt the user does not own.
+        //
+        // ⚠️ Emitted only when there is something for it to govern — a callable tool,
+        // or the `answer` envelope. A user who switched everything off asked for plain
+        // prose and gets it, which is HA's own behaviour.
+        const hasEnvelope = catalog ? catalog.parse(toolsStored).includes('answer') : false;
+        if (sigs || hasEnvelope) {
+            const lines = ['HOW TO REPLY', 'Reply with ONE JSON object and nothing else.'];
+            if (hasEnvelope) {
+                lines.push('To answer: {"type":"response","voice":"<spoken, max 20 words>",'
+                    + '"text":"<on-screen detail, or null>","image":{"searchTerms":"<keywords>"}}');
+                lines.push('Set "image" whenever the answer has something photographable; otherwise null.');
+            } else {
+                lines.push('To answer: {"type":"response","voice":"<spoken, max 20 words>"}');
+            }
+            if (sigs) {
+                lines.push('To use a tool: {"type":"info_request","tool":"<a name from TOOLS>",'
+                    + '"query":{<the tool\'s parameters>}}');
+            }
+            parts.push(lines.join('\n'));
+        }
 
         const body = parts.filter(Boolean).join('\n\n');
         return pending ? `[not rendered yet — press Render]\n\n${body}` : body;
