@@ -844,7 +844,30 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   });
   // Prefixed, not substituted — the same layering prompt-probe/household-probe use, so a deployed
   // measurement stays comparable with the provider-direct ones. `prefix` is '' on every real turn.
-  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}\n\n${p1PromptBase}` : p1PromptBase;
+  const p1Prompted = benchOverride.active ? `${benchOverride.prefix}\n\n${p1PromptBase}` : p1PromptBase;
+
+  // ── FREEFORM: the household's own pass-1 prompt REPLACES ours ────────────────────
+  //
+  // Set only by the add-on, which is the only runtime that can render the user's Jinja
+  // (HA has the engine; the cloud brain has no HA access). Absent on every cloud turn,
+  // so this path is byte-identical for every existing caller.
+  //
+  // 🔴 PASS 1 ONLY. `secondPass` builds its own prompt from our templates and is
+  // untouched, which is precisely what keeps cards working: pass 2 still emits our
+  // envelope. The add-on's assembly appends a HOW TO REPLY block so pass 1 can still
+  // produce `{type:'info_request', tool}` — without it `parseContent` returns null,
+  // the turn falls into the TERMINAL branch below (`!p1Parsed`, ~:976), pass 2 never
+  // runs, and every card is lost.
+  const freeform = typeof req.options?.freeform_prompt === 'string'
+    ? req.options.freeform_prompt.trim() : '';
+  // Loud for the same reason logBenchOverride is: a turn measured under a prompt the
+  // household wrote is not a normal turn, and every number taken afterwards is quietly
+  // about a different prompt. Length only — the prompt is the user's text.
+  if (freeform) {
+    console.warn(`FREEFORM PASS-1 PROMPT ACTIVE: household prompt substituted `
+      + `(${freeform.length} chars; ours was ${p1Prompted.length}) — pass 2 unchanged`);
+  }
+  const p1Prompt = freeform || p1Prompted;
   const forcedContent = forced
     ? JSON.stringify({
       type: 'info_request', tool: 'web_search', query: req.text,

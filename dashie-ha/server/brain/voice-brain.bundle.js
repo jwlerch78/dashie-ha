@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 271237d2bc9cc83e6aa2a60fa32090240776a3bd
+   Source git SHA: 73fe83c5bbce1fcac45cb66f90815886a12bacb2
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5271,9 +5271,14 @@ async function orchestrate(deps, io, voiceCtx) {
       ...req.provided_context?.ha_entities?.length ? { haEntities: req.provided_context.ha_entities } : {}
     }
   });
-  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}
+  const p1Prompted = benchOverride.active ? `${benchOverride.prefix}
 
 ${p1PromptBase}` : p1PromptBase;
+  const freeform = typeof req.options?.freeform_prompt === "string" ? req.options.freeform_prompt.trim() : "";
+  if (freeform) {
+    console.warn(`FREEFORM PASS-1 PROMPT ACTIVE: household prompt substituted (${freeform.length} chars; ours was ${p1Prompted.length}) \u2014 pass 2 unchanged`);
+  }
+  const p1Prompt = freeform || p1Prompted;
   const forcedContent = forced ? JSON.stringify({
     type: "info_request",
     tool: "web_search",
@@ -6437,4 +6442,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "271237d2bc9cc83e6aa2a60fa32090240776a3bd";
+module.exports.BRAIN_SOURCE_SHA = "73fe83c5bbce1fcac45cb66f90815886a12bacb2";

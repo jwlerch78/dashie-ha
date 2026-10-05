@@ -63,6 +63,23 @@ export interface VoiceRequest {
     // 0.7/0.2/0 against the deployed fn to measure route entropy. Absent → the intent-derived
     // default stands (temp 0 for routing) — no production caller sets it. Additive/nullable.
     route_temperature?: number;
+    // ── FREEFORM MODE: the user's own pass-1 prompt, fully assembled ──────────────
+    //
+    // 🔴 SET ONLY BY THE ADD-ON (dashie-ha/server/converse.js), never by the cloud
+    // path, and that is a constraint rather than a convention: Freeform renders the
+    // user's Jinja template through HOME ASSISTANT's own engine, and the cloud brain
+    // has no HA access. John ruled add-on-only on 2026-10-05 for exactly that reason.
+    //
+    // ⚠️ SUBSTITUTED, not prefixed — unlike `bench_prompt_prefix`, which layers on top.
+    // This REPLACES the assembled pass-1 prompt, because the whole point is that the
+    // household wrote it. Assembled by the shared holder
+    // (js/ai/prompts/freeform-prompt.js) so the console's Raw preview and what is
+    // actually sent cannot differ — JS_KOTLIN_CONTRACTS row 183.
+    //
+    // 🔴 PASS 1 ONLY (John, 2026-10-05: "start with pass 1 only", cards must keep
+    // working). Pass 2 keeps OUR prompt and OUR envelope, which is what still produces
+    // cards. If this ever reached pass 2 the display half would go with it.
+    freeform_prompt?: string;
     // Gemini thinkingConfig.thinkingBudget override for the pass-1 ROUTING call only (0 = off;
     // N = capped; a bench can also send a positive value to re-measure). ABSENT → the shipped
     // default of 0 (decode-pass thinking OFF since 20260717) — proven to hold routing/decomposition

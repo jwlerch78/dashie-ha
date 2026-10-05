@@ -20,6 +20,10 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
   let lastSportsQuery: Record<string, unknown> | null = null;
   const kinds: Array<'decide' | 'narrate'> = [];
   const temps: Array<number | undefined> = [];
+  // Every pass's prompt, not just the last. `lastPrompt()` cannot answer "did pass 2
+  // keep OUR prompt while pass 1 used the household's?" — which is the whole cards
+  // guarantee under Freeform (pass-1-only substitution).
+  const prompts: string[] = [];
   const model = opts.model ?? 'gemini-2.5-flash';
   const provider = model.startsWith('gemini-') ? 'gemini' : (model.startsWith('claude-') ? 'claude' : 'openai');
   const logs: LogData[] = [];
@@ -31,6 +35,7 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
       if (firstGrounding === null) firstGrounding = !!args.grounding;
       lastModel = args.modelId;
       lastPrompt = args.prompt;
+      prompts.push(args.prompt);
       kinds.push(args.kind ?? 'narrate');   // record the decide/narrate intent per pass
       temps.push(args.temperature);          // record the (usually undefined) per-call temp override
       const content = responses[calls++] ?? '{"type":"response","voice":"fallback"}';
@@ -78,7 +83,7 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
         : Promise.resolve(opts.weather as WeatherResult),
     }),
   };
-  return { io, logs, searchLogs, gatewayCalls: () => calls, searchCalls: () => searches, grounded: () => lastGrounding, pass1Grounded: () => !!firstGrounding, lastPrompt: () => lastPrompt, lastModel: () => lastModel, lastSportsQuery: () => lastSportsQuery, kinds: () => kinds, temps: () => temps };
+  return { io, logs, searchLogs, gatewayCalls: () => calls, searchCalls: () => searches, grounded: () => lastGrounding, pass1Grounded: () => !!firstGrounding, lastPrompt: () => lastPrompt, lastModel: () => lastModel, lastSportsQuery: () => lastSportsQuery, kinds: () => kinds, temps: () => temps, prompts: () => prompts };
 }
 
 function deps(req: Partial<VoiceRequest> = {}) {
@@ -2018,4 +2023,69 @@ Deno.test('kid turn with NO resolveKidTurn IO → refused as invalid, never serv
   const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
   assertEquals(turn.metadata?.kid_code, 'kid_session_invalid');
   assertEquals(m.gatewayCalls(), 0);
+});
+
+
+// ── FREEFORM: the household's own pass-1 prompt (John, 2026-10-05) ──────────────────
+//
+// Set only by the add-on — the one runtime that can render the user's Jinja, because
+// HA owns the engine and the cloud brain has no HA access. These assert the two
+// properties the feature rests on: it SUBSTITUTES rather than layers, and it touches
+// pass 1 ONLY, which is what keeps cards working.
+
+Deno.test('freeform: options.freeform_prompt SUBSTITUTES the pass-1 prompt', async () => {
+  const m = makeIO(['{"type":"response","voice":"aye"}']);
+  const HOUSE = 'You are Captain Dashie, the voice of this ship.';
+  await runOrchestration(deps({ text: 'what time is it', options: { freeform_prompt: HOUSE } }), m.io);
+  const p1 = m.prompts()[0];
+  assertEquals(p1, HOUSE, 'the household prompt must be the WHOLE pass-1 prompt');
+  // Not prefixed: ours must be gone, not pushed down. `bench_prompt_prefix` layers;
+  // this replaces, because the point is that the household wrote it.
+  assert(!p1.includes('Base Context'), 'our template is still in the prompt — this layered instead of substituting');
+});
+
+Deno.test('freeform: CONTROL — absent → the assembled prompt stands, byte for byte', async () => {
+  const m = makeIO(['{"type":"response","voice":"hi"}']);
+  await runOrchestration(deps({ text: 'what time is it' }), m.io);
+  const p1 = m.prompts()[0];
+  assert(p1.length > 200, 'the assembled prompt should be substantial');
+  assert(p1.includes('Base Context'), 'our own template must still be used when no freeform prompt is sent');
+});
+
+Deno.test('freeform: PASS 2 KEEPS OUR PROMPT — the cards guarantee', async () => {
+  // The load-bearing one. Pass 2 is what emits the envelope that carries cards; if the
+  // household's text reached it, the display half would go with it.
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"tallest mountain"}',
+    '{"type":"response","voice":"Everest, 8849 meters."}',
+  ]);
+  const HOUSE = 'You are Captain Dashie, the voice of this ship.';
+  await runOrchestration(deps({ text: 'how tall is everest', options: { freeform_prompt: HOUSE } }), m.io);
+  const [p1, p2] = m.prompts();
+  assertEquals(p1, HOUSE);
+  assert(p2 !== HOUSE, 'the household prompt reached pass 2 — cards would be lost');
+  assert(p2.includes('Response Format'), 'pass 2 must still carry OUR response format');
+});
+
+Deno.test('freeform: an empty or whitespace prompt is ignored, not sent as a blank prompt', async () => {
+  for (const blank of ['', '   ', '\n\n']) {
+    const m = makeIO(['{"type":"response","voice":"hi"}']);
+    await runOrchestration(deps({ text: 'hello', options: { freeform_prompt: blank } }), m.io);
+    assert(m.prompts()[0].includes('Base Context'),
+      `a blank freeform prompt (${JSON.stringify(blank)}) must fall back to ours, not send nothing`);
+  }
+});
+
+Deno.test('freeform: a tool request from the household prompt still routes and reaches pass 2', async () => {
+  // Proves the END of the mechanism, not just the start: pass 1 under a household
+  // prompt can still emit {type:'info_request', tool} and get a second pass. Without
+  // the HOW TO REPLY block the add-on appends, parseContent returns null, the turn
+  // goes terminal (!p1Parsed) and this would be ONE gateway call.
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"everest"}',
+    '{"type":"response","voice":"8849 metres, arr."}',
+  ]);
+  await runOrchestration(deps({ text: 'how tall is everest', options: { freeform_prompt: 'Be a pirate.' } }), m.io);
+  assertEquals(m.gatewayCalls(), 2, 'pass 2 never ran — tool routing was lost');
+  assertEquals(m.kinds(), ['decide', 'narrate']);
 });
