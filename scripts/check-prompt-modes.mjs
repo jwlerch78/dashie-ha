@@ -87,13 +87,13 @@ t('4c setPromptMode seeds ONLY into an empty box',
   'a second switch would overwrite the prompt the user wrote');
 
 // ── 5 raw shows what is actually sent ───────────────────────────────────────
-const raw = FP.raw({ rendered: 'You are the voice assistant for Lerch Home.', personalityText: 'Embody this character, Captain Dashie.', toolsStored: 'calendar,weather', dateLine: FP.dateLine() });
+const raw = FP.raw({ catalog: CAT, rendered: 'You are the voice assistant for Lerch Home.', personalityText: 'Embody this character, Captain Dashie.', toolsStored: 'calendar,weather', dateLine: FP.dateLine() });
 t('5 raw prints a signature for an ENABLED tool', raw.includes('dashie__GetCalendarEvents('));
 t('5a CONTROL: and none for a disabled one (a leg that can fail)',
   !raw.includes('dashie__ControlMusic'), 'disabled tools are reaching the prompt');
 t('5b raw carries the personality text', raw.includes('Captain Dashie'));
 t('5c an un-rendered template says so instead of showing raw braces as final',
-  FP.raw({ rendered: '{{ ha_name }}', pending: true, toolsStored: '' }).startsWith('[not rendered yet'));
+  FP.raw({ catalog: CAT, rendered: '{{ ha_name }}', pending: true, toolsStored: '' }).startsWith('[not rendered yet'));
 
 // ── 6 the section renders both modes, and only one is selected ──────────────
 const dyn = SEC.render({ mode: 'dynamic', houseRules: RULES, tools: CAT.defaultEnabled() });

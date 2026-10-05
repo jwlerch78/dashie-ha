@@ -112,13 +112,22 @@ const VoiceAiFreeform = {
         const tools = d['ai.toolsEnabled'];
         // The clock tool means HA's own rule applies: a fact is either a tool or
         // a prompt line, never both.
-        const hasClock = window.PromptToolCatalog.parse(tools).some((t) => t.id === 'schedule');
+        // ⚠️ `parse()` returns id STRINGS; `enabled()` returns the tool OBJECTS. This
+        // read `.some((t) => t.id === 'schedule')` on strings, so `t.id` was undefined
+        // and hasClock was ALWAYS false — the date line was appended even with the
+        // clock tool on, which is the one thing HA's rule says must not happen (a fact
+        // is a tool or a prompt line, never both).
+        const hasClock = window.PromptToolCatalog.parse(tools).includes('schedule');
         return window.FreeformPrompt.raw({
             rendered: m.rendered === null ? m.prompt : m.rendered,
             pending: m.rendered === null,
             personalityText: pers === null ? '[personality — still loading]' : pers,
             toolsStored: tools,
             dateLine: hasClock ? '' : window.FreeformPrompt.dateLine(),
+            // 🔴 INJECTED, not read from a global inside raw(): the same assembly now
+            // runs on the add-on server where there is no `window`. See the note in
+            // js/ai/prompts/freeform-prompt.js.
+            catalog: window.PromptToolCatalog,
         });
     },
 

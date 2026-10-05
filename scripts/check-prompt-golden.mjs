@@ -117,7 +117,9 @@ function render() {
         out.push(`enabled ids: ${CAT.parse(c.args.toolsStored).join(',') || '(none)'}`);
         out.push(`declarations: ${declared(c.args.toolsStored).join(',') || '(none)'}`);
         out.push('--- raw prompt ' + '-'.repeat(63));
-        out.push(FP.raw(c.args));
+        // catalog is INJECTED (no `window` on the add-on server) — merged here rather
+        // than stored in each config, so every config gets it exactly once.
+        out.push(FP.raw({ ...c.args, catalog: CAT }));
     }
     out.push('', '='.repeat(78), 'SEED on a dynamic -> freeform switch', '='.repeat(78));
     out.push('--- with no house rules ' + '-'.repeat(54), FP.seed(''));
@@ -188,7 +190,7 @@ t('2c CONTROL: an unknown id contributes no declaration',
   declared('calendar,photos_and_albums').length === 1,
   'a fabricated id renders a signature the brain cannot serve');
 t('2d every enabled tool also reaches the raw prompt body',
-  (() => { const raw = FP.raw({ rendered: 'x', toolsStored: ALL_ON }); return CAT.enabled(ALL_ON).every((x) => raw.includes(`${x.fn}(`)); })(),
+  (() => { const raw = FP.raw({ catalog: CAT, rendered: 'x', toolsStored: ALL_ON }); return CAT.enabled(ALL_ON).every((x) => raw.includes(`${x.fn}(`)); })(),
   'raw() drops a declaration the sidebar says is on');
 
 // ── 3 no invented tools ─────────────────────────────────────────────────────
