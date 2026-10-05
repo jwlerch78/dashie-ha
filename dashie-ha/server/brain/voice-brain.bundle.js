@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 8b300885fe9f602b174cf9861efd7b86e1eaf605
+   Source git SHA: 271237d2bc9cc83e6aa2a60fa32090240776a3bd
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -29,6 +29,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // supabase/functions/voice-conversation/orchestrator.ts
 var orchestrator_exports = {};
 __export(orchestrator_exports, {
+  SCHEDULE_UNSUPPORTED_REPLY: () => SCHEDULE_UNSUPPORTED_REPLY,
   amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
   looksLikeWeatherAsk: () => looksLikeWeatherAsk,
@@ -2366,6 +2367,11 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
   let prompt = fillTemplate(BASE_CONTEXT, baseValues);
   if (personalityConfig) {
     prompt = (personalityConfig.responsePrefix || "") + "\n\n" + prompt;
+  }
+  if (context.kidName) {
+    prompt += `
+
+You are talking with ${context.kidName}, a child in this family. Talk to them by name.`;
   }
   if (!inquiryType && context.providedSports) {
     prompt += "\n\n" + PROVIDED_SPORTS_BLOCK.replace("{{PROVIDED_SPORTS}}", JSON.stringify(context.providedSports, null, 2));
@@ -4989,6 +4995,7 @@ async function dispatchMultiTurn(steps, deps) {
 }
 
 // supabase/functions/voice-conversation/orchestrator.ts
+var SCHEDULE_UNSUPPORTED_REPLY = "I can't set up a scheduled check from this screen yet.";
 var KNOWN_DEVICE_TOOL_DECLINES = {
   // NB: calendar_events is intentionally NOT here — it's now offered to every caller and its
   // decline is self-fulfilled in the calendar branch (a non-claiming kiosk routes to it and gets
@@ -5141,9 +5148,15 @@ async function orchestrate(deps, io, voiceCtx) {
     return noiseTurn(t0);
   }
   if (isEndIntent(req.text)) return endIntentTurn(t0);
+  let kid = null;
+  if (req.kid_session_id) {
+    const r = io.resolveKidTurn ? await timed("prep_kid_session", prep, () => io.resolveKidTurn(supabase, userId, req.kid_session_id, req.endpoint_id)) : { ok: false, code: "kid_session_invalid" };
+    if (!r.ok) return kidRefusedTurn(t0, r.code);
+    kid = r;
+  }
   const sessionId = req.conversation_id || crypto.randomUUID();
   const [personality, retainEnabled, spend, account, rateLimit] = await timed("prep_gather", prep, () => Promise.all([
-    io.resolvePersonality(supabase, userId, req.endpoint_id, req.options?.personality_id),
+    io.resolvePersonality(supabase, userId, req.endpoint_id, kid ? kid.personalityId : req.options?.personality_id),
     io.readRetainTranscripts(supabase, userId),
     // CR1 pre-flight credit gate — folded into the existing parallel reads (no added
     // latency). Absent IO (Node shell / tests) → always spendable. Inert until the
@@ -5210,6 +5223,7 @@ async function orchestrate(deps, io, voiceCtx) {
   };
   const context = {
     customPersonalityConfig: personality,
+    kidName: kid?.childName ?? null,
     chatHistory: formatHistory(req.history),
     language: req.language || "system",
     timezone: req.timezone,
@@ -5712,7 +5726,77 @@ ${p1PromptBase}` : p1PromptBase;
       route
     });
   }
+  if (p1Parsed.type === "info_request" && p1Parsed.tool === "open_app") {
+    const appCaps = req.client_fulfilled_tools;
+    if (!Array.isArray(appCaps) || !appCaps.includes("open_app")) {
+      const declineVoice = KNOWN_DEVICE_TOOL_DECLINES.open_app;
+      const decline = { type: "response", voice: declineVoice, text: null, action: null };
+      await logPass(
+        io,
+        deps,
+        prep,
+        REQUEST_TYPE,
+        req.endpoint_id,
+        sessionId,
+        p1Prompt,
+        pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null),
+        turnMeta
+      );
+      return finalize({
+        t0,
+        parsed: decline,
+        raw: pass1.raw,
+        stages: [p1Stage],
+        usage: pass1.raw.usage,
+        latency: pass1.latency_ms,
+        retain,
+        sessionId,
+        route
+      });
+    }
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    return finalize({
+      t0,
+      parsed: p1Parsed,
+      raw: pass1.raw,
+      stages: [p1Stage],
+      usage: pass1.raw.usage,
+      latency: pass1.latency_ms,
+      client_tool: { tool: "open_app", query: p1Parsed.query },
+      sessionId,
+      route
+    });
+  }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "schedule_action") {
+    const scheduleCaps = req.client_fulfilled_tools;
+    if (Array.isArray(scheduleCaps) && !scheduleCaps.includes("schedule_action")) {
+      const declineVoice = SCHEDULE_UNSUPPORTED_REPLY;
+      const decline = { type: "response", voice: declineVoice, text: null, action: null };
+      await logPass(
+        io,
+        deps,
+        prep,
+        REQUEST_TYPE,
+        req.endpoint_id,
+        sessionId,
+        p1Prompt,
+        pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null),
+        turnMeta
+      );
+      return finalize({
+        t0,
+        parsed: decline,
+        raw: pass1.raw,
+        stages: [p1Stage],
+        usage: pass1.raw.usage,
+        latency: pass1.latency_ms,
+        retain,
+        sessionId,
+        route
+      });
+    }
     await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
@@ -6144,6 +6228,25 @@ function insufficientCreditsTurn(t0, balance) {
     metadata: { degraded: "insufficient_credits", balance }
   };
 }
+function kidRefusedTurn(t0, code) {
+  return {
+    ok: true,
+    type: "response",
+    voice: "",
+    text: null,
+    action: null,
+    parsed_ok: true,
+    raw_content: "",
+    usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    model: "",
+    provider: "",
+    latency_ms: 0,
+    total_latency_ms: Date.now() - t0,
+    route: "kid_refused",
+    stages: [{ name: "kid_refused", latency_ms: 0 }],
+    metadata: { kid_code: code }
+  };
+}
 function rateLimitedTurn(t0, retryAfterSeconds) {
   return {
     ok: true,
@@ -6322,6 +6425,7 @@ function toolMeta(parsed, route, caps) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  SCHEDULE_UNSUPPORTED_REPLY,
   amendUnkeptPicturePromise,
   looksLikeSportsAsk,
   looksLikeWeatherAsk,
@@ -6333,4 +6437,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "8b300885fe9f602b174cf9861efd7b86e1eaf605";
+module.exports.BRAIN_SOURCE_SHA = "271237d2bc9cc83e6aa2a60fa32090240776a3bd";

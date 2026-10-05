@@ -27,6 +27,9 @@ import { resolveBenchPromptPrefix, logBenchOverride, readEnvSafe } from './bench
 // Spoken decline per KNOWN tool a caller wasn't offered (see the clarify-path refinement in
 // runOrchestration). Only tools a device can legitimately lack belong here — server tools are
 // always offered. Deterministic English v1 (matches the clarify sentinel's precedent).
+/** Spoken when a caller's declared tool list lacks schedule_action (see the schedule_action branch). */
+export const SCHEDULE_UNSUPPORTED_REPLY = "I can't set up a scheduled check from this screen yet.";
+
 const KNOWN_DEVICE_TOOL_DECLINES: Record<string, string> = {
   // NB: calendar_events is intentionally NOT here — it's now offered to every caller and its
   // decline is self-fulfilled in the calendar branch (a non-claiming kiosk routes to it and gets
@@ -398,6 +401,11 @@ export interface OrchestratorIO {
   // CR3: per-account rate-limit backstop. OPTIONAL — absent IO → always
   // allowed. Inert until `voice_rate_limit_enabled`. Atomic + fail-open (abuse guard only).
   checkRateLimit?: (supabase: unknown, userId: string) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+  // Kid "Talk to a friend" session → persona + child from the server row, turn counted against the
+  // household cap. OPTIONAL — absent IO (Node shell / tests) → a kid turn is refused as invalid, never
+  // silently served as an ordinary turn. Bound in default-io.ts (kid-session.ts).
+  resolveKidTurn?: (supabase: unknown, userId: string, sessionId: string, endpointId: string) =>
+    Promise<{ ok: true; personalityId: string; childName: string | null } | { ok: false; code: string }>;
   // BYOK (Open Brain WS-I): 'byok' = the AI tokens run on the USER'S OWN key/model
   // (add-on brain), so out-of-credits must NOT reject the turn — the AI costs Dashie
   // nothing. Instead the DASHIE-FUNDED tools (web search / image search) are disabled
@@ -552,10 +560,21 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // (no voice) so nothing is spoken/re-heard; no AI call, no credit.
   if (isEndIntent(req.text)) return endIntentTurn(t0);
 
+  // Kid "Talk to a friend" turn: the persona and the child come from the SESSION row, and the turn is
+  // counted against the household's monthly cap (atomic). A refusal is terminal and costs no AI call.
+  let kid: { personalityId: string; childName: string | null } | null = null;
+  if (req.kid_session_id) {
+    const r = io.resolveKidTurn
+      ? await timed('prep_kid_session', prep, () => io.resolveKidTurn!(supabase, userId, req.kid_session_id!, req.endpoint_id))
+      : { ok: false as const, code: 'kid_session_invalid' };
+    if (!r.ok) return kidRefusedTurn(t0, r.code);
+    kid = r;
+  }
+
   // ai_interactions.session_id is NOT NULL — always supply one (conversation_id when present).
   const sessionId = req.conversation_id || crypto.randomUUID();
   const [personality, retainEnabled, spend, account, rateLimit] = await timed('prep_gather', prep, () => Promise.all([
-    io.resolvePersonality(supabase, userId, req.endpoint_id, req.options?.personality_id),
+    io.resolvePersonality(supabase, userId, req.endpoint_id, kid ? kid.personalityId : req.options?.personality_id),
     io.readRetainTranscripts(supabase, userId),
     // CR1 pre-flight credit gate — folded into the existing parallel reads (no added
     // latency). Absent IO (Node shell / tests) → always spendable. Inert until the
@@ -764,6 +783,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   };
   const context = {
     customPersonalityConfig: personality,
+    kidName: kid?.childName ?? null,
     chatHistory: formatHistory(req.history),
     language: req.language || 'system',
     timezone: req.timezone,   // client IANA zone → correct "today" in the prompt (server is UTC)
@@ -1378,13 +1398,56 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     });
   }
 
+  // ── info_request → open_app (DEVICE-fulfilled) ────────────────────────────
+  // Launch an installed app by spoken name ({app}). Before 2026-10-03 there was NO branch here,
+  // so a routed open_app fell to the unsupported-tool path and the device spoke its generic
+  // apology instead of opening the app (VH unification audit, B4). Prompt-gated like video_feeds
+  // (DEVICE_ONLY_TOOLS: offered only to callers declaring it); the runtime check below is the
+  // defense for a model that emits it anyway.
+  if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'open_app') {
+    const appCaps = req.client_fulfilled_tools;
+    if (!Array.isArray(appCaps) || !appCaps.includes('open_app')) {
+      const declineVoice = KNOWN_DEVICE_TOOL_DECLINES.open_app;
+      const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
+      return finalize({
+        t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
+        latency: pass1.latency_ms, retain, sessionId, route,
+      });
+    }
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    return finalize({
+      t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
+      latency: pass1.latency_ms, client_tool: { tool: 'open_app', query: p1Parsed.query }, sessionId, route,
+    });
+  }
+
   // ── info_request → schedule_action (DEVICE-fulfilled) ─────────────────────
   // AI callbacks (WS5-a): the alarm + store + fire-time pipeline injection all
   // live on the device (AlarmManager owns firing — cloud is never the firing
   // path). Same shape as calendar/music: pass-1 extracts {time, recurrence,
   // prompt, label}; ScheduleActionDirective.kt creates the action and speaks
   // the ack. Plan 20260710_VOICE_ID_CONDITION_ALERTS_PLAN.md WS5-a.
+  //
+  // CAPABILITY DECLINE (VH, 2026-10-03): a caller that SENDS a tool list without
+  // 'schedule_action' cannot run it — Android full mode's JS lane (brain-client.js
+  // deviceFulfilledTools) dropped it silently and showed "null" on the kitchen Mio
+  // (ai_interactions 126354a6). Same pattern as calendar_write above, with one deliberate
+  // difference: an ABSENT list keeps the client_tool (legacy absent-means-fulfilled), so no
+  // caller that predates the list — or a gateway that doesn't forward it — loses scheduling.
   if (p1Parsed.type === 'info_request' && p1Parsed.tool === 'schedule_action') {
+    const scheduleCaps = req.client_fulfilled_tools;
+    if (Array.isArray(scheduleCaps) && !scheduleCaps.includes('schedule_action')) {
+      const declineVoice = SCHEDULE_UNSUPPORTED_REPLY;
+      const decline = { type: 'response', voice: declineVoice, text: null, action: null } as ReturnType<typeof parseContent>;
+      await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null), turnMeta);
+      return finalize({
+        t0, parsed: decline, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
+        latency: pass1.latency_ms, retain, sessionId, route,
+      });
+    }
     await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
@@ -2018,6 +2081,29 @@ function insufficientCreditsTurn(t0: number, balance: number): Turn {
     route: 'insufficient_credits',
     stages: [{ name: 'insufficient_credits', latency_ms: 0 }],
     metadata: { degraded: 'insufficient_credits', balance },
+  };
+}
+
+/** Terminal kid "Talk to a friend" refusal — session expired/invalid or the household's monthly cap
+ *  reached. No AI call, no log, empty voice; `metadata.kid_code` is what the talk screen branches on
+ *  (distinct child-facing messages — see _shared/kid-friend-policy.ts KID_CODES). */
+function kidRefusedTurn(t0: number, code: string): Turn {
+  return {
+    ok: true,
+    type: 'response',
+    voice: '',
+    text: null,
+    action: null,
+    parsed_ok: true,
+    raw_content: '',
+    usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    model: '',
+    provider: '',
+    latency_ms: 0,
+    total_latency_ms: Date.now() - t0,
+    route: 'kid_refused',
+    stages: [{ name: 'kid_refused', latency_ms: 0 }],
+    metadata: { kid_code: code },
   };
 }
 

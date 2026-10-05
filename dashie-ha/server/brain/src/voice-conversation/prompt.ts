@@ -540,6 +540,13 @@ export function buildPrompt({ userRequest, inquiryType, retrievedData, context =
     prompt = (personalityConfig.responsePrefix || '') + '\n\n' + prompt;
   }
 
+  // Kid "Talk to a friend": who the persona is talking with. One line, no content rules (John,
+  // 2026-10-04: "the same as the family dashboard… The exception is the scoping such that it knows
+  // who it's talking to"). The name is parent-typed household data, bounded by promptSafeName.
+  if (context.kidName) {
+    prompt += `\n\nYou are talking with ${context.kidName}, a child in this family. Talk to them by name.`;
+  }
+
   // §23.6: pre-fetched sports on pass-1 → the model voices it in personality (or
   // emits a corrected info_request if the supplied data is wrong). Single pass.
   if (!inquiryType && context.providedSports) {

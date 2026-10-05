@@ -28,6 +28,11 @@ export interface VoiceRequest {
   // silently swallowed the USER's own scheduling requests). Old clients omit it →
   // undefined → unchanged behavior.
   announcement?: boolean;
+  // Kid tablet "Talk to a friend" (Thread VH, 2026-10-04): the id `open_kid_friend_session` returned.
+  // When present, the server takes the persona and the child from THAT row (never from options),
+  // counts the turn against the household's monthly cap, and refuses with metadata.kid_code when the
+  // session is expired/invalid or the cap is reached. v1 is parity: tools are not restricted.
+  kid_session_id?: string;
   // BENCH ONLY — a foreign system prompt to layer ahead of Dashie's own, for the unit-① prompt
   // head-to-head's end-to-end leg. Honored ONLY on staging, ONLY for allowlisted bench accounts,
   // and refused fail-closed everywhere else; every gate is in `bench-override.ts`. This is NOT a
@@ -263,6 +268,7 @@ export type WebGuidanceMode = 'auto' | 'tool' | 'native' | 'none';
 
 export interface PromptContext {
   customPersonalityConfig?: Personality | null;
+  kidName?: string | null;     // kid "Talk to a friend": the child the persona is talking with (one line)
   // Assistant identity → {{ASSISTANT_NAME}} in the base prompt (Chickadee
   // open-core). Absent/null → 'Dashie' (byte-identical legacy prompt).
   assistantName?: string | null;

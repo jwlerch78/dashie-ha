@@ -3,7 +3,7 @@
 // Run: deno test orchestrator.test.ts
 
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { amendUnkeptPicturePromise, looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration } from './orchestrator.ts';
+import { amendUnkeptPicturePromise, looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration, SCHEDULE_UNSUPPORTED_REPLY } from './orchestrator.ts';
 // Contract shapes come from published modules, not the Deno-coupled impls — so this
 // test ships runnable with the open brain source. See io-contracts.ts.
 import type { LogData } from './io-contracts.ts';
@@ -1929,4 +1929,93 @@ Deno.test('a genuinely TWO-PASS turn logs prep on its terminal row', async () =>
   assert(Array.isArray(trace?.prep), 'the TERMINAL row of a two-pass turn must carry prep');
   assert(trace.prep!.some((s) => s.name === 'prep_total'), 'including its total');
   assert(trace.prep!.some((s) => s.name === 'prep_unattributed'), 'and its remainder');
+});
+
+// ── schedule_action capability decline (VH 2026-10-03, kitchen Mio "null") ──────────────────
+const schedReq = '{"type":"info_request","tool":"schedule_action","query":{"time":"21:00","kind":"prompt","prompt":"check if the garage door is open","label":"check the garage door"}}';
+
+Deno.test('schedule_action + declared capability → client_tool (native lane unchanged)', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm', client_fulfilled_tools: ['weather', 'schedule_action', 'multi'] }), m.io);
+  assertEquals(turn.client_tool?.tool, 'schedule_action');
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('schedule_action + list WITHOUT it (full-mode JS lane) → spoken decline, no client_tool', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm', client_fulfilled_tools: ['calendar', 'weather', 'calendar_write', 'multi'] }), m.io);
+  assertEquals(turn.type, 'response');
+  assertEquals(turn.client_tool, undefined);
+  assertEquals(turn.voice, SCHEDULE_UNSUPPORTED_REPLY);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('schedule_action + NO list (legacy caller) → client_tool kept (absent-means-fulfilled)', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm' }), m.io);
+  assertEquals(turn.client_tool?.tool, 'schedule_action');
+});
+
+// ── open_app (VH 2026-10-03, unification B4): had no branch → unsupported_tool → device apology ──
+const openAppReq = '{"type":"info_request","tool":"open_app","query":{"app":"Netflix"}}';
+
+Deno.test('open_app + declared → client_tool open_app with the app name (was unsupported_tool)', async () => {
+  const m = makeIO([openAppReq]);
+  const turn = await runOrchestration(deps({ text: 'put netflix on', client_fulfilled_tools: ['weather', 'open_app'] }), m.io);
+  assertEquals(turn.client_tool?.tool, 'open_app');
+  assertEquals((turn.client_tool?.query as Record<string, unknown>)?.app, 'Netflix');
+  assertEquals(turn.unsupported_tool, undefined);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('open_app + not declared → spoken decline, no client_tool', async () => {
+  const m = makeIO([openAppReq]);
+  const turn = await runOrchestration(deps({ text: 'put netflix on', client_fulfilled_tools: ['weather'] }), m.io);
+  assertEquals(turn.client_tool, undefined);
+  assertEquals(turn.unsupported_tool, undefined);
+  assertEquals(turn.voice, "I can't open apps on this device.");
+});
+
+// ── Kid "Talk to a friend" (Thread VH, 2026-10-04) ───────────────────────────────────────────────
+// The session row decides persona + child; a refusal is terminal with metadata.kid_code and no AI call.
+
+Deno.test('kid turn: persona comes from the SESSION, not options.personality_id; child named in the prompt', async () => {
+  const m = makeIO(['{"type":"response","voice":"Ahoy Ava"}']);
+  let askedFor: string | null | undefined;
+  m.io.resolvePersonality = (_s, _u, _e, id) => { askedFor = id; return Promise.resolve(null); };
+  m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  const turn = await runOrchestration(deps({ kid_session_id: 's1', options: { personality_id: 'bad_santa' } }), m.io);
+  assertEquals(turn.voice, 'Ahoy Ava');
+  assertEquals(askedFor, 'pirate');
+  assert(m.lastPrompt()!.includes('You are talking with Ava, a child in this family.'));
+});
+
+Deno.test('kid turn control: an ordinary turn still uses options.personality_id and has no child line', async () => {
+  const m = makeIO(['{"type":"response","voice":"Hi"}']);
+  let askedFor: string | null | undefined;
+  m.io.resolvePersonality = (_s, _u, _e, id) => { askedFor = id; return Promise.resolve(null); };
+  m.io.resolveKidTurn = () => { throw new Error('must not be called without kid_session_id'); };
+  await runOrchestration(deps({ options: { personality_id: 'santa' } }), m.io);
+  assertEquals(askedFor, 'santa');
+  assert(!m.lastPrompt()!.includes('You are talking with'));
+});
+
+for (const code of ['kid_cap_reached', 'kid_session_expired', 'kid_session_invalid', 'kid_cap_unconfigured']) {
+  Deno.test(`kid turn refused (${code}) → terminal, metadata.kid_code, no AI call, no log`, async () => {
+    const m = makeIO(['{"type":"response","voice":"should not run"}']);
+    m.io.resolveKidTurn = () => Promise.resolve({ ok: false as const, code });
+    const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+    assertEquals(turn.metadata?.kid_code, code);
+    assertEquals(turn.route, 'kid_refused');
+    assertEquals(turn.voice, '');
+    assertEquals(m.gatewayCalls(), 0);
+    assertEquals(m.logs.length, 0);
+  });
+}
+
+Deno.test('kid turn with NO resolveKidTurn IO → refused as invalid, never served as an ordinary turn', async () => {
+  const m = makeIO(['{"type":"response","voice":"should not run"}']);
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.metadata?.kid_code, 'kid_session_invalid');
+  assertEquals(m.gatewayCalls(), 0);
 });
