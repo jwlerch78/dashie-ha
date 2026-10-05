@@ -8,10 +8,18 @@
      • the Raw view, which prints the function signatures the model will receive
 
    The `fn` names are the HA-style namespaced names. Home Assistant will REQUIRE
-   the `dashie__` prefix from 2027.3 (homeassistant/components/llm/__init__.py,
-   TOOL_PREFIX_BREAKS_IN_HA_VERSION) and logs an error for custom integrations
-   without it, so they carry it from the first commit rather than being renamed
-   once people's prompts refer to them.
+   the `<domain>__` prefix from 2027.3 (homeassistant/components/llm/__init__.py:31,
+   TOOL_PREFIX_BREAKS_IN_HA_VERSION), so they carry it from the first commit rather
+   than being renamed once people's prompts refer to them.
+
+   ⚠️ Corrected 2026-10-04 against HA core 2026.9.3: an earlier version of this
+   comment said HA "logs an error for custom integrations". It is the other way
+   round — `_async_report_unprefixed_tools` picks
+   `WARNING if integration and not integration.is_built_in else ERROR`, so a
+   CUSTOM integration like ours gets a WARNING and a built-in gets the ERROR. The
+   conclusion is unchanged (carry the prefix), but the loudness we would actually
+   see is lower than stated, which matters if anyone plans to find this by
+   grepping the log for an error.
 
    `id` is what persists (comma-joined in ai.toolsEnabled). It is deliberately
    NOT the fn name: renaming a function must not silently switch a tool off for
