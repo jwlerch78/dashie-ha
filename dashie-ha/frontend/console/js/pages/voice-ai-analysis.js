@@ -411,7 +411,11 @@ const VoiceAiAnalysis = {
         const badge = intr.complexity === 'complex'
             ? `<span style="background: var(--accent-soft, #eef2ff); color: var(--accent, #4f46e5); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 4px;">Complex</span>`
             : `<span style="background: var(--surface-muted, #f3f4f6); color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 4px;">Simple</span>`;
-        const meta = `${this._fmtMs(intr.total_latency_ms)} · ${this._fmtTokens(intr.total_tokens)} tokens`;
+        // wall_ms = what the user waited (end of speech → first reply audio, measured on the device).
+        // total_latency_ms is a SUM of overlapping steps, so it is only the fallback.
+        const meta = typeof intr.wall_ms === 'number'
+            ? `waited ${this._fmtMs(intr.wall_ms)} · ${this._fmtTokens(intr.total_tokens)} tokens`
+            : `${this._fmtMs(intr.total_latency_ms)} · ${this._fmtTokens(intr.total_tokens)} tokens`;
         // Model on the COLLAPSED row (it used to appear only once expanded). A model swap is the
         // single most confusing thing that can happen here — the same prompt suddenly behaves
         // differently and nothing in the code changed. Seen 2026-07-13: an account switched to a
@@ -456,7 +460,8 @@ const VoiceAiAnalysis = {
         const steps = open ? `
             <table style="width: 100%; border-collapse: collapse; font-size: 12px;"><tbody>
                 ${intr.steps.map(s => this._renderStep(s)).join('')}
-            </tbody></table>` : '';
+            </tbody></table>
+            ${window.VoiceTurnTimeline ? VoiceTurnTimeline.render(intr.device, (ms) => this._fmtMs(ms), (v) => this._escape(v)) : ''}` : '';
 
         return `
             <div style="border-top: 1px solid var(--border, #f0f0f0);">
@@ -744,8 +749,10 @@ const VoiceAiAnalysis = {
             const times = s.count > 1 ? ` ×${s.count}` : '';
             desc = `${this._escape(base)} <span style="color: var(--text-muted);">(local)${times}</span>`;
         } else {
-            // tts / stt — just the provider/model label (no tokens/results)
-            desc = this._escape(s.label || kind.toLowerCase());
+            // tts / stt — just the provider/model label (no tokens/results). A latency the cloud
+            // service did not record but the tablet did is labelled as the tablet's number.
+            desc = this._escape(s.label || kind.toLowerCase())
+                + (s.latency_source === 'device' ? ' <span style="color: var(--text-muted);">(timed on tablet)</span>' : '');
         }
         return `
             <tr>
@@ -777,6 +784,7 @@ const VoiceAiAnalysis = {
 
     _tz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } },
     _fmtMs(ms) {
+        if (ms == null) return '—';   // not measured — never render a missing number as "0 ms"
         const n = Number(ms) || 0;
         return n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)} ms`;
     },
