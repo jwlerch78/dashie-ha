@@ -164,6 +164,28 @@ async function getAccountVoiceConfig() {
           // household-sharing account's defaults (locked decision), still
           // overridable on-device. '' = unset → kiosk/app defaults
           // (Dashie personality / Hey Dashie).
+          // ── AI Prompt & Tools: the FREEFORM mode (John, 2026-10-05: add-on only) ──
+          //
+          // 🔴 ADD-ON ONLY, and that is a constraint not a preference: Freeform renders
+          // the user's template through HA's own Jinja engine, and the CLOUD brain has
+          // no HA access. Only this runtime can render it, so only this runtime reads
+          // these four keys. `check-freeform-wiring.mjs` asserts the cloud brain stays
+          // ignorant of them, so Freeform cannot leak onto a path that cannot serve it.
+          //
+          // ⚠️ Strings, not booleans. These are free text and enums, and the console's
+          // own saveDefault coerces every unlisted key to a boolean — a house-rules
+          // paragraph stored that way becomes `false` with no error. Same hazard here:
+          // read them as strings or not at all.
+          promptMode: str(settings?.ai?.promptMode),          // '' | 'dynamic' | 'freeform'
+          freeformPrompt: str(settings?.ai?.freeformPrompt),  // the user's Jinja template
+          houseRules: str(settings?.ai?.houseRules),
+          // '' is MEANINGFUL and must not be confused with unset: '' = the user turned
+          // every tool off (and gets plain prose, HA's own behaviour), undefined = never
+          // set, use the catalog defaults. The catalog's parse() keeps them distinct;
+          // collapsing them here would silently re-enable seven tools for someone who
+          // deliberately cleared the list.
+          toolsEnabled: settings?.ai?.toolsEnabled === undefined || settings?.ai?.toolsEnabled === null
+            ? undefined : String(settings.ai.toolsEnabled),
           defaultPersonalityId: typeof settings?.ai?.defaultPersonalityId === 'string' ? settings.ai.defaultPersonalityId : '',
           defaultVoiceKey: typeof settings?.ai?.defaultVoiceKey === 'string' ? settings.ai.defaultVoiceKey : '',
           defaultWakeWord: typeof settings?.ai?.defaultWakeWord === 'string' ? settings.ai.defaultWakeWord : '',
