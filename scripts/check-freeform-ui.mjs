@@ -46,7 +46,16 @@ const run = (code) => vm.runInContext(code, H.ctx);
 t('1 every shipped console file loads with no error',
   H.loadErrors.length === 0,
   H.loadErrors.map((e) => `${e.file}: ${e.error}`).join(' | '));
-t('1a 83 files executed (the real index.html list)', H.files.length === 83, `got ${H.files.length}`);
+// ⚠️ NOT a frozen count. This asserted `=== 83` and went red the moment another
+// thread added a <script> tag for an unrelated component — failing a release for a
+// reason with nothing to do with what this gate tests. The meaningful claim is
+// CONSISTENCY: every tag index.html declares is accounted for, plus a floor so a
+// broken parse that finds two files cannot pass.
+t('1a every declared script is accounted for (executed + skipped + missing)',
+  H.declared === H.files.length + H.skipped.length + H.loadErrors.filter((e) => e.error === 'MISSING ON DISK').length,
+  `declared=${H.declared} executed=${H.files.length} skipped=${H.skipped.length}`);
+t('1a2 CONTROL: the real console is loaded, not a stub (>=60 files)',
+  H.files.length >= 60, `only ${H.files.length} files executed — index.html parsing is wrong`);
 t('1b exactly two files are skipped, and they are the expected two',
   H.skipped.length === 2 && H.skipped.some((s) => /supabase-js/.test(s.src))
   && H.skipped.some((s) => /^https:\/\//.test(s.src)),

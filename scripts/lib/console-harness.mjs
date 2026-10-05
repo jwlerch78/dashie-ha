@@ -226,5 +226,12 @@ export function loadConsole({ consoleDir, fetchImpl }) {
         });
     }
 
-    return { ctx, sandbox, win: sandbox, doc, files: present, skipped, loadErrors, blame };
+    return {
+        ctx, sandbox, win: sandbox, doc,
+        files: present, skipped, loadErrors, blame,
+        // Total <script src> tags in index.html. Callers assert CONSISTENCY against
+        // this (declared == executed + skipped + missing) rather than freezing a
+        // magic number — see the note in check-freeform-ui leg 1a.
+        declared: srcs.length,
+    };
 }
