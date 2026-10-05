@@ -294,6 +294,15 @@ node "$ADDON_ROOT/scripts/check-prompt-modes.mjs"
 echo "==> Checking the assembled prompt matches the golden and declares only enabled tools"
 node "$ADDON_ROOT/scripts/check-prompt-golden.mjs"
 
+# Every other console gate reads the HTML a render function RETURNS; none of them
+# CALLS a click handler. The six dead Admin Actions rendered flawless markup and did
+# nothing when pressed, and a string-matching gate is green for all six. This one
+# loads all 83 shipped console files in real index.html order in one shared global
+# scope and then presses the buttons. It sees nothing about APPEARANCE — the stub
+# document measures nothing, so overflow and fit need tools/freeform-fit/ instead.
+echo "==> Checking the AI Prompt & Tools handlers actually run (not just render)"
+node "$ADDON_ROOT/scripts/check-freeform-ui.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver
