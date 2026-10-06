@@ -303,6 +303,15 @@ node "$ADDON_ROOT/scripts/check-prompt-golden.mjs"
 echo "==> Checking the AI Prompt & Tools handlers actually run (not just render)"
 node "$ADDON_ROOT/scripts/check-freeform-ui.mjs"
 
+# The RUNTIME half of Freeform: the add-on assembles the household's prompt and the
+# core substitutes it on pass 1 ONLY, so cards keep working. Leg 3b is the load-bearing
+# one — it asserts the prompt the add-on SENDS is byte-identical to the Raw view the
+# console SHOWS, which is the whole claim that preview makes. Shipped unwired on
+# 2026-10-05: I registered its sibling above and not this one, and check-gate-wiring
+# caught it during the 0.9.52 cut. A gate that nothing runs protects nothing.
+echo "==> Checking the Freeform runtime wiring (add-on assembly + pass-1 substitution)"
+node "$ADDON_ROOT/scripts/check-freeform-wiring.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver
