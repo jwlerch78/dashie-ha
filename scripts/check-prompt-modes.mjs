@@ -20,6 +20,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
 const require = createRequire(import.meta.url);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -138,6 +139,45 @@ t('9 the section is titled AI Prompt & Tools', pageSrc.includes("title: 'AI Prom
 t('9a "Always use AI for chores" no longer renders',
   !/_toggleRow\('Always use AI for chores'/.test(pageSrc),
   'John asked for it hidden on the HA edition');
+
+// ── 10 the parse()/enabled() return-type confusion, as a CLASS ──────────────
+// parse() returns id STRINGS; enabled() returns tool OBJECTS. Reading a tool
+// property off a parse() result yields undefined with no error. This has now bitten
+// FOUR times (the golden gate's enabled-ids line, _rawText's hasClock, a test fake,
+// and _toolsCard — where it rendered 0 of 3 stored toggles checked and inverted the
+// control). Catching instances is plainly not working, so assert the SHAPE: no line
+// may read a tool-object field off a parse() result. Static, because the defect is
+// silent at runtime — undefined is a legal Set member and a legal falsy.
+const TOOL_FIELDS = ['.id', '.label', '.fn', '.brain', '.args', '.on'];
+const scanDir = `${C}/js`;
+const offenders = [];
+for (const rel of execSync(`/usr/bin/find ${scanDir} -name '*.js'`, { encoding: 'utf8' }).trim().split('\n')) {
+    readFileSync(rel, 'utf8').split('\n').forEach((line, i) => {
+        // Skip comments. The first run of this leg flagged voice-ai-freeform.js:212 —
+        // the comment that EXPLAINS the bug by quoting its shape. Correct on the shape,
+        // wrong about the defect, and a gate that cannot tell code from prose about code
+        // would make documenting a trap impossible.
+        const code = line.trim();
+        if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
+        if (!/\bparse\s*\(/.test(line)) return;
+        const after = line.slice(line.search(/\bparse\s*\(/));
+        if (TOOL_FIELDS.some((f) => after.includes(`=> t${f}`) || after.includes(`=> tool${f}`)))
+            offenders.push(`${rel.replace(`${C}/`, '')}:${i + 1}`);
+    });
+}
+t('10 no file reads a tool-OBJECT field off a parse() result',
+  offenders.length === 0, `parse() returns id strings — use enabled(): ${offenders.join(', ')}`);
+t('10a CONTROL: the scanner can see the shape at all (so leg 10 can fail)',
+  (() => {
+      const probe = "const on = new Set(C.parse(x).map((t) => t.id));";
+      const after = probe.slice(probe.search(/\bparse\s*\(/));
+      return TOOL_FIELDS.some((f) => after.includes(`=> t${f}`));
+  })(), 'the detector is vacuous — it would report 0 for any tree');
+t('10b CONTROL: and does NOT flag the correct enabled() form',
+  (() => {
+      const probe = "const on = new Set(C.enabled(x).map((t) => t.id));";
+      return !/\bparse\s*\(/.test(probe);
+  })(), 'the detector flags the fix as well as the bug');
 
 console.log(`check-prompt-modes: ${pass} pass, ${fail} fail`);
 if (!fail) console.log('✅ prompt modes: free text survives the store, and the two modes share one set of house rules');
