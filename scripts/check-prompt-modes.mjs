@@ -171,37 +171,53 @@ const SHAPES = [
 ];
 /** Scan a directory tree. Returns the FILE COUNT as well as the offenders, because a
  *  loop that read nothing also reports zero offenders — see leg 10a. */
-function scanTree(dir) {
+// (?<!JSON\.) — `\bparse\s*\(` also matches `JSON.parse(`, and there are 14 JSON.parse
+// sites in this tree. Unguarded, an ordinary `JSON.parse(body).map((t) => t.id)` failed
+// with "parse() returns id strings — use enabled()", which is nonsense for a JSON parse
+// and sends the reader into the wrong lane. Green today only because no such line is
+// currently one-liner shaped. The lookbehind skips JSON.parse while still finding a
+// catalog parse LATER on the same line, so the nested
+// `C.parse(JSON.parse(s).ids).map((t) => t.id)` still flags. (O, 2026-10-05.)
+//
+// 🔴 ALL FOUR patterns false-positive on that receiver, not one. We each measured the
+// innocent line against only the pattern we were holding (arrow, then arrow+destructured)
+// and under-counted the same way. A false positive on one pattern is not a fact about
+// THAT pattern — it is a fact about the RECEIVER, which every pattern shares. Fixing
+// "the one that fired" would have left three live on lines ordinary in any file. Hence
+// leg 10f: when a multi-pattern gate false-positives on a subject, re-test that subject
+// against EVERY pattern.
+const FINDER = /(?<!JSON\.)\bparse\s*\(/;
+const FINDER_UNGUARDED = /\bparse\s*\(/;
+
+/** Which SHAPE a line trips, or null. `finder` is injected so a leg can drive the
+ *  UNGUARDED spelling through this exact code rather than a copy of it. */
+function classify(line, finder = FINDER) {
+    const code = line.trim();
+    // Skip comments. The first run of this leg flagged voice-ai-freeform.js:212 — the
+    // comment that EXPLAINS the bug by quoting its shape. Correct about the shape, wrong
+    // about the defect, and a gate that cannot tell code from prose ABOUT code would
+    // penalise writing a trap down, which is the habit the .reference/ trap file depends on.
+    if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return null;
+    const at = line.search(finder);
+    if (at < 0) return null;
+    const after = line.slice(at);
+    for (const [re, kind] of SHAPES) if (re.test(after)) return kind;
+    return null;
+}
+
+function scanTree(dir, finder = FINDER) {
     const files = execSync(`/usr/bin/find ${dir} -name '*.js'`, { encoding: 'utf8' })
         .split('\n').filter(Boolean);
     const offenders = [];
     for (const f of files) {
         readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
-            // Skip comments. The first run of this leg flagged voice-ai-freeform.js:212 —
-            // the comment that EXPLAINS the bug by quoting its shape. Correct about the
-            // shape, wrong about the defect, and a gate that cannot tell code from prose
-            // ABOUT code would penalise writing a trap down, which is the habit the
-            // .reference/ trap file depends on.
-            const code = line.trim();
-            if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
-            // (?<!JSON\.) — `\bparse\s*\(` also matches `JSON.parse(`, and there are 14
-            // JSON.parse sites in this tree. Unguarded, an ordinary
-            // `JSON.parse(body).map((t) => t.id)` failed with "parse() returns id strings —
-            // use enabled()", which is nonsense for a JSON parse and sends the reader into
-            // the wrong lane. Green today only because no such line is currently one-liner
-            // shaped. The lookbehind skips JSON.parse while still finding a catalog parse
-            // LATER on the same line, so the nested
-            // `C.parse(JSON.parse(s).ids).map((t) => t.id)` still flags. (O, 2026-10-05.)
-            const at = line.search(/(?<!JSON\.)\bparse\s*\(/);
-            if (at < 0) return;
-            const after = line.slice(at);
-            for (const [re, kind] of SHAPES) {
-                if (re.test(after)) { offenders.push(`${f.replace(`${dir}/`, '')}:${i + 1} (${kind})`); return; }
-            }
+            const kind = classify(line, finder);
+            if (kind) offenders.push(`${f.replace(`${dir}/`, '')}:${i + 1} (${kind})`);
         });
     }
     return { fileCount: files.length, offenders };
 }
+
 
 const real = scanTree(`${C}/js`);
 t('10 no SINGLE LINE reads a tool-OBJECT field off a parse() result',
@@ -242,20 +258,41 @@ t('10c CONTROL: ...and the four correct forms are NOT flagged',
 t('10d CONTROL: all four spelling KINDS fire (not one pattern doing all the work)',
   new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1])).size === 4,
   `kinds seen: ${[...new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1]))].join(',')}`);
-// 10e is the half a gate built from true positives always lacks: a legitimate line that
-// merely RESEMBLES the defect. 10b feeds it six real spellings and 10c four correct
-// forms, but neither feeds it an innocent line shaped like the bug — and the resembling
-// line here is JSON.parse, which nearly every file has.
-writeFileSync(join(FIXTURE, 'nearmiss.js'), [
-    "const a = JSON.parse(body).map((t) => t.id);",      // the false positive O measured
-    "const b = JSON.parse(x).map(({ id }) => id);",      // and the destructured one it missed
-    "const c = JSON.parse(raw).items.map((r) => r.label);",
-    "const d = C.parse(JSON.parse(s).ids).map((t) => t.id);", // NESTED — must still flag
-].join('\n'));
+// 10e is the half a gate built from true positives always lacks: a LEGITIMATE line that
+// merely RESEMBLES the defect. 10b feeds six real spellings and 10c four correct forms,
+// but neither feeds an innocent line shaped like the bug — and the resembling receiver is
+// JSON.parse, which nearly every file has.
+//
+// ⚠️ The sharper form, and why this fixture is one line per pattern: the untested half is
+// not a LIST of lines, it is the cross-product of innocent receivers × patterns. Six
+// spellings through one receiver tests one column; the row was never run. The first
+// version of this fixture had three innocent lines that between them tripped only TWO
+// distinct patterns (two were `arrow`), so it was testing half the row while reading as
+// if it covered it.
+const INNOCENT = [
+    "const a = JSON.parse(body).map((t) => t.id);",                        // arrow
+    "const b = JSON.parse(body).map(({ id }) => id);",                     // destructured
+    "const c = JSON.parse(body).map(function (r) { return r.label; });",   // function
+    "const d = JSON.parse(body)[0].brain;",                                // index
+];
+const NESTED = "const e = C.parse(JSON.parse(s).ids).map((t) => t.id);";   // guilty, must flag
+writeFileSync(join(FIXTURE, 'nearmiss.js'), [...INNOCENT, NESTED].join('\n'));
 const near = scanTree(FIXTURE).offenders.filter((o) => o.startsWith('nearmiss.js'));
-t('10e CONTROL: JSON.parse lines are NOT flagged, but a catalog parse nested in one IS',
-  near.length === 1 && near[0].startsWith('nearmiss.js:4'),
-  `expected only line 4 — got ${near.join(', ') || 'none'}`);
+t('10e CONTROL: no JSON.parse line is flagged, but a catalog parse NESTED in one is',
+  near.length === 1 && near[0].startsWith('nearmiss.js:5'),
+  `expected only line 5 (the nested catalog parse) — got ${near.join(', ') || 'none'}`);
+
+// 10f is what keeps 10e from being vacuous, the way 10d keeps 10b honest. 10e would pass
+// just as happily on a fixture of lines that could never trip ANY pattern — a clean sheet
+// proves nothing about the guard unless the sheet would otherwise be dirty. So drive the
+// same four lines through the same classify() with the UNGUARDED finder and require all
+// four distinct kinds to fire: that is the measurement that says the guard is load-bearing
+// across the whole row, not just the column someone happened to look at.
+const wouldFire = INNOCENT.map((l) => classify(l, FINDER_UNGUARDED));
+t('10f CONTROL: ...and unguarded, those four lines trip all FOUR patterns',
+  new Set(wouldFire).size === 4 && !wouldFire.includes(null),
+  `kinds tripped without the guard: ${JSON.stringify(wouldFire)} — a fixture that trips `
+  + 'fewer than four leaves a pattern whose false positive nothing would catch');
 rmSync(FIXTURE, { recursive: true, force: true });
 
 console.log(`check-prompt-modes: ${pass} pass, ${fail} fail`);
