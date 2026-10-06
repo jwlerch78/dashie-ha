@@ -312,6 +312,13 @@ node "$ADDON_ROOT/scripts/check-freeform-ui.mjs"
 echo "==> Checking the Freeform runtime wiring (add-on assembly + pass-1 substitution)"
 node "$ADDON_ROOT/scripts/check-freeform-wiring.mjs"
 
+# The per-tablet Bluetooth chip, both halves. The load-bearing leg is that `count` is
+# the sensor STATE and never devices.length — ble_entities.py forbids the second
+# derivation — and that `unavailable` stays distinct from 0, since 0 is the benign
+# "scanning, nothing claimed yet" state users sit in during setup.
+echo "==> Checking the Bluetooth surface (state-is-the-count, unavailable != zero)"
+node "$ADDON_ROOT/scripts/check-bluetooth-surface.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver

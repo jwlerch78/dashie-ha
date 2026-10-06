@@ -726,6 +726,39 @@ const DevicesCard = {
         if (m.network?.wifi_signal_percent != null) {
             chips.push(`<span class="device-card-detail" ${historyLink('wifi_signal', 'Wi-Fi')}>📶 ${m.network.wifi_signal_percent}%</span>`);
         }
+        // Bluetooth bridge. THREE states, and the middle one is the reason this chip
+        // exists at all: 0 is NOT a fault, it is "scanning, nothing claimed yet" — the
+        // benign state users sit in during setup and the one most likely to generate
+        // "is it broken?". Mapped from Android's BluetoothHaStatus vocabulary; a subset
+        // of those strings, never a second vocabulary.
+        //
+        // 🔴 n comes from the sensor STATE (ha-metrics bluetooth.count), never from
+        // devices.length — see the METRIC_MAP comment for why a second derivation is a
+        // second source of truth.
+        //
+        // ⚠️ UNLIKE every other chip above, this one renders when it has no value.
+        // Battery/RAM/Wi-Fi are each omitted on null, and that is right for them: a
+        // missing battery reading is a sensor hiccup. A missing Bluetooth reading
+        // usually means something IS broken — permission refused, adapter off, location
+        // off, service not running — and omitting it makes a broken bridge
+        // indistinguishable from a tablet that never had one. John ruled for the greyed
+        // chip over omission on 2026-10-06, knowing it breaks the convention.
+        //
+        // The DISTINCTION that makes it defensible: `m.bluetooth` existing says this
+        // tablet HAS the sensor; count === null inside it says it has it and it is not
+        // working. No key at all ⇒ no chip, exactly as before. So a tablet without the
+        // feature still shows nothing.
+        //
+        // The greyed state deliberately names NO cause. It covers eight Android-local
+        // conditions HA never learns, and naming one would send someone after the wrong
+        // fault.
+        if (m.bluetooth) {
+            const n = m.bluetooth.count;
+            const cls = n == null ? 'bt-off' : (n >= 1 ? 'bt-on' : '');
+            const dim = n == null ? 'opacity: 0.5;' : '';
+            chips.push(`<span class="device-card-detail ${cls}" style="display: inline-flex; align-items: center; gap: 4px;" ${historyLink('bluetooth_devices', 'Bluetooth')}>${iconImg('icon-bluetooth.svg', 11, dim)}${n == null ? '&ndash;' : n}</span>`);
+        }
+
         const room = device.metrics?.ha_area || device.ha_area;
         if (room) chips.push(`<span class="device-card-detail">🏠 ${DevicesPage._escape(room)}</span>`);
 
