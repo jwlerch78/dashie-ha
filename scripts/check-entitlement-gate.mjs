@@ -74,13 +74,25 @@ catch (e) { die(`feature-gate.js did not evaluate: ${e.message}`); }
 const FG = vm.runInContext('typeof FeatureGate !== "undefined" ? FeatureGate : null', ctx);
 if (!FG || typeof FG.isPageEnabled !== 'function') die('FeatureGate.isPageEnabled did not load');
 
+// The SIDEBAR is the surface John actually reports on ("it's still not showing
+// the dashie pages on the left?"), and it is a separate question from the gate:
+// isPageEnabled could be perfect while the nav asked something else, or asked
+// nothing. Load the real component and render it.
+const SIDEBAR = `${CONSOLE_DIR}/js/components/sidebar.js`;
+if (!existsSync(SIDEBAR)) die('components/sidebar.js not found');
+try { vm.runInContext(readFileSync(SIDEBAR, 'utf8'), ctx, { filename: SIDEBAR }); }
+catch (e) { die(`sidebar.js did not evaluate: ${e.message}`); }
+const SB = vm.runInContext('typeof Sidebar !== "undefined" ? Sidebar : null', ctx);
+if (!SB || typeof SB.render !== 'function') die('Sidebar.render did not load');
+
 /**
  * Ask the real isPageEnabled under a fully-specified world. Every field is
  * named explicitly at each call site rather than defaulted, because a default
  * is how a leg ends up asserting about a state nobody meant to test.
  */
 function enabled(page, { build, state, localMode = false, specialAccess = 'standard', tier = 'standard' }) {
-    sandbox.BRAND = { build };
+    sandbox.BRAND = { build, cloudName: 'Dashie Cloud', productName: 'Dashie',
+                     logo: 'assets/logo.svg', icon: 'assets/icon.svg' };
     sandbox.DashieAuth = {
         isLocalMode: localMode, isAddonMode: true, isAuthenticated: !localMode,
         specialAccess, tier, config: { url: 'https://cwglbtosingboqepsmjk.supabase.co' },
@@ -186,6 +198,65 @@ t('18 CLOSED_DELTA_PAGES no longer claims these pages are absent',
   !['family', 'calendar', 'chores', 'rewards', 'locations', 'photos'].some((p) => FG.CLOSED_DELTA_PAGES.has(p)),
   'a page cannot be both present in the tree and a member of the absent-by-definition set');
 
+
+// ── 19-24. THE NAV, driven. The gate is not the observable; this is. ───────
+function sidebar(world) {
+    enabled('devices', world);           // sets BRAND + DashieAuth + state
+    try { return SB.render('devices'); } catch (e) { return `THREW ${e.message}`; }
+}
+const navActive  = sidebar(PUB(ACTIVE));
+const navUnknown = sidebar(PUB(null));
+const navHaOnly  = sidebar(PUB(HA_ONLY));
+
+// 🔴 GUARD BEFORE THE ABSENCE LEGS. A render that threw returns a string
+// containing none of the row labels, so every "does NOT contain Calendar" leg
+// below would pass on a sidebar that never rendered. This exact shape made two
+// legs of check-bluetooth-surface green earlier today.
+for (const [name, html] of [['active', navActive], ['unknown', navUnknown], ['ha_only', navHaOnly]]) {
+    if (typeof html !== 'string' || html.startsWith('THREW') || !html.includes('sidebar-nav-item')) {
+        t(`19pre the ${name} sidebar did not render`, false,
+          `${String(html).slice(0, 160)} — every absence leg below would be vacuous`);
+        console.log(`check-entitlement-gate: ${pass} pass, ${fail} fail`);
+        process.exit(1);
+    }
+}
+t('19pre CONTROL: all three sidebars rendered real nav items, so the absence legs mean something',
+  true);
+
+// ⚠️ THREE pages are 'alpha-only', not two. `locations: 'alpha-only'`
+// (feature-gate.js:524) has NO published override, so a signed-in, fully-entitled
+// STANDARD user does not see Locations either — only Calendar, Family and Photos.
+// Recorded because the build plan's own ruling paragraph listed locations among
+// what a standard user sees, and leg 19 caught that claim, not a code defect.
+const DASH_ROWS = ['Calendar', 'Family', 'Photos'];
+const ALPHA_ROWS = ['Chores', 'Rewards', 'Locations'];
+t('19 an ACTIVE standard account SEES calendar/family/photos in the nav',
+  DASH_ROWS.every((r) => navActive.includes(`>${r}<`)),
+  DASH_ROWS.filter((r) => !navActive.includes(`>${r}<`)).join(', ') + ' missing');
+t("19a ...and NOT the three 'alpha-only' rows",
+  !ALPHA_ROWS.some((r) => navActive.includes(`>${r}<`)),
+  ALPHA_ROWS.filter((r) => navActive.includes(`>${r}<`)).join(', ') + ' shown to a standard user');
+t('20 UNKNOWN state renders NONE of the six — and not as locked rows either',
+  ![...DASH_ROWS, ...ALPHA_ROWS].some((r) => navUnknown.includes(`>${r}<`)),
+  [...DASH_ROWS, ...ALPHA_ROWS].filter((r) => navUnknown.includes(`>${r}<`)).join(', ') + ' still shown');
+t('21 ...and the "Dashie Cloud" section LABEL collapses with it — no orphan heading',
+  !navUnknown.includes('Dashie Cloud'),
+  'the section header survives its last item, leaving an empty labelled block');
+t('22 CONTROL: the ACTIVE sidebar DOES carry that section label',
+  navActive.includes('Dashie Cloud'),
+  'leg 21 is passing because the label never renders at all');
+t('23 ha_only hides the dashboard rows but KEEPS Voice & AI — the product it pays for',
+  !DASH_ROWS.some((r) => navHaOnly.includes(`>${r}<`)) && navHaOnly.includes('>Voice & AI<'));
+t('24 Voice & AI is in the nav in ALL THREE states, including unknown',
+  [navActive, navUnknown, navHaOnly].every((h) => h.includes('>Voice & AI<')),
+  'the home-page row vanishes with the entitlement state — the leg-6 defect, at the nav');
+t('25 chores/rewards stay out of the nav for an entitled STANDARD user (John\'s ruling)',
+  !navActive.includes('>Chores<') && !navActive.includes('>Rewards<'));
+t('26 CONTROL: ...and an ALPHA user with the same account DOES get all three',
+  (() => { const h = sidebar(PUB(ACTIVE, { specialAccess: 'alpha' }));
+           return ALPHA_ROWS.every((r) => h.includes(`>${r}<`)); })(),
+  'leg 25/19a are passing on entitlement, not on the cohort rule John set');
+
 console.log(`check-entitlement-gate: ${pass} pass, ${fail} fail`);
-if (!fail) console.log('✅ entitlement gate: denies on unknown/expired/ha_only, keeps voice-ai free, cohort axis intact');
+if (!fail) console.log('✅ entitlement gate: denies on unknown/expired/ha_only, keeps voice-ai free, cohort axis intact, and the NAV agrees');
 process.exit(fail ? 1 : 0);
