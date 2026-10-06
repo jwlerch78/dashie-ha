@@ -3,7 +3,7 @@
 // Run: deno test orchestrator.test.ts
 
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { amendUnkeptPicturePromise, looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration } from './orchestrator.ts';
+import { amendUnkeptPicturePromise, looksLikeSportsAsk, type OrchestratorIO, promisedPictureQuery, runOrchestration, SCHEDULE_UNSUPPORTED_REPLY } from './orchestrator.ts';
 // Contract shapes come from published modules, not the Deno-coupled impls — so this
 // test ships runnable with the open brain source. See io-contracts.ts.
 import type { LogData } from './io-contracts.ts';
@@ -20,6 +20,10 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
   let lastSportsQuery: Record<string, unknown> | null = null;
   const kinds: Array<'decide' | 'narrate'> = [];
   const temps: Array<number | undefined> = [];
+  // Every pass's prompt, not just the last. `lastPrompt()` cannot answer "did pass 2
+  // keep OUR prompt while pass 1 used the household's?" — which is the whole cards
+  // guarantee under Freeform (pass-1-only substitution).
+  const prompts: string[] = [];
   const model = opts.model ?? 'gemini-2.5-flash';
   const provider = model.startsWith('gemini-') ? 'gemini' : (model.startsWith('claude-') ? 'claude' : 'openai');
   const logs: LogData[] = [];
@@ -31,6 +35,7 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
       if (firstGrounding === null) firstGrounding = !!args.grounding;
       lastModel = args.modelId;
       lastPrompt = args.prompt;
+      prompts.push(args.prompt);
       kinds.push(args.kind ?? 'narrate');   // record the decide/narrate intent per pass
       temps.push(args.temperature);          // record the (usually undefined) per-call temp override
       const content = responses[calls++] ?? '{"type":"response","voice":"fallback"}';
@@ -78,7 +83,7 @@ function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: bo
         : Promise.resolve(opts.weather as WeatherResult),
     }),
   };
-  return { io, logs, searchLogs, gatewayCalls: () => calls, searchCalls: () => searches, grounded: () => lastGrounding, pass1Grounded: () => !!firstGrounding, lastPrompt: () => lastPrompt, lastModel: () => lastModel, lastSportsQuery: () => lastSportsQuery, kinds: () => kinds, temps: () => temps };
+  return { io, logs, searchLogs, gatewayCalls: () => calls, searchCalls: () => searches, grounded: () => lastGrounding, pass1Grounded: () => !!firstGrounding, lastPrompt: () => lastPrompt, lastModel: () => lastModel, lastSportsQuery: () => lastSportsQuery, kinds: () => kinds, temps: () => temps, prompts: () => prompts };
 }
 
 function deps(req: Partial<VoiceRequest> = {}) {
@@ -1929,4 +1934,158 @@ Deno.test('a genuinely TWO-PASS turn logs prep on its terminal row', async () =>
   assert(Array.isArray(trace?.prep), 'the TERMINAL row of a two-pass turn must carry prep');
   assert(trace.prep!.some((s) => s.name === 'prep_total'), 'including its total');
   assert(trace.prep!.some((s) => s.name === 'prep_unattributed'), 'and its remainder');
+});
+
+// ── schedule_action capability decline (VH 2026-10-03, kitchen Mio "null") ──────────────────
+const schedReq = '{"type":"info_request","tool":"schedule_action","query":{"time":"21:00","kind":"prompt","prompt":"check if the garage door is open","label":"check the garage door"}}';
+
+Deno.test('schedule_action + declared capability → client_tool (native lane unchanged)', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm', client_fulfilled_tools: ['weather', 'schedule_action', 'multi'] }), m.io);
+  assertEquals(turn.client_tool?.tool, 'schedule_action');
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('schedule_action + list WITHOUT it (full-mode JS lane) → spoken decline, no client_tool', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm', client_fulfilled_tools: ['calendar', 'weather', 'calendar_write', 'multi'] }), m.io);
+  assertEquals(turn.type, 'response');
+  assertEquals(turn.client_tool, undefined);
+  assertEquals(turn.voice, SCHEDULE_UNSUPPORTED_REPLY);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('schedule_action + NO list (legacy caller) → client_tool kept (absent-means-fulfilled)', async () => {
+  const m = makeIO([schedReq]);
+  const turn = await runOrchestration(deps({ text: 'tell me if the garage door is open at 9pm' }), m.io);
+  assertEquals(turn.client_tool?.tool, 'schedule_action');
+});
+
+// ── open_app (VH 2026-10-03, unification B4): had no branch → unsupported_tool → device apology ──
+const openAppReq = '{"type":"info_request","tool":"open_app","query":{"app":"Netflix"}}';
+
+Deno.test('open_app + declared → client_tool open_app with the app name (was unsupported_tool)', async () => {
+  const m = makeIO([openAppReq]);
+  const turn = await runOrchestration(deps({ text: 'put netflix on', client_fulfilled_tools: ['weather', 'open_app'] }), m.io);
+  assertEquals(turn.client_tool?.tool, 'open_app');
+  assertEquals((turn.client_tool?.query as Record<string, unknown>)?.app, 'Netflix');
+  assertEquals(turn.unsupported_tool, undefined);
+  assertEquals(m.gatewayCalls(), 1);
+});
+
+Deno.test('open_app + not declared → spoken decline, no client_tool', async () => {
+  const m = makeIO([openAppReq]);
+  const turn = await runOrchestration(deps({ text: 'put netflix on', client_fulfilled_tools: ['weather'] }), m.io);
+  assertEquals(turn.client_tool, undefined);
+  assertEquals(turn.unsupported_tool, undefined);
+  assertEquals(turn.voice, "I can't open apps on this device.");
+});
+
+// ── Kid "Talk to a friend" (Thread VH, 2026-10-04) ───────────────────────────────────────────────
+// The session row decides persona + child; a refusal is terminal with metadata.kid_code and no AI call.
+
+Deno.test('kid turn: persona comes from the SESSION, not options.personality_id; child named in the prompt', async () => {
+  const m = makeIO(['{"type":"response","voice":"Ahoy Ava"}']);
+  let askedFor: string | null | undefined;
+  m.io.resolvePersonality = (_s, _u, _e, id) => { askedFor = id; return Promise.resolve(null); };
+  m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  const turn = await runOrchestration(deps({ kid_session_id: 's1', options: { personality_id: 'bad_santa' } }), m.io);
+  assertEquals(turn.voice, 'Ahoy Ava');
+  assertEquals(askedFor, 'pirate');
+  assert(m.lastPrompt()!.includes('You are talking with Ava, a child in this family.'));
+});
+
+Deno.test('kid turn control: an ordinary turn still uses options.personality_id and has no child line', async () => {
+  const m = makeIO(['{"type":"response","voice":"Hi"}']);
+  let askedFor: string | null | undefined;
+  m.io.resolvePersonality = (_s, _u, _e, id) => { askedFor = id; return Promise.resolve(null); };
+  m.io.resolveKidTurn = () => { throw new Error('must not be called without kid_session_id'); };
+  await runOrchestration(deps({ options: { personality_id: 'santa' } }), m.io);
+  assertEquals(askedFor, 'santa');
+  assert(!m.lastPrompt()!.includes('You are talking with'));
+});
+
+for (const code of ['kid_cap_reached', 'kid_session_expired', 'kid_session_invalid', 'kid_cap_unconfigured']) {
+  Deno.test(`kid turn refused (${code}) → terminal, metadata.kid_code, no AI call, no log`, async () => {
+    const m = makeIO(['{"type":"response","voice":"should not run"}']);
+    m.io.resolveKidTurn = () => Promise.resolve({ ok: false as const, code });
+    const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+    assertEquals(turn.metadata?.kid_code, code);
+    assertEquals(turn.route, 'kid_refused');
+    assertEquals(turn.voice, '');
+    assertEquals(m.gatewayCalls(), 0);
+    assertEquals(m.logs.length, 0);
+  });
+}
+
+Deno.test('kid turn with NO resolveKidTurn IO → refused as invalid, never served as an ordinary turn', async () => {
+  const m = makeIO(['{"type":"response","voice":"should not run"}']);
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.metadata?.kid_code, 'kid_session_invalid');
+  assertEquals(m.gatewayCalls(), 0);
+});
+
+
+// ── FREEFORM: the household's own pass-1 prompt (John, 2026-10-05) ──────────────────
+//
+// Set only by the add-on — the one runtime that can render the user's Jinja, because
+// HA owns the engine and the cloud brain has no HA access. These assert the two
+// properties the feature rests on: it SUBSTITUTES rather than layers, and it touches
+// pass 1 ONLY, which is what keeps cards working.
+
+Deno.test('freeform: options.freeform_prompt SUBSTITUTES the pass-1 prompt', async () => {
+  const m = makeIO(['{"type":"response","voice":"aye"}']);
+  const HOUSE = 'You are Captain Dashie, the voice of this ship.';
+  await runOrchestration(deps({ text: 'what time is it', options: { freeform_prompt: HOUSE } }), m.io);
+  const p1 = m.prompts()[0];
+  assertEquals(p1, HOUSE, 'the household prompt must be the WHOLE pass-1 prompt');
+  // Not prefixed: ours must be gone, not pushed down. `bench_prompt_prefix` layers;
+  // this replaces, because the point is that the household wrote it.
+  assert(!p1.includes('Base Context'), 'our template is still in the prompt — this layered instead of substituting');
+});
+
+Deno.test('freeform: CONTROL — absent → the assembled prompt stands, byte for byte', async () => {
+  const m = makeIO(['{"type":"response","voice":"hi"}']);
+  await runOrchestration(deps({ text: 'what time is it' }), m.io);
+  const p1 = m.prompts()[0];
+  assert(p1.length > 200, 'the assembled prompt should be substantial');
+  assert(p1.includes('Base Context'), 'our own template must still be used when no freeform prompt is sent');
+});
+
+Deno.test('freeform: PASS 2 KEEPS OUR PROMPT — the cards guarantee', async () => {
+  // The load-bearing one. Pass 2 is what emits the envelope that carries cards; if the
+  // household's text reached it, the display half would go with it.
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"tallest mountain"}',
+    '{"type":"response","voice":"Everest, 8849 meters."}',
+  ]);
+  const HOUSE = 'You are Captain Dashie, the voice of this ship.';
+  await runOrchestration(deps({ text: 'how tall is everest', options: { freeform_prompt: HOUSE } }), m.io);
+  const [p1, p2] = m.prompts();
+  assertEquals(p1, HOUSE);
+  assert(p2 !== HOUSE, 'the household prompt reached pass 2 — cards would be lost');
+  assert(p2.includes('Response Format'), 'pass 2 must still carry OUR response format');
+});
+
+Deno.test('freeform: an empty or whitespace prompt is ignored, not sent as a blank prompt', async () => {
+  for (const blank of ['', '   ', '\n\n']) {
+    const m = makeIO(['{"type":"response","voice":"hi"}']);
+    await runOrchestration(deps({ text: 'hello', options: { freeform_prompt: blank } }), m.io);
+    assert(m.prompts()[0].includes('Base Context'),
+      `a blank freeform prompt (${JSON.stringify(blank)}) must fall back to ours, not send nothing`);
+  }
+});
+
+Deno.test('freeform: a tool request from the household prompt still routes and reaches pass 2', async () => {
+  // Proves the END of the mechanism, not just the start: pass 1 under a household
+  // prompt can still emit {type:'info_request', tool} and get a second pass. Without
+  // the HOW TO REPLY block the add-on appends, parseContent returns null, the turn
+  // goes terminal (!p1Parsed) and this would be ONE gateway call.
+  const m = makeIO([
+    '{"type":"info_request","tool":"web_search","query":"everest"}',
+    '{"type":"response","voice":"8849 metres, arr."}',
+  ]);
+  await runOrchestration(deps({ text: 'how tall is everest', options: { freeform_prompt: 'Be a pirate.' } }), m.io);
+  assertEquals(m.gatewayCalls(), 2, 'pass 2 never ran — tool routing was lost');
+  assertEquals(m.kinds(), ['decide', 'narrate']);
 });

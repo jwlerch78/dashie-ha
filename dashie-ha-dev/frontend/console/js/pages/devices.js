@@ -770,6 +770,20 @@ const DevicesPage = {
         return fresh?.entity_ids || {};
     },
 
+    /** The control roles a press will actually resolve on this device, as the
+     *  add-on's worker computed them (server/ha-control-map.js).
+     *
+     *  Returns null — NOT an empty array — when the worker has not published a
+     *  list for this device yet, because the two mean different things to a
+     *  user: "this device cannot do that" versus "we do not know yet". Callers
+     *  that collapse them put a wrong sentence in a tooltip, which is the bug
+     *  this whole path was fixed for. */
+    _availableControlsForDevice(deviceId) {
+        const fresh = this._freshDeviceFor(deviceId);
+        const list = fresh?.available_controls;
+        return Array.isArray(list) ? list : null;
+    },
+
     /** The worker's freshly-extracted per-device record (every 5s), with any
      *  live SSE overrides merged in. The merge maps state_changed events to
      *  the relevant slots in metrics.controls / metrics.presence. */

@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 6907f14fde5d9d3c470cdf6f3dfaa8f586df74e1
+   Source git SHA: 73fe83c5bbce1fcac45cb66f90815886a12bacb2
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -29,6 +29,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // supabase/functions/voice-conversation/orchestrator.ts
 var orchestrator_exports = {};
 __export(orchestrator_exports, {
+  SCHEDULE_UNSUPPORTED_REPLY: () => SCHEDULE_UNSUPPORTED_REPLY,
   amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
   looksLikeWeatherAsk: () => looksLikeWeatherAsk,
@@ -41,6 +42,37 @@ __export(orchestrator_exports, {
   wantsGameDetail: () => wantsGameDetail
 });
 module.exports = __toCommonJS(orchestrator_exports);
+
+// supabase/functions/voice-conversation/ha-devices-block.ts
+var CRITICAL_ANCHOR = "CRITICAL: Respond ONLY with raw JSON";
+var OVERHEARD_RULE = `Not everything you hear is a request to you. If the speech is people talking to each other \u2014 half of a conversation, with "he", "she" or "it" pointing at something nobody told you about (for example "Did you find where she left the car keys? Okay, never mind.") \u2014 it is overheard, not a question about this home: reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question.`;
+function deviceLine(e) {
+  const name = e.friendly_name || e.entity_id;
+  const also = e.aliases?.length ? ` (also called: ${e.aliases.join(", ")})` : "";
+  return `- ${name}${also} \u2014 ${e.domain} \u2014 ${e.area ?? "no room"}`;
+}
+function haDevicesBlock(entities) {
+  return `## Devices in this home
+These are the user's smart-home devices (name \u2014 type \u2014 room). You cannot see their state here, but the home_assistant tool can.
+${entities.map(deviceLine).join("\n")}
+
+Any question about the current state of one of these devices or rooms ("is the back door locked", "what's the office temperature", "which lights are on in the kitchen"), and any command to one of them, is an info_request with tool: "home_assistant". Never answer those from your own knowledge \u2014 you do not know this home's current state. A general question that merely mentions a device TYPE ("what's a good dehumidifier brand") is NOT about this home.
+${OVERHEARD_RULE}
+
+`;
+}
+function injectHaDevices(prompt, entities) {
+  if (!entities?.length) return prompt;
+  const block = haDevicesBlock(entities);
+  const at = prompt.indexOf(CRITICAL_ANCHOR);
+  if (at < 0) {
+    console.warn("DROP: ha-devices block anchor (CRITICAL line) not found in pass-1 prompt \u2014 appended at the END, an UNMEASURED position");
+    return `${prompt}
+
+${block}`;
+  }
+  return prompt.slice(0, at) + block + prompt.slice(at);
+}
 
 // supabase/functions/voice-conversation/templates.ts
 var BASE_CONTEXT = `# Base Context
@@ -58,7 +90,9 @@ The user said: "{{USER_REQUEST}}"
 
 Note: Speech-to-text may not be entirely accurate.
 
-If the request is empty, garbled, or has no clear intent, it is likely background noise or a wake-word misfire \u2014 reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question and do NOT guess what was meant (asking a question on noise creates a loop).
+If the request is empty, garbled, or has no recoverable words at all, it is likely background noise or a wake-word misfire \u2014 reply only with "Sorry, I didn't catch that." Do NOT ask a clarifying question and do NOT guess what was meant (asking a question on noise creates a loop).
+
+\u{1F534} That line means ONLY "I did not hear you", and it ends the conversation as a misfire. If you DID understand the request and simply cannot fulfil it \u2014 nothing available covers it, or the data you were given does not answer it \u2014 that is NOT noise. Say "Sorry, I'm not able to help with that." instead, and leave it at that. Never use the "didn't catch that" line for something you understood.
 
 Write your response as if speaking directly to the user. Use "you" to address them, not "the user".
 `;
@@ -301,6 +335,17 @@ Examples:
 - "Where's Dad?" \u2192 info_request with tool: "family_locations", query: {member_name: "Dad"}
 - "How far away is Mom?" \u2192 info_request with tool: "family_locations", query: {member_name: "Mom"}
 
+### When you understood them but cannot help
+Use shape 1 (RESPONSE) with a plain decline as the \`voice\`:
+\`\`\`json
+{"type": "response", "voice": "Sorry, I'm not able to help with that.", "text": null, "action": null}
+\`\`\`
+Use it when you understood the request but the retrieved data does not answer it \u2014 it came back empty, it errored, or it is about something else.
+
+\u26A0\uFE0F If the data DOES contain the answer, ANSWER it. Never decline something you can answer.
+
+Do NOT use "Sorry, I didn't catch that." here. That line means you did not HEAR them, and said to someone who asked a clear question it is wrong twice over: it is untrue, and it ends the conversation as a wake-word misfire. If you heard them, decline instead.
+
 CRITICAL: Respond ONLY with raw JSON. Do NOT wrap in markdown code fences (no \`\`\`json blocks). Just the JSON object directly.
 `;
 var RESPONSE_FORMAT_MULTI = `## 4. MULTI (one turn, several DIFFERENT tools)
@@ -351,6 +396,7 @@ Parse the user's natural language command into Home Assistant service calls. The
 2. Multiple actions: "turn on the lights and close the garage" \u2192 multiple service calls
 3. Actions with parameters: "set the thermostat to 72" \u2192 service call with temperature parameter
 4. A state QUESTION: "which lights are on", "is the garage closed", "what's the thermostat set to" \u2192 NO action; answer from the \`state\` fields in the entity list (see State Questions)
+5. A question AND a command in one sentence: "is the patio door locked and turn on the deck lights" \u2192 BOTH: return the ACTION with every commanded service call, and answer the question in its \`voice\` (see Asked AND Commanded)
 
 ## Available Entities
 
@@ -424,6 +470,29 @@ When the user is asking about device state instead of commanding a change, answe
 {
   "type": "response",
   "voice": "The kitchen light is on; everything else is off."
+}
+\`\`\`
+
+## Asked AND Commanded
+
+When one sentence both ASKS about state and COMMANDS a change, do both \u2014 neither half may be dropped:
+- Return an ACTION containing every commanded service call. The question does NOT turn this into a RESPONSE.
+- In that ACTION's \`voice\`, answer the question FIRST from the \`state\` fields, then confirm the command.
+- A command that depends on the answer ("is the shed door open, and close it if it is") \u2192 read the state; include the call only when the condition holds, and say what you found.
+
+\`\`\`json
+{
+  "type": "action",
+  "voice": "The patio door is locked. Turning on the deck lights.",
+  "action": {
+    "category": "homeassistant",
+    "command": "execute_commands",
+    "parameters": {
+      "commands": [
+        {"domain": "light", "service": "turn_on", "data": {"entity_id": "light.deck_lights"}}
+      ]
+    }
+  }
 }
 \`\`\`
 
@@ -2299,6 +2368,11 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
   if (personalityConfig) {
     prompt = (personalityConfig.responsePrefix || "") + "\n\n" + prompt;
   }
+  if (context.kidName) {
+    prompt += `
+
+You are talking with ${context.kidName}, a child in this family. Talk to them by name.`;
+  }
   if (!inquiryType && context.providedSports) {
     prompt += "\n\n" + PROVIDED_SPORTS_BLOCK.replace("{{PROVIDED_SPORTS}}", JSON.stringify(context.providedSports, null, 2));
   }
@@ -2322,6 +2396,7 @@ function buildPrompt({ userRequest, inquiryType, retrievedData, context = {} }) 
     if (context.multiEnabled) {
       prompt = injectMultiBlock(prompt);
     }
+    prompt = injectHaDevices(prompt, context.haEntities);
   }
   if (context.userLocation) {
     prompt += `
@@ -3184,7 +3259,7 @@ function clockTime(startTime, tz) {
 }
 function scheduleWhen(g, tz) {
   const day = relativeDay(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  const time = g.allDay === true ? "" : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -3192,7 +3267,7 @@ function scheduleWhen(g, tz) {
 }
 function scheduleWhenSpoken(g, tz) {
   const day = relativeDaySpoken(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  const time = g.allDay === true ? "" : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -4920,6 +4995,7 @@ async function dispatchMultiTurn(steps, deps) {
 }
 
 // supabase/functions/voice-conversation/orchestrator.ts
+var SCHEDULE_UNSUPPORTED_REPLY = "I can't set up a scheduled check from this screen yet.";
 var KNOWN_DEVICE_TOOL_DECLINES = {
   // NB: calendar_events is intentionally NOT here — it's now offered to every caller and its
   // decline is self-fulfilled in the calendar branch (a non-claiming kiosk routes to it and gets
@@ -5072,9 +5148,15 @@ async function orchestrate(deps, io, voiceCtx) {
     return noiseTurn(t0);
   }
   if (isEndIntent(req.text)) return endIntentTurn(t0);
+  let kid = null;
+  if (req.kid_session_id) {
+    const r = io.resolveKidTurn ? await timed("prep_kid_session", prep, () => io.resolveKidTurn(supabase, userId, req.kid_session_id, req.endpoint_id)) : { ok: false, code: "kid_session_invalid" };
+    if (!r.ok) return kidRefusedTurn(t0, r.code);
+    kid = r;
+  }
   const sessionId = req.conversation_id || crypto.randomUUID();
   const [personality, retainEnabled, spend, account, rateLimit] = await timed("prep_gather", prep, () => Promise.all([
-    io.resolvePersonality(supabase, userId, req.endpoint_id, req.options?.personality_id),
+    io.resolvePersonality(supabase, userId, req.endpoint_id, kid ? kid.personalityId : req.options?.personality_id),
     io.readRetainTranscripts(supabase, userId),
     // CR1 pre-flight credit gate — folded into the existing parallel reads (no added
     // latency). Absent IO (Node shell / tests) → always spendable. Inert until the
@@ -5141,6 +5223,7 @@ async function orchestrate(deps, io, voiceCtx) {
   };
   const context = {
     customPersonalityConfig: personality,
+    kidName: kid?.childName ?? null,
     chatHistory: formatHistory(req.history),
     language: req.language || "system",
     timezone: req.timezone,
@@ -5183,12 +5266,19 @@ async function orchestrate(deps, io, voiceCtx) {
     context: {
       ...context,
       ...providedSports ? { providedSports } : {},
-      ...providedCalendar ? { providedCalendar } : {}
+      ...providedCalendar ? { providedCalendar } : {},
+      // Pass 1 only: the home's device/room names (ha-devices-block.ts). Absent → prompt unchanged.
+      ...req.provided_context?.ha_entities?.length ? { haEntities: req.provided_context.ha_entities } : {}
     }
   });
-  const p1Prompt = benchOverride.active ? `${benchOverride.prefix}
+  const p1Prompted = benchOverride.active ? `${benchOverride.prefix}
 
 ${p1PromptBase}` : p1PromptBase;
+  const freeform = typeof req.options?.freeform_prompt === "string" ? req.options.freeform_prompt.trim() : "";
+  if (freeform) {
+    console.warn(`FREEFORM PASS-1 PROMPT ACTIVE: household prompt substituted (${freeform.length} chars; ours was ${p1Prompted.length}) \u2014 pass 2 unchanged`);
+  }
+  const p1Prompt = freeform || p1Prompted;
   const forcedContent = forced ? JSON.stringify({
     type: "info_request",
     tool: "web_search",
@@ -5641,7 +5731,77 @@ ${p1PromptBase}` : p1PromptBase;
       route
     });
   }
+  if (p1Parsed.type === "info_request" && p1Parsed.tool === "open_app") {
+    const appCaps = req.client_fulfilled_tools;
+    if (!Array.isArray(appCaps) || !appCaps.includes("open_app")) {
+      const declineVoice = KNOWN_DEVICE_TOOL_DECLINES.open_app;
+      const decline = { type: "response", voice: declineVoice, text: null, action: null };
+      await logPass(
+        io,
+        deps,
+        prep,
+        REQUEST_TYPE,
+        req.endpoint_id,
+        sessionId,
+        p1Prompt,
+        pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null),
+        turnMeta
+      );
+      return finalize({
+        t0,
+        parsed: decline,
+        raw: pass1.raw,
+        stages: [p1Stage],
+        usage: pass1.raw.usage,
+        latency: pass1.latency_ms,
+        retain,
+        sessionId,
+        route
+      });
+    }
+    await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
+    return finalize({
+      t0,
+      parsed: p1Parsed,
+      raw: pass1.raw,
+      stages: [p1Stage],
+      usage: pass1.raw.usage,
+      latency: pass1.latency_ms,
+      client_tool: { tool: "open_app", query: p1Parsed.query },
+      sessionId,
+      route
+    });
+  }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "schedule_action") {
+    const scheduleCaps = req.client_fulfilled_tools;
+    if (Array.isArray(scheduleCaps) && !scheduleCaps.includes("schedule_action")) {
+      const declineVoice = SCHEDULE_UNSUPPORTED_REPLY;
+      const decline = { type: "response", voice: declineVoice, text: null, action: null };
+      await logPass(
+        io,
+        deps,
+        prep,
+        REQUEST_TYPE,
+        req.endpoint_id,
+        sessionId,
+        p1Prompt,
+        pass1,
+        retainFields(retain.serverPersist, retain.userText, declineVoice, null),
+        turnMeta
+      );
+      return finalize({
+        t0,
+        parsed: decline,
+        raw: pass1.raw,
+        stages: [p1Stage],
+        usage: pass1.raw.usage,
+        latency: pass1.latency_ms,
+        retain,
+        sessionId,
+        route
+      });
+    }
     await logPass(io, deps, prep, REQUEST_TYPE, req.endpoint_id, sessionId, p1Prompt, pass1, deviceFulfilledRetain(), turnMeta);
     return finalize({
       t0,
@@ -6073,6 +6233,25 @@ function insufficientCreditsTurn(t0, balance) {
     metadata: { degraded: "insufficient_credits", balance }
   };
 }
+function kidRefusedTurn(t0, code) {
+  return {
+    ok: true,
+    type: "response",
+    voice: "",
+    text: null,
+    action: null,
+    parsed_ok: true,
+    raw_content: "",
+    usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    model: "",
+    provider: "",
+    latency_ms: 0,
+    total_latency_ms: Date.now() - t0,
+    route: "kid_refused",
+    stages: [{ name: "kid_refused", latency_ms: 0 }],
+    metadata: { kid_code: code }
+  };
+}
 function rateLimitedTurn(t0, retryAfterSeconds) {
   return {
     ok: true,
@@ -6251,6 +6430,7 @@ function toolMeta(parsed, route, caps) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  SCHEDULE_UNSUPPORTED_REPLY,
   amendUnkeptPicturePromise,
   looksLikeSportsAsk,
   looksLikeWeatherAsk,
@@ -6262,4 +6442,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "6907f14fde5d9d3c470cdf6f3dfaa8f586df74e1";
+module.exports.BRAIN_SOURCE_SHA = "73fe83c5bbce1fcac45cb66f90815886a12bacb2";

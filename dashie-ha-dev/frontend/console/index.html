@@ -56,6 +56,8 @@
     <!-- Which layer a Voice & AI key writes to. Needs voice-profile-keys above it. -->
     <script src="js/lib/voice-profile-scope.js?v=20260925a"></script>
     <script src="js/lib/personality-prompt-builder.js?v=20260712a"></script>
+    <script src="js/lib/prompt-tool-catalog.js?v=20260712a"></script>
+    <script src="js/lib/freeform-prompt.js?v=20260712a"></script>
     <script src="js/lib/ai-prompt-templates.js?v=20260712a"></script>
     <script src="js/lib/ai-models-catalog.js?v=20260712a"></script>
     <script src="js/lib/prompt-builder.js?v=20260727a"></script>
@@ -86,9 +88,15 @@
 
     <!-- Pages -->
     <script src="js/pages/voice-ai-personality-edit.js?v=20260712a"></script>
+    <script src="js/pages/voice-ai-house-rules.js?v=20260712a"></script>
+    <script src="js/pages/voice-ai-freeform.js?v=20260712a"></script>
     <script src="js/pages/voice-ai-chat.js?v=20260725a"></script>
-    <script src="js/pages/voice-ai-analysis.js?v=20260725a"></script>
-    <script src="js/pages/voice-ai-benchmark.js?v=20260712a"></script>
+    <script src="js/components/voice-turn-timeline.js?v=20261005a"></script>
+    <script src="js/pages/voice-ai-analysis.js?v=20261005a"></script>
+    <!-- voice-ai-benchmark.js is NOT loaded: the Benchmark tab was cut for the
+         HA console's first release (John, 2026-10-02). The module is left on
+         disk so restoring the tab is re-adding this line plus its four call
+         sites in voice-ai.js. -->
     <!-- engine-resolution.js is GENERATED (contract #29) and must load BEFORE
          engines-store.js, which reads window.ENGINE_RESOLUTION from it. -->
     <script src="js/lib/engine-resolution.js?v=20260716a"></script>
@@ -108,6 +116,7 @@
     <!-- The two collapsible groups on the Voice & AI Settings tab. Must load BEFORE
          voice-ai.js, which reads window.VoiceAiSections while rendering. -->
     <script src="js/components/voice-ai-sections.js?v=20260923a"></script>
+    <script src="js/components/voice-ai-prompt-section.js?v=20260923a"></script>
     <script src="js/pages/voice-ai.js?v=20260925c"></script>
     <script src="js/pages/scheduled-actions.js?v=20260725b"></script>
     <!-- Devices. Published core since 2026-07-30 (was the closed family delta):

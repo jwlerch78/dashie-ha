@@ -309,6 +309,24 @@ async function converse(payload) {
     // gating, console History); absent → the no-account shell (no Dashie service contacted).
     const io = createAddonIO({ ...shell, accountToken: jwt });
 
+    // ── FREEFORM: the household's own pass-1 prompt, if they wrote one ──────────────
+    //
+    // Add-on only, because only this runtime can render the user's Jinja (HA owns the
+    // engine; the cloud brain has no HA access). Returns null for every account that is
+    // not in Freeform mode, so the dynamic path is byte-identical to before.
+    //
+    // ⚠️ `acct` may be null (signed out, or the user_settings read failed). Freeform is
+    // an ACCOUNT setting, so no account means no freeform — not a crash.
+    let freeform = null;
+    try {
+        freeform = await require('./freeform-turn').buildFreeformPrompt(acct);
+    } catch (e) {
+        // Never let prompt assembly kill a turn: the household still gets an answer from
+        // our own prompt. Loud, because a silently-ignored Freeform prompt looks to the
+        // user exactly like one that is working.
+        console.warn('DROP: freeform assembly threw — using the Dashie prompt:', (e && e.message) || e);
+    }
+
     // Pass-through: forward the request as received, defaulting only what the brain
     // requires. options.model pins the turn to the configured model.
     const brainReq = {
@@ -317,14 +335,23 @@ async function converse(payload) {
         conversation_id: payload.conversation_id || null,
         endpoint_id: payload.endpoint_id || 'ha-voice',
         language: payload.language || 'system',
-        options: { ...(payload.options || {}), model },
+        // `freeform_prompt` SUBSTITUTES the pass-1 prompt in the core (types.ts), and
+        // pass 2 is untouched — which is what keeps cards working.
+        options: {
+            ...(payload.options || {}),
+            model,
+            ...(freeform ? { freeform_prompt: freeform.prompt } : {}),
+        },
         provided_context: payload.provided_context || null,
     };
 
     const nEntities = ((payload.provided_context || {}).ha_entities || []).length;
     console.log(`DASHIE-TURN route=${routeTag} account=${jwt ? 'yes' : 'no'} text="${text}" ` +
         `endpoint_id=${brainReq.endpoint_id} conversation_id=${brainReq.conversation_id || '-'} ` +
-        `entities=${nEntities} model=${model}`);
+        `entities=${nEntities} model=${model} ` +
+        // Greppable per-turn answer to "did the household's prompt actually serve this
+        // turn?" — the question the console's preview cannot answer.
+        `prompt=${freeform ? `freeform:${freeform.prompt.length}c` : 'dashie'}`);
 
     const t0 = Date.now();
     try {

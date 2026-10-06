@@ -13,6 +13,23 @@
  * logic lives ONCE; the brain re-exports `templateSports`/`runSports` for back-compat.
  * Adds timezone-correct kickoff formatting (the old code omitted scheduled times
  * because it had no user tz — the "5pm PDT" bug).
+ *
+ * ── 🔴 A CHANGE HERE NEEDS THREE LANDINGS, NOT ONE (measured 2026-10-03) ──────────────────────────
+ * This module is shared, and a shared-module change reaches only what is REBUILT. The 12:00-AM TBD
+ * fix needed all three, and the second and third are both easy to miss:
+ *
+ *   1. `supabase functions deploy sports-gateway`      — the widget's cards and the calendar popup
+ *   2. `supabase functions deploy voice-conversation`  — `synthesis/sports.ts` imports this DIRECTLY,
+ *      so skipping it leaves the screen correct while Dashie still SAYS the wrong thing out loud
+ *   3. `npm run gen:node-brain && ./sync-brain-bundle.sh` (TWO repos) — the HA add-on runs a
+ *      COMMITTED bundle, not the deployed function, so an on-prem turn keeps the old behaviour with
+ *      no error and no log. `npm run lint:node-brain` is the only gate, and it fires inside
+ *      `deploy-to-dev.sh` — i.e. on an unrelated thread's web deploy, at an arbitrary later time.
+ *      See memory `brain_has_two_runtimes`.
+ *
+ * ⚠️ Enumerate the importers UNCAPPED before you deploy (`grep -rl "tools/sports.ts"
+ * supabase/functions/`). A capped list read as an enumeration is how two of the six importers went
+ * unnamed in the deploy instruction for that fix — traps 118.
  */
 
 import type { ToolCard, ToolContext, ToolDef, ToolResult } from './types.ts';
@@ -35,6 +52,28 @@ export interface Game {
   league?: string; status?: string; detail?: string; startTime?: string; venue?: string;
   /** ESPN's `venue.indoor`, carried by the gateway. `undefined` = not measured, never `false`. */
   indoorVenue?: boolean;
+  /**
+   * TRUE when the provider has no kickoff yet, only a date. ⚠️ `undefined` = NOT MEASURED, never
+   * `false` — the test is `allDay === true`, never `allDay !== false`.
+   *
+   * 🔴 IT MUST BE DECLARED HERE OR THE CARD BUILDER CANNOT SEE IT. The gateway carried this field and
+   * guarded `card.start` with it, but `Game` never declared it, so `scheduleWhen` formatted
+   * `startTime` unconditionally. ESPN parks an untimed game at MIDNIGHT EASTERN (`startTime: ev.date`,
+   * espn-provider.ts:797), so the detail stated a kickoff nobody has while `start` was correctly absent.
+   *
+   * Provenance, kept separate because the two are different kinds of claim: **John observed "12am"
+   * on the Sports widget (2026-10-03)** — that is the field report. The exact string
+   * `"Sun, Jan 10, 12:00 AM"` was observed in the TEST (`team-schedule.test.ts`, the `TBD_PARKED`
+   * fixture, seen RED before the fix), not captured from production — the live pre-state was never
+   * recorded and now cannot be. The AFTER state *is* measured on the deployed staging gateway:
+   * NCAAF/Florida 2026, 5 of 12 games untimed, all rendering date-only, the 2 timed ones keeping
+   * their 3:30 PM.
+   *
+   * ⚠️ **A change to how this field is read needs THREE landings** — two edge deploys AND the HA
+   * add-on's committed brain bundle. The add-on's copy fails silently on the device. The full list is
+   * in this file's header; it is not repeated here so the two cannot drift.
+   */
+  allDay?: boolean;
   home?: string; away?: string; homeScore?: number | null; awayScore?: number | null;
   winner?: 'home' | 'away' | null;
   // Penalty-shootout result of a knockout game that ended level after regulation/ET.
@@ -360,7 +399,11 @@ export function clockTime(startTime: string | undefined, tz?: string): string {
  *  so a bare "Scheduled" is dropped) when there's no tz/startTime. */
 export function scheduleWhen(g: Game, tz?: string): string {
   const day = relativeDay(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  // 🔴 `=== true` ONLY. An untimed game's `startTime` is ESPN's midnight-EASTERN placeholder, not a
+  // kickoff, so formatting it states a fact nobody has — and west of Eastern it states the WRONG DAY
+  // too (midnight ET = 9 PM PT the previous day). `undefined` means NOT MEASURED and must keep its
+  // time, or every game from a pre-`timeValid` recording silently loses its kickoff.
+  const time = g.allDay === true ? '' : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);
@@ -378,7 +421,9 @@ export function scheduleWhen(g: Game, tz?: string): string {
  *  caller's job; this function can only format what it's given. */
 export function scheduleWhenSpoken(g: Game, tz?: string): string {
   const day = relativeDaySpoken(g.startTime, tz);
-  const time = clockTime(g.startTime, tz);
+  // Same guard as its twin, and it matters MORE here: this string is fed straight to TTS, so the
+  // unguarded version had Dashie SAY "midnight" about a game with no announced time.
+  const time = g.allDay === true ? '' : clockTime(g.startTime, tz);
   if (day && time) return `${day}, ${time}`;
   if (day) return day;
   const d = tidyDetail(g.detail);

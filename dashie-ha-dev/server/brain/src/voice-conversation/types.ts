@@ -28,6 +28,11 @@ export interface VoiceRequest {
   // silently swallowed the USER's own scheduling requests). Old clients omit it →
   // undefined → unchanged behavior.
   announcement?: boolean;
+  // Kid tablet "Talk to a friend" (Thread VH, 2026-10-04): the id `open_kid_friend_session` returned.
+  // When present, the server takes the persona and the child from THAT row (never from options),
+  // counts the turn against the household's monthly cap, and refuses with metadata.kid_code when the
+  // session is expired/invalid or the cap is reached. v1 is parity: tools are not restricted.
+  kid_session_id?: string;
   // BENCH ONLY — a foreign system prompt to layer ahead of Dashie's own, for the unit-① prompt
   // head-to-head's end-to-end leg. Honored ONLY on staging, ONLY for allowlisted bench accounts,
   // and refused fail-closed everywhere else; every gate is in `bench-override.ts`. This is NOT a
@@ -58,6 +63,23 @@ export interface VoiceRequest {
     // 0.7/0.2/0 against the deployed fn to measure route entropy. Absent → the intent-derived
     // default stands (temp 0 for routing) — no production caller sets it. Additive/nullable.
     route_temperature?: number;
+    // ── FREEFORM MODE: the user's own pass-1 prompt, fully assembled ──────────────
+    //
+    // 🔴 SET ONLY BY THE ADD-ON (dashie-ha/server/converse.js), never by the cloud
+    // path, and that is a constraint rather than a convention: Freeform renders the
+    // user's Jinja template through HOME ASSISTANT's own engine, and the cloud brain
+    // has no HA access. John ruled add-on-only on 2026-10-05 for exactly that reason.
+    //
+    // ⚠️ SUBSTITUTED, not prefixed — unlike `bench_prompt_prefix`, which layers on top.
+    // This REPLACES the assembled pass-1 prompt, because the whole point is that the
+    // household wrote it. Assembled by the shared holder
+    // (js/ai/prompts/freeform-prompt.js) so the console's Raw preview and what is
+    // actually sent cannot differ — JS_KOTLIN_CONTRACTS row 183.
+    //
+    // 🔴 PASS 1 ONLY (John, 2026-10-05: "start with pass 1 only", cards must keep
+    // working). Pass 2 keeps OUR prompt and OUR envelope, which is what still produces
+    // cards. If this ever reached pass 2 the display half would go with it.
+    freeform_prompt?: string;
     // Gemini thinkingConfig.thinkingBudget override for the pass-1 ROUTING call only (0 = off;
     // N = capped; a bench can also send a positive value to re-measure). ABSENT → the shipped
     // default of 0 (decode-pass thinking OFF since 20260717) — proven to hold routing/decomposition
@@ -263,6 +285,7 @@ export type WebGuidanceMode = 'auto' | 'tool' | 'native' | 'none';
 
 export interface PromptContext {
   customPersonalityConfig?: Personality | null;
+  kidName?: string | null;     // kid "Talk to a friend": the child the persona is talking with (one line)
   // Assistant identity → {{ASSISTANT_NAME}} in the base prompt (Chickadee
   // open-core). Absent/null → 'Dashie' (byte-identical legacy prompt).
   assistantName?: string | null;
@@ -271,6 +294,7 @@ export interface PromptContext {
   timezone?: string;           // client IANA zone → formatDateTime() for {{DATE_TIME}}
   providedSports?: unknown;     // §23.6: pre-fetched sports → pass-1 voices it in personality
   providedCalendar?: unknown;   // 20260711: pre-fetched calendar window → pass-1 digests it directly
+  haEntities?: HaEntity[];      // 20261002: pass-1 only — the home's device/room NAMES (ha-devices-block.ts)
   webSearchEnabled?: boolean;   // T3: false → omit web_search from the offered tools list
   /** Gemini native Google Search grounding for THIS turn (`geminiGrounds`, orchestrator.ts:568).
    *  NOT the same as `webSearchEnabled === false`: that is also false when the sports guard fires

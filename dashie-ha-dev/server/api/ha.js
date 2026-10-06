@@ -25,6 +25,7 @@ const config = require('../config');
 const { requireIngressUser } = require('../require-ingress-user');
 const servicePolicy = require('../ha-service-policy');
 const haTargets = require('../ha-target-resolver');
+const { CONTROL_MAP, resolveControlEntityId } = require('../ha-control-map');
 
 const router = express.Router();
 
@@ -229,38 +230,11 @@ router.post('/rename', requireIngressUser('ha-rename'), express.json(), async (r
 });
 
 /**
- * Map of Console-side "role" names to (entity_id suffix, domain, on/off services).
- * The Console doesn't need to know HA's entity_id naming or service names — it
- * just sends `{ device_id, role, value }` and the add-on resolves to a
- * `<domain>.<slug>_<entitySuffix>` entity_id and the appropriate service.
- *
- * For numeric entities (volume, brightness), we use number.set_value with `value` as service_data.
- * For switches, value is boolean → switch.turn_on / switch.turn_off.
- * For buttons (reload, refresh), value is ignored → button.press.
+ * CONTROL_MAP moved to server/ha-control-map.js on 2026-10-03 so ha-metrics can
+ * read it too and publish per-device availability. That file is the only place
+ * the role / entity-suffix / unique_id-tail vocabularies are reconciled — read
+ * its header before adding a role.
  */
-const CONTROL_MAP = {
-    lock:                    { suffix: 'lock', domain: 'switch', kind: 'switch' },
-    screen:                  { suffix: 'screen', domain: 'switch', kind: 'switch' },
-    screensaver:             { suffix: 'screensaver', domain: 'switch', kind: 'switch' },
-    dark_mode:               { suffix: 'dark_mode', domain: 'switch', kind: 'switch' },
-    keep_screen_on:          { suffix: 'keep_screen_on', domain: 'switch', kind: 'switch' },
-    auto_brightness:         { suffix: 'auto_brightness', domain: 'switch', kind: 'switch' },
-    hide_sidebar:            { suffix: 'hide_sidebar', domain: 'switch', kind: 'switch' },
-    hide_tabs:               { suffix: 'hide_tabs', domain: 'switch', kind: 'switch' },
-    start_on_boot:           { suffix: 'start_on_boot', domain: 'switch', kind: 'switch' },
-    camera_stream_enabled:   { suffix: 'camera_stream_enabled', domain: 'switch', kind: 'switch' },
-    camera_software_encoding:{ suffix: 'camera_software_encoding', domain: 'switch', kind: 'switch' },
-    volume:                  { suffix: 'volume', domain: 'number', kind: 'number' },
-    brightness:              { suffix: 'brightness', domain: 'number', kind: 'number' },
-    zoom:                    { suffix: 'zoom', domain: 'number', kind: 'number' },
-    reload:                  { suffix: 'reload_dashboard', domain: 'button', kind: 'button' },
-    relaunch:                { suffix: 'restart_app', domain: 'button', kind: 'button' },
-    refresh:                 { suffix: 'refresh_webview', domain: 'button', kind: 'button' },
-    bring_to_foreground:     { suffix: 'bring_to_foreground', domain: 'button', kind: 'button' },
-    reboot:                  { suffix: 'reboot_device', domain: 'button', kind: 'button' },
-    clear_cache:             { suffix: 'clear_cache', domain: 'button', kind: 'button' },
-    clear_storage:           { suffix: 'clear_storage', domain: 'button', kind: 'button' },
-};
 
 /**
  * POST /api/ha/control
@@ -289,13 +263,13 @@ router.post('/control', requireIngressUser('ha-control'), express.json(), async 
 
     const slug = haWorker.getSlugForDevice(device_id);
     if (!slug) return res.status(404).json({ error: 'device_not_found_or_offline' });
-    // Prefer the worker-resolved entity_id (correct even for
-    // partial-migration devices where slug+suffix construction yields
-    // a non-existent entity_id). Fall back to construction for control
-    // roles the metrics matcher didn't bucket — that path keeps working
-    // for the common case where the slug+suffix lines up.
-    const resolvedEntityId = haWorker.getEntityIdForRole(device_id, map.suffix);
-    const entityId = resolvedEntityId || `${map.domain}.${slug}_${map.suffix}`;
+    // Same resolver availableControlRoles() uses, so the Console's enable/disable
+    // state can never disagree with what a press actually targets.
+    const entityId = resolveControlEntityId(role, {
+        lookupEntityId: (suffix) => haWorker.getEntityIdForRole(device_id, suffix),
+        slug,
+    });
+    if (!entityId) return res.status(404).json({ error: 'device_not_found_or_offline' });
 
     try {
         let serviceName, serviceData = {};

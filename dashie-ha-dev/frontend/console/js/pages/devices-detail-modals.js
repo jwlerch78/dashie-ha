@@ -53,6 +53,7 @@ const DevicesDetailModals = {
         ['blue', 'Blue'],
         ['halloween', 'Halloween'],
         ['christmas', 'Christmas'],
+        ['thanksgiving', 'Thanksgiving'],
         // END GENERATED theme-families
     ],
 
