@@ -46,14 +46,18 @@ const DevicesDetailModals = {
 
     THEME_FAMILIES: [
         // BEGIN GENERATED theme-families — gen-console-theme-swatches.mjs
-        ['default', 'Default'],
-        ['marigold', 'Marigold'],
-        ['fern', 'Fern'],
-        ['orchid', 'Orchid'],
-        ['blue', 'Blue'],
-        ['halloween', 'Halloween'],
-        ['christmas', 'Christmas'],
-        ['thanksgiving', 'Thanksgiving'],
+        ['default', "Default"],
+        ['marigold', "Marigold"],
+        ['fern', "Fern"],
+        ['orchid', "Orchid"],
+        ['blue', "Blue"],
+        ['halloween', "Halloween"],
+        ['christmas', "Christmas"],
+        ['thanksgiving', "Thanksgiving"],
+        ['hanukkah', "Hanukkah"],
+        ['newyear', "New Year"],
+        ['valentines', "Valentine's"],
+        ['stpatricks', "St. Patrick's"],
         // END GENERATED theme-families
     ],
 
