@@ -319,6 +319,19 @@ node "$ADDON_ROOT/scripts/check-freeform-wiring.mjs"
 echo "==> Checking the Bluetooth surface (state-is-the-count, unavailable != zero)"
 node "$ADDON_ROOT/scripts/check-bluetooth-surface.mjs"
 
+# The Dashie Cloud dashboard pages (family/calendar/photos/chores/rewards/locations)
+# ship in this tree as of 2026-10-06 and are hidden by ENTITLEMENT, not by absence.
+# John's rule: "those items should only become visible when the user is logged into
+# an active dashie account." Every leg here is a DENIAL, because the defect being
+# guarded was a gate that could not fail: both entitlement Sets already listed all
+# six pages correctly while isPageEnabled returned above them, so a run proving the
+# pages appear for an entitled user would have been green with NO gate at all.
+# Leg 1 is the control that keeps the denials from passing on a gate that simply
+# denies everything, and legs 13-15 cover the other arm -- that the shipped app.js
+# still POPULATES the state the gate reads, which no in-harness leg can see.
+echo "==> Checking the entitlement gate DENIES (unknown/expired/ha_only)"
+node "$ADDON_ROOT/scripts/check-entitlement-gate.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver

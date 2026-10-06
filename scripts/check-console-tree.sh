@@ -30,16 +30,25 @@ say()  { echo "check-console-tree: $*"; }
 bad()  { echo "check-console-tree: ❌ $*" >&2; fail=1; }
 
 # ---- 1. Delta-only files must not exist here ------------------------------
-# video-feeds*.js and preferences.js LEFT this list on 2026-07-31 — they moved
-# into the published core (single-add-on collapse). They are now core-owned and
-# MUST be present; listing them here would fail every release.
+# What stays on this list is now exactly the PAYWALL: the plan/trial/purchase
+# surfaces that are the Dashie product's own commercial machinery.
+#
+# Departures, each because the file moved into the published core and listing it
+# would then fail every release:
+#   2026-07-31  video-feeds*.js, preferences.js      (single add-on collapse)
+#   2026-10-06  the 11 Dashie Cloud dashboard pages  (family, calendar{,-add,
+#               -edit,-options}, chores, rewards, locations, photos{,-upload,
+#               -album-edit}) — John asked the HA edition to carry them.
+#
+# 🔴 The dashboard pages being off this list does NOT make them public product:
+# they are hidden in the published build by FeatureGate.ENTITLEMENT_GATED_PAGES,
+# which the published branch of isPageEnabled consults as of the same date and
+# which fails CLOSED on unknown subscription state. This gate answers "is the
+# closed delta absent?"; check-entitlement-gate.mjs answers "does the
+# entitlement gate actually deny?". Neither one covers the other.
 DELTA_FILES=(
   js/lib/subscribe-gate.js js/lib/subscription-status.js js/lib/dashboard-trial.js
   js/components/external-link-modal.js js/pages/account-plan.js
-  js/pages/family.js
-  js/pages/calendar.js js/pages/calendar-edit.js js/pages/calendar-options.js js/pages/calendar-add.js
-  js/pages/chores.js js/pages/rewards.js js/pages/locations.js
-  js/pages/photos.js js/pages/photos-upload.js js/pages/photos-album-edit.js
 )
 for f in "${DELTA_FILES[@]}"; do
   [ -e "$CONSOLE/$f" ] && bad "delta file present in public tree: $f"
@@ -59,10 +68,12 @@ for p in "${PAYWALL_PATTERNS[@]}"; do
 done
 
 # ---- 3. Delta globals only in guarded form --------------------------------
+# The 5 PAYWALL globals only. The 6 page globals (FamilyPage, CalendarPage,
+# ChoresPage, RewardsPage, LocationsPage, PhotosPage) left this list on
+# 2026-10-06 with their files: core now owns them and references them directly
+# in App.pages, so requiring guarded access would fail every release.
 DELTA_GLOBALS=(
   SubscribeGate SubscriptionStatus DashboardTrial ExternalLinkModal AccountPlan
-  FamilyPage CalendarPage ChoresPage RewardsPage LocationsPage
-  PhotosPage
 )
 for g in "${DELTA_GLOBALS[@]}"; do
   hits=$(grep -RIn --include='*.js' "\b$g\b" "$CONSOLE" 2>/dev/null \
