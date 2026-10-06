@@ -10,11 +10,19 @@ const App = {
     _deletionPollTimer: null,
 
     pages: {
-        // Delta pages (typeof-guarded): these modules exist only in the Dashie
-        // build — the open-core console ships without their files, the guard
-        // resolves to null, and renderPage/navigate treat a null page as
-        // unregistered. Core pages below keep bare references so a missing
-        // core file fails loudly at load.
+        // typeof-GUARDED pages. The guard resolves to null when the module is
+        // absent, and renderPage/navigate treat a null page as unregistered.
+        // Core pages below keep bare references so a missing core file fails
+        // loudly at load.
+        //
+        // ⚠️ The guard no longer means "Dashie build only" (corrected
+        // 2026-10-06). family/calendar/chores/rewards/locations/photos ship in
+        // the published HA tree now; they are hidden there by
+        // FeatureGate.ENTITLEMENT_GATED_PAGES, not by being absent. The guards
+        // stay because a route table must not throw on a tree that legitimately
+        // omits a module — and because an unentitled user never reaches these
+        // entries anyway: isPageEnabled is asked first, by both the sidebar and
+        // _isRoutable.
         devices:       { page: typeof DevicesPage       !== 'undefined' ? DevicesPage       : null },
         preferences:   { page: typeof PreferencesPage   !== 'undefined' ? PreferencesPage   : null },
         'video-feeds': { page: typeof VideoFeedsPage    !== 'undefined' ? VideoFeedsPage    : null },
@@ -107,11 +115,38 @@ const App = {
         }
     },
 
-    // ── Global "scheduled for deletion" banner ───────────────────────
+    // ── Account state: entitlement + the "scheduled for deletion" banner ──
 
-    /** Fetch the account's deletion state; show the persistent banner while
-     *  pending, and sign out if the account has since been hard-deleted. */
-    async _checkDeletionState() {
+    /**
+     * One boot-time read of `check-subscription`, feeding TWO consumers.
+     *
+     * 🔴 RENAMED from `_checkDeletionState` on 2026-10-06, and the rename is
+     * part of the change rather than tidying. This function fetches the whole
+     * subscription record and used to keep only `deletion_scheduled_at`,
+     * throwing away `subscription_status` / `tier` / `tier_expires_at` /
+     * `is_ha_user`. Those discarded fields are exactly what
+     * FeatureGate.ENTITLEMENT_GATED_PAGES needs, so anyone looking for where
+     * entitlement gets wired would never have thought to open a function named
+     * for the deletion banner. Named for both jobs now.
+     *
+     * Consumers:
+     *   1. FeatureGate._subscriptionState — gates the Dashie Cloud dashboard
+     *      pages (calendar/family/photos/…). In the PUBLISHED build this is the
+     *      ONLY writer: `subscribe-gate.js` is a delta file absent from the open
+     *      tree, so before this call existed `_subscriptionState` stayed null
+     *      forever and the gate could not deny anything. In the FULL build
+     *      SubscribeGate also writes it from the same edge function with the
+     *      same response object, so the double-write is idempotent.
+     *   2. The persistent "scheduled for deletion" banner, plus the sign-out
+     *      when the account has since been hard-deleted.
+     *
+     * ⚠️ A network failure deliberately leaves the previous state ALONE rather
+     * than clearing it: a blip must not flash-hide pages for a user already
+     * known to be entitled. The fail-closed direction is handled where it
+     * belongs — state that was NEVER populated stays null, and
+     * FeatureGate.isPageEnabled treats null as "hidden".
+     */
+    async _refreshAccountState() {
         if (!DashieAuth.isAuthenticated) return;
         let resp;
         try {
@@ -123,6 +158,10 @@ const App = {
             this._onAccountDeleted();
             return;
         }
+        // Entitlement first: setSubscriptionState calls App.renderPage(), so the
+        // sidebar repaints once with BOTH the gate decision and the banner state
+        // resolved rather than painting twice.
+        if (typeof FeatureGate !== 'undefined') FeatureGate.setSubscriptionState(resp);
         this._deletionScheduledAt = resp?.deletion_scheduled_at || null;
         this._renderGlobalBanner();
         this._syncDeletionPoll();
@@ -131,7 +170,7 @@ const App = {
     _syncDeletionPoll() {
         const pending = !!this._deletionScheduledAt;
         if (pending && !this._deletionPollTimer) {
-            this._deletionPollTimer = setInterval(() => this._checkDeletionState(), 30000);
+            this._deletionPollTimer = setInterval(() => this._refreshAccountState(), 30000);
         } else if (!pending && this._deletionPollTimer) {
             clearInterval(this._deletionPollTimer);
             this._deletionPollTimer = null;
@@ -720,7 +759,7 @@ const App = {
             this._connectSettingsSync();
 
             // Global "scheduled for deletion" banner — fetch state + poll while pending.
-            this._checkDeletionState();
+            this._refreshAccountState();
         }
 
         if (localMode) {

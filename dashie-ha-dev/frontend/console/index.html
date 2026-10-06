@@ -159,6 +159,29 @@
          both the add-on and the standalone console. -->
     <script src="js/pages/preferences.js?v=20260731a"></script>
 
+    <!-- Dashie Cloud dashboard pages. Published core since 2026-10-06 (were the
+         closed family delta): John asked for the HA edition to carry them
+         ("i want dashie_ha_dev, but i want to merge in the calendar, family,
+         chores, photos, etc. pages"). They are VISIBLE only for a signed-in
+         account with a live entitlement — FeatureGate.ENTITLEMENT_GATED_PAGES,
+         now consulted in the published branch of isPageEnabled and failing
+         CLOSED on unknown state. Every operation is a Supabase edge-function
+         call with the account JWT (database-operations / caldav-proxy); no
+         add-on-server route is involved, which is why none of them needed the
+         `requireSignedIn` change video-feeds did.
+         Load order: each list page before its own modals/panels. -->
+    <script src="js/pages/family.js?v=20261006a"></script>
+    <script src="js/pages/calendar.js?v=20261006a"></script>
+    <script src="js/pages/calendar-add.js?v=20261006a"></script>
+    <script src="js/pages/calendar-edit.js?v=20261006a"></script>
+    <script src="js/pages/calendar-options.js?v=20261006a"></script>
+    <script src="js/pages/chores.js?v=20261006a"></script>
+    <script src="js/pages/rewards.js?v=20261006a"></script>
+    <script src="js/pages/locations.js?v=20261006a"></script>
+    <script src="js/pages/photos.js?v=20261006a"></script>
+    <script src="js/pages/photos-upload.js?v=20261006a"></script>
+    <script src="js/pages/photos-album-edit.js?v=20261006a"></script>
+
     <!-- DELTA-SCRIPTS-BEGIN
          Open-core build: this block is EMPTY by design. In the Dashie build
          it carries that product's private page/plan modules (vendored from

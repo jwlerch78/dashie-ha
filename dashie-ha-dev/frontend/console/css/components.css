@@ -1699,6 +1699,14 @@
     font-weight: 500;
 }
 
+/* Bluetooth bridge chip — the ONLY card chip that renders with no value.
+   Every other metric chip is omitted when null; this one greys instead, because a
+   missing Bluetooth reading usually means something IS broken (permission, adapter,
+   location, service) and omitting it makes a broken bridge look like a tablet that
+   never had one. John chose this over omission, 2026-10-06. See devices-card.js. */
+.device-card-detail.bt-on  { background: #e8f0fe; color: #1a56c4; }
+.device-card-detail.bt-off { color: #9ca3af; }
+
 /* Form Fields */
 .form-group {
     margin-bottom: 16px;
@@ -2178,6 +2186,10 @@
 .theme-halloween  { --t1: #228B22; --t2: #FF6B1A; }
 .theme-christmas  { --t1: #DC3545; --t2: #FFD700; }
 .theme-thanksgiving { --t1: #A8561B; --t2: #D2802A; }
+.theme-hanukkah   { --t1: #2B5CAB; --t2: #6FA8FF; }
+.theme-newyear    { --t1: #1b2044; --t2: #D4A72C; }
+.theme-valentines { --t1: #B0263E; --t2: #E23E57; }
+.theme-stpatricks { --t1: #0D6B2F; --t2: #128A3E; }
 /* END GENERATED theme-swatches */
 
 .dcard-model { margin-top: 2px; }

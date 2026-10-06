@@ -79,27 +79,37 @@ const FeatureGate = {
     _warnedUnknownBuild: false,
 
     /**
-     * The CLOSED DELTA: pages that do not exist in the published console at all
-     * — the family product (and Dashie device management). Checked FIRST in
-     * isPageEnabled, so a published build never shows these regardless of
-     * account tier or entitlement.
+     * The CLOSED DELTA: pages that do not exist in the published console at all.
+     * Checked FIRST in isPageEnabled, so a published build never shows these
+     * regardless of account tier or entitlement.
      *
-     * "Closed delta", not "hidden": in the published build these page modules
-     * are ABSENT from the tree (check-console-tree.sh enforces it), and absent
-     * is the stronger claim.
+     * "Closed delta", not "hidden": membership asserts the page module is
+     * ABSENT from the tree (check-console-tree.sh enforces it), and absent is
+     * the stronger claim. That is why the set is EMPTY rather than retained as
+     * a hiding mechanism — a present-but-hidden page belongs to
+     * ENTITLEMENT_GATED_PAGES, and putting it here would make this comment lie.
+     *
+     * 🔴 EMPTY AS OF 2026-10-06, and kept rather than deleted. The last six
+     * members — family, calendar, chores, rewards, locations, photos — left on
+     * that date when the HA edition took the Dashie Cloud dashboard pages
+     * (John: "i want dashie_ha_dev, but i want to merge in the calendar,
+     * family, chores, photos, etc. pages"). Their files are now in this tree
+     * and their <script> tags are in index.html.
+     *
+     * Those pages are NOT ungated by that move — they are gated on a different
+     * axis: ENTITLEMENT_GATED_PAGES, which the published branch of isPageEnabled
+     * now consults and which fails CLOSED on unknown subscription state. Before
+     * 2026-10-06 that branch returned before ever reading it, so the set was
+     * membership without enforcement.
+     *
+     * The Set stays because the EDITION axis is still real: it is the one place
+     * to name a page that genuinely ships only in the full build, and
+     * isPageEnabled's first published-branch line still reads it. Earlier
+     * departures: 'devices' 2026-07-30 (its family-only OPTIONS are gated by
+     * FAMILY_ONLY_OPTIONS, a finer grain); 'video-feeds' + 'preferences'
+     * 2026-07-31 (single add-on collapse).
      */
-    CLOSED_DELTA_PAGES: new Set([
-        // 'devices' left this set on 2026-07-30 — the HA edition manages Dashie
-        // devices too. Its family-only OPTIONS (theme, the widgets layout, cloud
-        // photo sources) are gated by FAMILY_ONLY_OPTIONS instead, a finer grain.
-        'family', 'calendar', 'chores', 'rewards',
-        'locations', 'photos',
-        // 'video-feeds' and 'preferences' LEFT this set on 2026-07-31 (single
-        // add-on collapse). Both are now core-owned page modules in this tree.
-        // Their visibility rules differ and are deliberate — see LOCAL_MODE_PAGES:
-        // video feeds is an HA capability (no account), Preferences is
-        // account-wide Dashie settings (account required, either build).
-    ]),
+    CLOSED_DELTA_PAGES: new Set([]),
 
     /**
      * LOCAL MODE whitelist — the ONLY pages reachable in the published console
@@ -575,6 +585,35 @@ const FeatureGate = {
     ]),
 
     /**
+     * 🔴 ENTITLEMENT_GATED_PAGES members that are NOT entitlement-gated in the
+     * PUBLISHED build. Read only by the published branch of isPageEnabled.
+     *
+     * Why this exists (2026-10-06, caught by check-entitlement-gate.mjs leg 6 on
+     * its first run): `voice-ai` is in the set above because in the FULL build it
+     * is part of the paid bundle. In the published HA build it is the opposite —
+     * it is the free product:
+     *   • PUBLISHED_RULE_OVERRIDES.voiceAi = true (deliberately off 'beta-only')
+     *   • it is in LOCAL_MODE_PAGES, i.e. reachable with NO account at all
+     *   • App._homePage() returns it unconditionally for this build, and its
+     *     comment calls it "the only home that works signed out"
+     *
+     * So applying the entitlement set wholesale in the published branch hid the
+     * add-on's HOME PAGE from every account-less user, permanently, and from
+     * every signed-in user until check-subscription resolved. The build plan's
+     * snippet did exactly that and read as correct.
+     *
+     * ⚠️ This is an edition-scoped exemption, the same shape and the same reason
+     * as PUBLISHED_RULE_OVERRIDES above — NOT a removal from
+     * ENTITLEMENT_GATED_PAGES, which would wrongly free voice-ai in the paid
+     * build too. check-entitlement-gate leg 9 pins that it does not leak.
+     *
+     * A page belongs here only if it is genuinely free in the HA edition. The
+     * six dashboard pages (family/calendar/photos/chores/rewards/locations) are
+     * the paid product and must never be added.
+     */
+    PUBLISHED_ENTITLEMENT_EXEMPT: new Set(['voice-ai']),
+
+    /**
      * The Dashie Cloud dashboard pages hidden for an ha_only (voice-only)
      * account. Deliberately EXCLUDES voice-ai / video-feeds / credits / api-keys
      * — those are the voice/AI product an ha_only user keeps. When the user
@@ -624,10 +663,46 @@ const FeatureGate = {
             !(typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode === true)) return false;
         if (this.isPublishedBuild()) {
             if (this.CLOSED_DELTA_PAGES.has(page)) return false;
+            // 🔴 ENTITLEMENT, IN THE PUBLISHED BUILD TOO (2026-10-06).
+            //
+            // Until this date the published branch returned below without ever
+            // reading ENTITLEMENT_GATED_PAGES or HA_ONLY_HIDDEN_PAGES, and the
+            // comment here said plan/trial gating "doesn't exist in the open
+            // build". That was true while the dashboard pages were absent from
+            // this tree. They are present now, and John's rule for them is:
+            //   "those items should only become visible when the user is logged
+            //    into an active dashie account."
+            // Both sets already listed all six pages correctly, so the defect
+            // was never the membership — it was that nothing read it. A correct
+            // Set whose reader never runs is not a gate.
+            if (this.ENTITLEMENT_GATED_PAGES.has(page) &&
+                !this.PUBLISHED_ENTITLEMENT_EXEMPT.has(page)) {
+                // 🔴 THIS LINE IS THE LOAD-BEARING ONE — do not "simplify" it
+                // into hasEntitlement(), which is deliberately OPTIMISTIC
+                // (null state ⇒ entitled) so the full build doesn't flash-hide
+                // during initial paint. Optimism is the wrong polarity here: a
+                // network blip on check-subscription leaves _subscriptionState
+                // null, and the optimistic branch would then SHOW the paid
+                // dashboard pages inside the free add-on — failing OPEN on
+                // exactly the invariant John set. Unknown ⇒ hidden.
+                //
+                // Same reasoning as isPublishedBuild() above, whose comment
+                // calls the other direction "the wrong direction to fail on the
+                // one invariant that matters most". hasEntitlement() is NOT
+                // changed globally; the known-state requirement is local to here.
+                if (!this._subscriptionState) return false;
+                if (!this.hasEntitlement()) return false;
+                // An ha_only (voice-only) account has a live entitlement for the
+                // voice product and none for the dashboard, so it is a separate
+                // question from hasEntitlement() and asked separately.
+                if (this.isHaOnly() && this.HA_ONLY_HIDDEN_PAGES.has(page)) return false;
+            }
             const key = this.PAGE_FEATURE[page];
-            // Dashie plan/trial entitlement gating doesn't exist in the open
-            // build — visibility is the feature rules only; credits are
-            // enforced server-side per metered call.
+            // Cohort (tier x rollout) is a THIRD axis, independent of the two
+            // above: 'chores'/'rewards' remain 'alpha-only' by John's 2026-10-06
+            // ruling, so a signed-in fully-entitled STANDARD user sees calendar,
+            // family, photos and locations but not those two. Intended.
+            // Credits stay enforced server-side per metered call.
             return !(key && !this.shouldShow(key));
         }
         const key = this.PAGE_FEATURE[page];

@@ -40,6 +40,26 @@ const METRIC_MAP = {
         ip_address:          s.attributes.ip_address ?? null,
         mac_address:         s.attributes.mac_address ?? null,
     }}),
+    // Bluetooth for HA — how many devices HA is using THIS tablet as best receiver for.
+    //
+    // 🔴 `count` is the sensor STATE and is NEVER re-derived from `devices`.
+    // ble_entities.py's docstring is explicit: "The state IS the count. Nothing
+    // downstream may re-derive it from `devices` — a second derivation is a second
+    // source of truth... The console badge reads the state."
+    //
+    // `devices` is every device THIS TABLET hears, including ones HA prefers another
+    // receiver for (`via: "other"`), so devices.length >= count. ⚠️ They are EQUAL in
+    // any single-tablet household — the commonest deployment — so an assertion of
+    // strict `>` reads as rigour and fires falsely in the field. Don't add one.
+    //
+    // toNum() (not Number()) is load-bearing: it maps 'unavailable'/'unknown' to NULL.
+    // Unavailable is a real state and is NOT zero — zero means "scanning, nothing
+    // claimed yet", which is the benign setup state users sit in. Collapsing the two
+    // would report a broken Bluetooth bridge as a working idle one.
+    'bluetooth_devices':  s => ({ bluetooth: {
+        count:   toNum(s.state),
+        devices: Array.isArray(s.attributes?.devices) ? s.attributes.devices : [],
+    }}),
     'storage_free':       s => ({ storage: {
         free_gb:  toNum(s.state),
         total_gb: s.attributes.total_gb ?? null,
