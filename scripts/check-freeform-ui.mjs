@@ -208,6 +208,31 @@ t('7b CONTROL: and NOT a disabled one (a leg that can fail)',
   typeof rawText === 'string' && !rawText.includes('sports('),
   'a tool that is off is reaching the Raw view the user is told is what gets sent');
 
+const TOOL_IDS = run('PromptToolCatalog.TOOLS.map((t) => t.id)');
+
+// ── 8 the tools card's CHECKED state, which no leg read until 2026-10-05 ─────
+// Why this exists: leg 6 presses toggleTool and asserts what gets SAVED. The defect
+// was on the RENDER path — `parse(...).map((t) => t.id)` built Set{undefined}, so all
+// 13 rows drew unchecked whatever was stored. The two paths share no hop, so a green
+// write leg could never fail on it (trap 158). Count the boxes instead.
+const checkedFor = (stored) => {
+    run(`VoiceAiPage._defaults['ai.toolsEnabled'] = ${JSON.stringify(stored)};`);
+    const html = run("VoiceAiFreeform._toolsCard(VoiceAiPage._defaults, (x) => String(x == null ? '' : x))");
+    return (String(html).match(/type="checkbox" checked/g) || []).length;
+};
+const three = checkedFor('home_assistant,calendar,weather');
+t('8 a stored list renders exactly that many toggles checked',
+  three === 3, `3 stored tools rendered ${three} checked — the toggles are lying about what is on`);
+const zero = checkedFor('');
+t('8a CONTROL: a cleared list renders NOTHING checked (so leg 8 can fail)',
+  zero === 0, `an empty list rendered ${zero} checked`);
+const all = checkedFor(TOOL_IDS.join(','));
+t('8b every tool on renders every row checked',
+  all === TOOL_IDS.length,
+  `${TOOL_IDS.length} stored rendered ${all} checked`);
+t('8c the count MOVES with the stored value (not a constant)',
+  three !== zero && all !== three, 'the leg would pass for any implementation');
+
 } catch (e) {
     fail++;
     console.log(`  FAIL  CRASH while driving the real console — ${e.name}: ${e.message}`);

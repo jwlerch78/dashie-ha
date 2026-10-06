@@ -60,6 +60,30 @@ const VoiceAiApi = {
         ['ai', 'conversationContextEnabled'],
         ['ai', 'conversationTimeout'],
         ['ai', 'retainTranscripts'],
+        // ── AI Prompt & Tools (Freeform + dynamic), 2026-10-05 ──────────────────
+        // 🔴 All five MUST be read back, not just written. lint:kiosk-mirror blocked the
+        // staging deploy on them (8 findings across two trees) and it was right: none was
+        // here, so loadAiDefaults() returned undefined for each, and the page could not see
+        // its own stored value. Same shape as the haTtsVoiceId self-clobber above (audit #2),
+        // but the payload here is USER-TYPED PROSE, so the failure is data loss, not a reset:
+        //   freeformPrompt  — voice-ai-freeform.js:26 falls back to seed() when undefined, so
+        //                     the editor opens showing the DEFAULT template; the next Save
+        //                     (:83) writes that template over the household's own prompt. And
+        //                     voice-ai.js:704's "seed only into an empty box" guard reads the
+        //                     same undefined, so every dynamic→freeform switch re-seeds too.
+        //   houseRules      — voice-ai-house-rules.js:21 drafts from it, so the editor opens
+        //                     blank and saving commits the blank.
+        //   toolsEnabled    — undefined makes parse() return the 7 DEFAULTS (its documented
+        //                     "never set" branch), so a curated list renders as the default
+        //                     set and the next toggle persists default±1.
+        //   promptMode      — voice-ai.js:1816 renders the selected-card ring from it; neither
+        //                     card reads as selected while it is undefined.
+        //   personalityMode — voice-ai-freeform.js:97/167 gate the preview and the row on it.
+        ['ai', 'promptMode'],
+        ['ai', 'houseRules'],
+        ['ai', 'freeformPrompt'],
+        ['ai', 'personalityMode'],
+        ['ai', 'toolsEnabled'],
         ['voice', 'alwaysUseAI'],
         ['voice', 'searchSource'],
         // Which HA entities voice can control: 'dashboard' (entities on the Dashie dashboard —

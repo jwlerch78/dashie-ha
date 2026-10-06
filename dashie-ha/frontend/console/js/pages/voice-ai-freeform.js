@@ -208,7 +208,14 @@ const VoiceAiFreeform = {
 
     _toolsCard(d, esc) {
         const C = window.PromptToolCatalog;
-        const on = new Set(C.parse(d['ai.toolsEnabled']).map((t) => t.id));
+        // ⚠️ enabled(), NOT parse(). parse() returns id STRINGS; enabled() returns tool
+        // OBJECTS. `parse(...).map((t) => t.id)` builds Set{undefined}, so on.has() is
+        // false for every row and EVERY toggle renders unchecked however many are stored —
+        // measured 0 of 3. Worse than cosmetic: the control inverts, because a user who
+        // wants a tool OFF sees it already off and turning it "on" is the only move.
+        // Fourth sighting of this exact confusion; the two names now differ by return type
+        // on purpose (prompt-tool-catalog.js:101/114).
+        const on = new Set(C.enabled(d['ai.toolsEnabled']).map((t) => t.id));
         const rows = C.TOOLS.map((t) => `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-subtle, #f1f2f4);">
                 <div style="min-width: 0;">
