@@ -46,6 +46,18 @@ const FILES = [
   `${B}/components/voice-ai-preset-picker.js`,
   `${B}/components/voice-ai-defaults-cards.js`,
   `${B}/components/voice-ai-sections.js`,
+  // 🔴 The AI Prompt & Tools holders (2026-10-04). `_renderAiDefaults` calls
+  // `window.VoiceAiPromptSection.render()` at voice-ai.js:1820, and the section
+  // calls the two lib holders, so omitting any of the three makes this gate throw
+  // "Cannot read properties of undefined (reading 'render')" and exit 2 BLIND.
+  // It did exactly that from 2026-10-04 until the 0.9.52 release attempt caught it:
+  // I added the call site and the holders without adding them here. ⚠️ A gate that
+  // exits BLIND is not a gate that passes — it had been measuring NOTHING for days
+  // while reading as if it were green. Load order matters: holders, then the
+  // section, then the page that calls it.
+  `${B}/lib/prompt-tool-catalog.js`,
+  `${B}/lib/freeform-prompt.js`,
+  `${B}/components/voice-ai-prompt-section.js`,
   `${B}/pages/voice-ai.js`,
 ];
 const store = {};
@@ -98,23 +110,36 @@ catch (e) { console.log(`BLIND: _renderAiDefaults threw: ${e.message}`); process
 
 t('1 renders something at all', typeof html === 'string' && html.length > 500, `${html?.length} chars`);
 t('2 section "Voice & LLM" is present', html.includes('Voice &amp; LLM') || html.includes('Voice & LLM'));
-t('3 section "AI Tools & Settings" is present', html.includes('AI Tools &amp; Settings') || html.includes('AI Tools & Settings'));
+// 🔴 RENAMED 2026-10-04 on John's instruction: "AI Tools & Settings" -> "AI Prompt
+// & Tools". check-prompt-modes leg 9 asserts the new title AND the absence of the old
+// one, so while this leg still named the old one the two gates asserted opposite
+// things — and nobody saw it, because this gate was exiting BLIND at the same moment.
+t('3 section "AI Prompt & Tools" is present', html.includes('AI Prompt &amp; Tools') || html.includes('AI Prompt & Tools'));
 t('4 both sections are collapsible buttons', (html.match(/VoiceAiSections\.toggle\(/g)||[]).length === 2,
   `${(html.match(/VoiceAiSections\.toggle\(/g)||[]).length} toggles`);
 t('5 the two-across grid is used', html.includes('repeat(2, minmax(0, 1fr))'));
 t('6 Voice & LLM defaults OPEN (the one people come to change)', S.isOpen('voice') === true);
 t('7 AI Tools defaults CLOSED', S.isOpen('tools') === false);
-t('8 a closed section renders no body', !html.includes('Always use AI for chores'));
+// ⚠️ WAS `!html.includes('Always use AI for chores')` — a row John had removed from
+// the HA edition entirely (check-prompt-modes leg 9a asserts it never renders). So this
+// negative was true because the string is GONE, not because the section is closed: a
+// vacuous pass that could not fail. Keyed now on a sentinel that is genuinely absent
+// closed and present open, making 8 and 11 a real differential pair.
+t('8 a closed section renders no body', !html.includes('Tools enabled'));
 // the five section-1 pickers
 for (const [n,lab] of [['AI Model','AI Model'],['Wake word','Wake word'],['Personality','>Personality </span>'],['STT','Speech-to-text'],['TTS','Text-to-speech']])
   t(`9 section 1 carries ${n}`, html.includes(lab), lab);
 // search + entities must NOT be in section 1 any more
-t('10 Web search source left section 1', !html.slice(0, html.indexOf('AI Tools')).includes('Web search source'));
 
 // Open tools and re-render
 S.toggle('tools');
 const html2 = P._renderAiDefaults();
-t('11 opening Tools reveals its toggles', html2.includes('Always use AI for chores'));
+t('11 opening Tools reveals its body', html2.includes('Tools enabled'));
+// ⚠️ WAS sliced on indexOf('AI Tools'), which after the rename returns -1 — so the
+// slice was the whole document minus one char and the leg measured the wrong region.
+// Positional on the OPEN render instead, where both strings actually exist.
+t('10 Web search source is below the Prompt & Tools header, not in section 1',
+  html2.indexOf('Web search source') > html2.indexOf('AI Prompt') && html2.indexOf('AI Prompt') >= 0);
 t('12 Web search source is in section 2', html2.includes('Web search source'));
 t('13 Retrieve pictures is in section 2', html2.includes('Retrieve pictures'));
 t('14 summary names the preset when collapsed', /Cloud/i.test(html2));
