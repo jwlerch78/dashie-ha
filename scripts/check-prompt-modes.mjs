@@ -16,7 +16,9 @@
  * seeding hands them a blank page after they already said what they wanted.
  * Both failures are silent, so both get a leg.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -141,43 +143,98 @@ t('9a "Always use AI for chores" no longer renders',
   'John asked for it hidden on the HA edition');
 
 // ── 10 the parse()/enabled() return-type confusion, as a CLASS ──────────────
-// parse() returns id STRINGS; enabled() returns tool OBJECTS. Reading a tool
-// property off a parse() result yields undefined with no error. This has now bitten
-// FOUR times (the golden gate's enabled-ids line, _rawText's hasClock, a test fake,
-// and _toolsCard — where it rendered 0 of 3 stored toggles checked and inverted the
-// control). Catching instances is plainly not working, so assert the SHAPE: no line
-// may read a tool-object field off a parse() result. Static, because the defect is
-// silent at runtime — undefined is a legal Set member and a legal falsy.
-const TOOL_FIELDS = ['.id', '.label', '.fn', '.brain', '.args', '.on'];
-const scanDir = `${C}/js`;
-const offenders = [];
-for (const rel of execSync(`/usr/bin/find ${scanDir} -name '*.js'`, { encoding: 'utf8' }).trim().split('\n')) {
-    readFileSync(rel, 'utf8').split('\n').forEach((line, i) => {
-        // Skip comments. The first run of this leg flagged voice-ai-freeform.js:212 —
-        // the comment that EXPLAINS the bug by quoting its shape. Correct on the shape,
-        // wrong about the defect, and a gate that cannot tell code from prose about code
-        // would make documenting a trap impossible.
-        const code = line.trim();
-        if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
-        if (!/\bparse\s*\(/.test(line)) return;
-        const after = line.slice(line.search(/\bparse\s*\(/));
-        if (TOOL_FIELDS.some((f) => after.includes(`=> t${f}`) || after.includes(`=> tool${f}`)))
-            offenders.push(`${rel.replace(`${C}/`, '')}:${i + 1}`);
-    });
+// parse() returns id STRINGS; enabled() returns tool OBJECTS. Reading a tool field
+// off a parse() result yields undefined with no error, because undefined is a legal
+// Set member and a legal falsy. Four sightings in one lane (the golden gate's
+// enabled-ids line, _rawText's hasClock, a test fake, and _toolsCard — where it drew
+// 0 of 3 stored toggles checked and INVERTED the control), so assert the shape, not
+// the instance.
+//
+// ⚠️ SCOPE, stated because the first version of this leg overstated it (O, 2026-10-05).
+// That matcher was `after.includes('=> t.id') || after.includes('=> tool.id')` — a
+// two-identifier ALLOWLIST whose two identifiers were the ones the four past bugs
+// happened to use. Measured against eight spellings of the same defect: 2 flagged,
+// 6 missed (`=> item.id`, a non-arrow callback, `parse(x)[0].id`, `({ id }) =>`,
+// `.filter((row) => row.brain)`, and a two-line form). It FELT like class coverage
+// precisely because it caught every known case. The param is now carried by
+// backreference so any name works, and the three non-arrow spellings are matched.
+// STILL NOT COVERED: a result bound to a variable on one line and misused on another
+// (`const arr = parse(x);` … `arr.map((t) => t.id)`). That needs flow analysis; this
+// is a single-line matcher and the failure message says so rather than implying reach
+// it does not have.
+const FIELDS = 'id|label|fn|brain|args|on';
+const SHAPES = [
+    [new RegExp(`\\(?\\s*([A-Za-z_$][\\w$]*)\\s*\\)?\\s*=>[^;]*?\\b\\1\\s*\\.\\s*(?:${FIELDS})\\b`), 'arrow'],
+    [new RegExp(`function\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*\\)[^;]*?\\b\\1\\s*\\.\\s*(?:${FIELDS})\\b`), 'function'],
+    [new RegExp(`\\)\\s*\\[\\s*\\d+\\s*\\]\\s*\\.\\s*(?:${FIELDS})\\b`), 'index'],
+    [new RegExp(`\\(\\s*\\{[^}]*\\b(?:${FIELDS})\\b[^}]*\\}\\s*\\)\\s*=>`), 'destructured'],
+];
+/** Scan a directory tree. Returns the FILE COUNT as well as the offenders, because a
+ *  loop that read nothing also reports zero offenders — see leg 10a. */
+function scanTree(dir) {
+    const files = execSync(`/usr/bin/find ${dir} -name '*.js'`, { encoding: 'utf8' })
+        .split('\n').filter(Boolean);
+    const offenders = [];
+    for (const f of files) {
+        readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+            // Skip comments. The first run of this leg flagged voice-ai-freeform.js:212 —
+            // the comment that EXPLAINS the bug by quoting its shape. Correct about the
+            // shape, wrong about the defect, and a gate that cannot tell code from prose
+            // ABOUT code would penalise writing a trap down, which is the habit the
+            // .reference/ trap file depends on.
+            const code = line.trim();
+            if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
+            const at = line.search(/\bparse\s*\(/);
+            if (at < 0) return;
+            const after = line.slice(at);
+            for (const [re, kind] of SHAPES) {
+                if (re.test(after)) { offenders.push(`${f.replace(`${dir}/`, '')}:${i + 1} (${kind})`); return; }
+            }
+        });
+    }
+    return { fileCount: files.length, offenders };
 }
-t('10 no file reads a tool-OBJECT field off a parse() result',
-  offenders.length === 0, `parse() returns id strings — use enabled(): ${offenders.join(', ')}`);
-t('10a CONTROL: the scanner can see the shape at all (so leg 10 can fail)',
-  (() => {
-      const probe = "const on = new Set(C.parse(x).map((t) => t.id));";
-      const after = probe.slice(probe.search(/\bparse\s*\(/));
-      return TOOL_FIELDS.some((f) => after.includes(`=> t${f}`));
-  })(), 'the detector is vacuous — it would report 0 for any tree');
-t('10b CONTROL: and does NOT flag the correct enabled() form',
-  (() => {
-      const probe = "const on = new Set(C.enabled(x).map((t) => t.id));";
-      return !/\bparse\s*\(/.test(probe);
-  })(), 'the detector flags the fix as well as the bug');
+
+const real = scanTree(`${C}/js`);
+t('10 no SINGLE LINE reads a tool-OBJECT field off a parse() result',
+  real.offenders.length === 0,
+  `parse() returns id strings — use enabled(): ${real.offenders.join(', ')}`);
+
+// 10a is the control the first version LACKED. It used to re-implement the match over
+// a string literal, which proves a COPY of the logic works and nothing about the
+// instrument: if the find+readFileSync loop read nothing, leg 10 reports 0 offenders
+// and that control stayed green — the exact vacuous zero it was named after (trap 13).
+// It now asserts the loop reached the subject, and 10b feeds a real offender through
+// the real scanner.
+t('10a CONTROL: the scan actually READ the console tree (not a vacuous zero)',
+  real.fileCount >= 20, `scanned ${real.fileCount} files — a zero here makes leg 10 meaningless`);
+
+const FIXTURE = mkdtempSync(join(tmpdir(), 'parse-shape-'));
+writeFileSync(join(FIXTURE, 'offenders.js'), [
+    "const a = C.parse(x).map((t) => t.id);",
+    "const b = C.parse(x).map((item) => item.id);",
+    "const c = C.parse(x).map(function (row) { return row.label; });",
+    "const d = C.parse(x)[0].brain;",
+    "const e = C.parse(x).map(({ id }) => id);",
+    "const f = C.parse(x).filter((r) => r.brain);",
+].join('\n'));
+writeFileSync(join(FIXTURE, 'clean.js'), [
+    "const g = C.enabled(x).map((t) => t.id);",   // the CORRECT form
+    "const h = C.parse(x).includes('answer');",   // ids used as ids
+    "const i = C.parse(x).map((s) => s.trim());", // a legal STRING method
+    "// const j = C.parse(x).map((t) => t.id);",  // prose about the bug
+].join('\n'));
+const fix = scanTree(FIXTURE);
+t('10b CONTROL: six real spellings pushed through the REAL scanner are all named',
+  fix.offenders.length === 6,
+  `named ${fix.offenders.length}/6 — ${fix.offenders.join(', ') || 'none'}`);
+t('10c CONTROL: ...and the four correct forms are NOT flagged',
+  !fix.offenders.some((o) => o.startsWith('clean.js')),
+  `the detector flags correct code: ${fix.offenders.filter((o) => o.startsWith('clean.js')).join(', ')}`);
+t('10d CONTROL: all four spelling KINDS fire (not one pattern doing all the work)',
+  new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1])).size === 4,
+  `kinds seen: ${[...new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1]))].join(',')}`);
+rmSync(FIXTURE, { recursive: true, force: true });
 
 console.log(`check-prompt-modes: ${pass} pass, ${fail} fail`);
 if (!fail) console.log('✅ prompt modes: free text survives the store, and the two modes share one set of house rules');
