@@ -184,7 +184,15 @@ function scanTree(dir) {
             // .reference/ trap file depends on.
             const code = line.trim();
             if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
-            const at = line.search(/\bparse\s*\(/);
+            // (?<!JSON\.) — `\bparse\s*\(` also matches `JSON.parse(`, and there are 14
+            // JSON.parse sites in this tree. Unguarded, an ordinary
+            // `JSON.parse(body).map((t) => t.id)` failed with "parse() returns id strings —
+            // use enabled()", which is nonsense for a JSON parse and sends the reader into
+            // the wrong lane. Green today only because no such line is currently one-liner
+            // shaped. The lookbehind skips JSON.parse while still finding a catalog parse
+            // LATER on the same line, so the nested
+            // `C.parse(JSON.parse(s).ids).map((t) => t.id)` still flags. (O, 2026-10-05.)
+            const at = line.search(/(?<!JSON\.)\bparse\s*\(/);
             if (at < 0) return;
             const after = line.slice(at);
             for (const [re, kind] of SHAPES) {
@@ -234,6 +242,20 @@ t('10c CONTROL: ...and the four correct forms are NOT flagged',
 t('10d CONTROL: all four spelling KINDS fire (not one pattern doing all the work)',
   new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1])).size === 4,
   `kinds seen: ${[...new Set(fix.offenders.map((o) => o.match(/\((\w+)\)$/)?.[1]))].join(',')}`);
+// 10e is the half a gate built from true positives always lacks: a legitimate line that
+// merely RESEMBLES the defect. 10b feeds it six real spellings and 10c four correct
+// forms, but neither feeds it an innocent line shaped like the bug — and the resembling
+// line here is JSON.parse, which nearly every file has.
+writeFileSync(join(FIXTURE, 'nearmiss.js'), [
+    "const a = JSON.parse(body).map((t) => t.id);",      // the false positive O measured
+    "const b = JSON.parse(x).map(({ id }) => id);",      // and the destructured one it missed
+    "const c = JSON.parse(raw).items.map((r) => r.label);",
+    "const d = C.parse(JSON.parse(s).ids).map((t) => t.id);", // NESTED — must still flag
+].join('\n'));
+const near = scanTree(FIXTURE).offenders.filter((o) => o.startsWith('nearmiss.js'));
+t('10e CONTROL: JSON.parse lines are NOT flagged, but a catalog parse nested in one IS',
+  near.length === 1 && near[0].startsWith('nearmiss.js:4'),
+  `expected only line 4 — got ${near.join(', ') || 'none'}`);
 rmSync(FIXTURE, { recursive: true, force: true });
 
 console.log(`check-prompt-modes: ${pass} pass, ${fail} fail`);
