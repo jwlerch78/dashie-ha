@@ -756,7 +756,15 @@ const DevicesCard = {
             const n = m.bluetooth.count;
             const cls = n == null ? 'bt-off' : (n >= 1 ? 'bt-on' : '');
             const dim = n == null ? 'opacity: 0.5;' : '';
-            chips.push(`<span class="device-card-detail ${cls}" style="display: inline-flex; align-items: center; gap: 4px;" ${historyLink('bluetooth_devices', 'Bluetooth')}>${iconImg('icon-bluetooth.svg', 11, dim)}${n == null ? '&ndash;' : n}</span>`);
+            // Click opens the DEVICE LIST, not history (John, 2026-10-07: "have the
+            // bluetooth devices that are connected be shown when the user clicks the
+            // bluetooth icon"). History is still one click away, in the modal's footer,
+            // so the route the other chips use is not lost from this one.
+            // stopPropagation for the same reason historyLink does it: the click must
+            // not bubble to the card's showDetail handler and switch the page.
+            const btClick = `style="cursor: pointer;" title="Bluetooth \u2014 show devices" `
+                + `onclick="event.stopPropagation(); DevicesBluetoothModal.open('${device.device_id}')"`;
+            chips.push(`<span class="device-card-detail ${cls}" style="display: inline-flex; align-items: center; gap: 4px;" ${btClick}>${iconImg('icon-bluetooth.svg', 11, dim)}${n == null ? '&ndash;' : n}</span>`);
         }
 
         const room = device.metrics?.ha_area || device.ha_area;

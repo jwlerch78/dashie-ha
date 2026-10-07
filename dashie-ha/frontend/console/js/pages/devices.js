@@ -964,6 +964,7 @@ const DevicesPage = {
             ${DevicesDetailModals.renderWakeWordModal()}
             ${DevicesDetailModals.renderVoiceSetupModal()}
             ${DevicesDetailModals.renderProfileModal()}
+            ${DevicesBluetoothModal.render()}
         `;
     },
 

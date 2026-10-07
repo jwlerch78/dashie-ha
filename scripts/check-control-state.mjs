@@ -81,6 +81,13 @@ const sandbox = {
     sleepEffective: () => ({ enabled:true, sleepTime:'22:00', wakeTime:'06:30' }),
     wakeWordName: () => 'Hey Dashie', _accountSettings: {},
   }),
+  // Added 2026-10-07 with the Bluetooth device-list modal. devices.js and
+  // devices-detail.js call `DevicesBluetoothModal.render()` BARE, matching
+  // renderProfileModal() beside it -- so a missing stub is a ReferenceError that
+  // takes the whole render down, which is how this gate caught the new module
+  // before it shipped. Bare and not `window.X?.` on purpose: a guarded call would
+  // silently draw nothing if the script tag were ever dropped.
+  DevicesBluetoothModal: modalStub({ _open:false }),
   DevicesRename: { conflictHaName:()=>null, conflictDevices:()=>[], renderBanner:()=>'', renderNameRow:()=>'' },
   DevicesClaim: { renderBanner:()=>'', fetch: async()=>{} },
   DevicesCamera: modalStub({ _open:false }),

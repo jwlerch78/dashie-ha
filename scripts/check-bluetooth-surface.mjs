@@ -109,7 +109,14 @@ const sandbox = {
                    _haSlugForDevice: () => 'lerch_32', _haEntityIdsForDevice: () => ({}) },
     DeviceControlState: { resolve: () => null },
     FeatureGate: { isAddonMode: () => true, optionAllowed: () => true },
-    DevicesDetailModals: { sleepModeOf: () => ({ mode: 'off' }), _formatTimeout: () => '', immichAlbumSummary: () => '' },
+    DevicesDetailModals: { sleepModeOf: () => ({ mode: 'off' }), _formatTimeout: () => '', immichAlbumSummary: () => '',
+                           // Stubbed, with leg 20 asserting the REAL signature matches
+                           // this call shape. The modal chrome is DevicesDetailModals'
+                           // own concern; what matters here is that title, body and
+                           // footer all arrive, so each is made assertable.
+                           _modal: (title, body, onClose, footer) =>
+                               `<MODAL title="${title}" close="${onClose}">${body}<FOOT>${footer}</FOOT></MODAL>` },
+    App: { renderPage: () => {} },
     ICON: (p) => p,
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
@@ -164,6 +171,110 @@ t('14 the greyed state names NO cause',
   !/permission|adapter|location|not running|unreachable/i.test(offline),
   'it covers eight Android-local conditions HA never learns — naming one sends the user after the wrong fault');
 
+
+// ── THE DEVICE-LIST MODAL (John, 2026-10-07) ──────────────────────────
+const MODAL = `${ROOT}/dashie-ha/frontend/console/js/pages/devices-bluetooth-modal.js`;
+if (!existsSync(MODAL)) { console.log('BLIND: devices-bluetooth-modal.js not found'); process.exit(2); }
+
+// The modal resolves its own device + metrics, so both lookups are steerable.
+let FIXTURE = null;
+sandbox.DevicesPage._findDevice = (id) => (FIXTURE && id === 'abc' ? FIXTURE.device : null);
+sandbox.DeviceControlState.metricsFor = () => (FIXTURE ? FIXTURE.metrics : null);
+try { vm.runInContext(readFileSync(MODAL, 'utf8'), ctx, { filename: MODAL }); }
+catch (e) { console.log(`BLIND: devices-bluetooth-modal.js did not evaluate: ${e.message}`); process.exit(2); }
+const BT = vm.runInContext('typeof DevicesBluetoothModal !== "undefined" ? DevicesBluetoothModal : null', ctx);
+if (!BT || typeof BT.render !== 'function') { console.log('BLIND: DevicesBluetoothModal.render did not load'); process.exit(2); }
+
+const openWith = (bluetooth) => {
+    FIXTURE = { device: { device_id: 'abc', device_name: 'Kitchen' }, metrics: { bluetooth } };
+    BT._open = true; BT._deviceId = 'abc';
+    try { return BT.render(); } catch (e) { return `THREW ${e.message}`; }
+};
+
+// 🔴 GUARD FIRST, same reason as 9pre. A render that threw contains none of the
+// group headings, so every "is not in the list" leg below would pass on nothing.
+const mMulti = openWith({ count: 3, devices: multi.devices });
+if (typeof mMulti !== 'string' || mMulti.startsWith('THREW') || !mMulti.includes('<MODAL')) {
+    console.log(`  FAIL  15pre the modal did not render — ${String(mMulti).slice(0, 180)}`);
+    console.log('        (every negative leg below would pass vacuously; fix this first)');
+    console.log(`check-bluetooth-surface: ${pass} pass, ${fail + 1} fail`);
+    process.exit(1);
+}
+t('15pre CONTROL: the modal rendered, so the negative legs below mean something', true);
+
+t('15 the modal lists the devices HA uses THIS tablet for',
+  mMulti.includes('Living Room Speaker') && mMulti.includes("Jack's Watch"));
+// 🔴 THE LOAD-BEARING LEG. The heading number must be the sensor STATE, never
+// the filtered list length -- the same single-source rule the chip obeys. The
+// fixture is deliberately inconsistent (state 3, two via-'this' entries) so a
+// `viaThis.length` implementation prints (2) and goes red here. A consistent
+// fixture could not tell the two implementations apart.
+const mSkew = openWith({ count: 3, devices: [multi.devices[0], multi.devices[1], multi.devices[3]] });
+t('16 the connected heading prints the sensor STATE, not the number of rows',
+  mSkew.includes('Connected via this tablet (3)'),
+  'a second derivation of the count -- ble_entities.py forbids exactly this');
+t('17 via "other" devices are listed SEPARATELY, not folded into the count group',
+  mMulti.includes('Also in range') && mMulti.includes('Kitchen Sensor') &&
+  mMulti.indexOf('Kitchen Sensor') > mMulti.indexOf('Also in range'),
+  'showing them flat would make the chip look wrong -- the list would contradict the state');
+// ⚠️ KEYED ON THE PRIMARY LABEL, not on the address appearing anywhere.
+// The first version of this leg was `mMulti.includes('E8:2A:...')` and it did
+// NOT catch its own mutation: with `??` in place of `||` the label goes to the
+// empty string, but the address is still emitted in the SUBTITLE, so the
+// substring was present and the leg stayed green while the row rendered a blank
+// name. Measured, by injecting `??` and watching 37/0 hold. Read the labels.
+const labels = [...mMulti.matchAll(/overflow-wrap: anywhere;">([^<]*)<\/span>/g)].map((m) => m[1]);
+t('18 every row renders a NON-EMPTY primary label', labels.length >= 3 && labels.every((l) => l.trim() !== ''),
+  `labels: ${JSON.stringify(labels)}`);
+t('18a an UNNAMED device uses its ADDRESS as that label',
+  labels.includes('E8:2A:44:10:B7:3C'),
+  "name: '' is a real value; `??` instead of `||` keeps the empty string and blanks the row");
+t('18b ...and does not then repeat the address in its subtitle',
+  (mMulti.match(/E8:2A:44:10:B7:3C/g) || []).length === 1);
+t('19 signal strength is shown with the raw dBm, not a bucket alone',
+  /Strong · -54 dBm/.test(mMulti) && /Weak · -88 dBm/.test(mMulti));
+
+// Single-tablet: no second group at all.
+const mSingle = openWith({ count: 2, devices: single.devices });
+t('19a CONTROL: a single-tablet household gets NO "Also in range" section',
+  mSingle.includes('Connected via this tablet (2)') && !mSingle.includes('Also in range'),
+  'an always-present empty section would be noise for the commonest deployment');
+
+// Zero and unavailable are different states here too, exactly as on the chip.
+const mZero = openWith({ count: 0, devices: [] });
+t('19b ZERO says scanning, and names no fault',
+  /Scanning/i.test(mZero) && !/unavailable|permission|adapter/i.test(mZero),
+  '0 is the benign setup state');
+const mOff = openWith({ count: null, devices: [] });
+t('19c UNAVAILABLE says so, lists nothing, and still names NO cause',
+  /unavailable/i.test(mOff) && !/Scanning/i.test(mOff) &&
+  !/permission|adapter|location|not running/i.test(mOff),
+  'it covers eight Android-local conditions HA never learns');
+
+// ── REACHABILITY. A modal nothing renders is authored-but-unreached. ───────
+const cardSrc = readFileSync(CARD, 'utf8');
+t('20 the real _modal signature matches the call site',
+  /_modal\(title, bodyHtml, onClose, footerHtml, device\)/.test(
+      readFileSync(`${ROOT}/dashie-ha/frontend/console/js/pages/devices-detail-modals.js`, 'utf8')),
+  'the sandbox stub above would hide a signature change');
+t('21 the CHIP opens the modal (not history)',
+  /DevicesBluetoothModal\.open\(/.test(cardSrc) &&
+  !/historyLink\('bluetooth_devices'/.test(cardSrc),
+  'the click still goes to HA history');
+t('21a ...and stops propagation, so it does not also switch the page',
+  /event\.stopPropagation\(\); DevicesBluetoothModal\.open\(/.test(cardSrc));
+for (const host of ['devices.js', 'devices-detail.js']) {
+    t(`22 ${host} actually renders the modal`,
+      /DevicesBluetoothModal\.render\(\)/.test(
+          readFileSync(`${ROOT}/dashie-ha/frontend/console/js/pages/${host}`, 'utf8')),
+      'the modal can be opened but never drawn');
+}
+t('23 index.html loads it AFTER devices-detail-modals (it calls that module)',
+  (() => { const h = readFileSync(`${ROOT}/dashie-ha/frontend/console/index.html`, 'utf8');
+           const a = h.indexOf('devices-detail-modals.js'), b = h.indexOf('devices-bluetooth-modal.js');
+           return a >= 0 && b > a; })(),
+  'load order wrong: DevicesDetailModals._modal would be undefined at call time');
+
 console.log(`check-bluetooth-surface: ${pass} pass, ${fail} fail`);
-if (!fail) console.log('✅ bluetooth surface: count is the state, unavailable is not zero, and all three states are distinct');
+if (!fail) console.log('✅ bluetooth surface: count is the state, unavailable is not zero, all three states are distinct, and the list agrees with the count');
 process.exit(fail ? 1 : 0);
