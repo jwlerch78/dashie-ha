@@ -40,9 +40,28 @@ const VoiceAiSections = {
 
     _KEY: 'dashie-console-voiceai-sections',
 
-    /** Which sections start open on a fresh load. Voice & LLM is the one people
-     *  come here to change; Tools is the one they set once. */
-    _DEFAULT_OPEN: { voice: true, tools: false },
+    /**
+     * Which sections start open on a fresh load.
+     *
+     * 🔴 BOTH CLOSED since 2026-10-07, on John's instruction: *"Can you start
+     * with the Voice & LLM and the AI Prompt & Tools sections collapsed?"*
+     *
+     * This REPLACES the earlier rationale, which said Voice & LLM is "the one
+     * people come here to change" and so should start open. That reasoning is
+     * superseded, not forgotten — and the original goal argues for it anyway:
+     * the whole point of the grouping (John, 2026-09-22: *"I think it's probably
+     * too busy as is."*) was two summary lines at rest instead of fifteen cards,
+     * and starting one section open spends most of that saving.
+     *
+     * ⚠️ This map is the ONLY declaration of the open-at-rest shape, and the
+     * page's content legs must not depend on it. When this flipped,
+     * check-voice-sections legs 5 and 9 went red — they asserted the two-across
+     * grid and the five section-1 pickers against the DEFAULT render, so they
+     * were really testing "voice happens to start open" while reading as content
+     * tests. They now open the section first. Keep it that way: a content leg
+     * that breaks when a default flips was never testing the content.
+     */
+    _DEFAULT_OPEN: { voice: false, tools: false },
 
     _state: null,
 

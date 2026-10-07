@@ -117,23 +117,44 @@ t('2 section "Voice & LLM" is present', html.includes('Voice &amp; LLM') || html
 t('3 section "AI Prompt & Tools" is present', html.includes('AI Prompt &amp; Tools') || html.includes('AI Prompt & Tools'));
 t('4 both sections are collapsible buttons', (html.match(/VoiceAiSections\.toggle\(/g)||[]).length === 2,
   `${(html.match(/VoiceAiSections\.toggle\(/g)||[]).length} toggles`);
-t('5 the two-across grid is used', html.includes('repeat(2, minmax(0, 1fr))'));
-t('6 Voice & LLM defaults OPEN (the one people come to change)', S.isOpen('voice') === true);
-t('7 AI Tools defaults CLOSED', S.isOpen('tools') === false);
+// 🔴 BOTH DEFAULT CLOSED since 2026-10-07 (John: "Can you start with the Voice &
+// LLM and the AI Prompt & Tools sections collapsed?"). Leg 6 previously asserted
+// voice === true.
+t('6 Voice & LLM defaults CLOSED', S.isOpen('voice') === false);
+t('7 AI Prompt & Tools defaults CLOSED', S.isOpen('tools') === false);
 // ⚠️ WAS `!html.includes('Always use AI for chores')` — a row John had removed from
 // the HA edition entirely (check-prompt-modes leg 9a asserts it never renders). So this
 // negative was true because the string is GONE, not because the section is closed: a
 // vacuous pass that could not fail. Keyed now on a sentinel that is genuinely absent
 // closed and present open, making 8 and 11 a real differential pair.
 t('8 a closed section renders no body', !html.includes('Tools enabled'));
-// the five section-1 pickers
-for (const [n,lab] of [['AI Model','AI Model'],['Wake word','Wake word'],['Personality','>Personality </span>'],['STT','Speech-to-text'],['TTS','Text-to-speech']])
-  t(`9 section 1 carries ${n}`, html.includes(lab), lab);
-// search + entities must NOT be in section 1 any more
+t('8a ...and that holds for the voice section too, now that it also starts closed',
+  !html.includes('Speech-to-text'),
+  'the voice body renders while the section reports closed');
 
-// Open tools and re-render
+// 🔴 OPEN BOTH, AND MEASURE CONTENT ONLY FROM HERE DOWN.
+//
+// Eleven legs in this file (5, 9 x5, 15, 15b, 16, 26) used to read the DEFAULT
+// render. They presented as content and layout tests, but every one of them was
+// really asserting "the voice section happens to start open" — and all eleven
+// went red the moment John asked for it to start collapsed (2026-10-07), while
+// the markup they check had not changed by one character.
+//
+// That is the same defect class as the vacuous passes already annotated above,
+// inverted: not a leg that cannot fail, but a leg that fails for a reason it is
+// not about. A content leg must open what it intends to inspect.
+S.toggle('voice');
 S.toggle('tools');
 const html2 = P._renderAiDefaults();
+t('8b CONTROL: opening both sections actually reveals their bodies, so the legs '
+  + 'below are measuring a rendered page',
+  html2.includes('Speech-to-text') && html2.includes('Tools enabled'),
+  'nothing below this point is measuring what it claims to');
+t('5 the two-across grid is used', html2.includes('repeat(2, minmax(0, 1fr))'));
+// the five section-1 pickers
+for (const [n,lab] of [['AI Model','AI Model'],['Wake word','Wake word'],['Personality','>Personality </span>'],['STT','Speech-to-text'],['TTS','Text-to-speech']])
+  t(`9 section 1 carries ${n}`, html2.includes(lab), lab);
+// search + entities must NOT be in section 1 any more
 t('11 opening Tools reveals its body', html2.includes('Tools enabled'));
 // ⚠️ WAS sliced on indexOf('AI Tools'), which after the rename returns -1 — so the
 // slice was the whole document minus one char and the leg measured the wrong region.
