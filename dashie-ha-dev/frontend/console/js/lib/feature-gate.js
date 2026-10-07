@@ -410,6 +410,33 @@ const FeatureGate = {
         // Scoped to the published build ONLY: the family build's 'alpha-only'
         // (FEATURE_RULES) is untouched, so this changes nothing for Dashie users.
         scheduledActions: true,
+
+        // 🔴 `locations` IS DELIBERATELY ABSENT. Do not add it.
+        //
+        // John, 2026-10-06, asked directly: **"Locations should stay alpha
+        // gated."** So a signed-in, fully-entitled STANDARD add-on user sees
+        // calendar, family and photos — and not locations, chores or rewards.
+        //
+        // Recorded here because an absence is indistinguishable from an
+        // oversight, and this one looks exactly like one: `locations` is
+        // 'alpha-only' (FEATURE_RULES:524) in a build where two of its siblings
+        // got explicit overrides, so the obvious reading of this block is that
+        // somebody forgot it. Two facts make it a position instead:
+        //
+        //   1. THE scheduledActions PRECEDENT ABOVE DOES NOT APPLY. That one was
+        //      a bug fix, not a product decision: 'scheduled-actions' IS in
+        //      ACCOUNT_LOCKED_PAGES, so a standard user saw it locked, signed in
+        //      to unlock it, and watched it vanish — "signing in must never
+        //      remove a feature you were just shown". `locations` is NOT in
+        //      ACCOUNT_LOCKED_PAGES, so it is never shown and then taken away,
+        //      and there is no defect of that shape to repair.
+        //
+        //   2. NOBODY LOSES ANYTHING EITHER WAY. Before 2026-10-06 `locations`
+        //      was in CLOSED_DELTA_PAGES and hidden in this build
+        //      unconditionally. Leaving it alpha-only puts standard users exactly
+        //      where they already were; alpha users GAIN it. So this is additive
+        //      whichever way it goes, which is why it was safe to put to John as
+        //      a product question rather than treated as a regression.
     },
 
     /**

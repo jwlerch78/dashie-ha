@@ -138,6 +138,7 @@ const DevicesDetail = {
             ${DevicesDetailModals.renderWakeWordModal()}
             ${DevicesDetailModals.renderVoiceSetupModal()}
             ${DevicesDetailModals.renderProfileModal()}
+            ${DevicesBluetoothModal.render()}
             ${DevicesDetailModals.renderPinModal()}
         `;
     },
