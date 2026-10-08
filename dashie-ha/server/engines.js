@@ -56,7 +56,12 @@ const sttUsage = require('./stt-usage');
 // (2026-08-23), scheduled by John 2026-08-28. Additive: it answers only when the
 // add-on option is unset AND the household's chosen engine is one a satellite can
 // actually reach, so every box that works today is untouched.
-const { resolveSatelliteBase } = require('./satellite-engines');
+const { resolveSatelliteBase, householdSttProvider } = require('./satellite-engines');
+const geminiStt = require('./gemini-stt');
+
+/** The STT wire id for BYOK Gemini. Kotlin `VoiceAiOptions` is the naming source;
+ *  the console row and this check mirror it (JS_KOTLIN_CONTRACTS row, D5). */
+const STT_GEMINI = 'gemini';
 
 /** Signed-in JWT or null (never throws — engine handlers decide the fallback). */
 async function cloudJwt() {
@@ -108,6 +113,17 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
  */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
+    // D5: the household chose BYOK Gemini. Checked FIRST, ahead of `stt_url`
+    // (O's ruling, decision 1): a picker that says "Gemini" while the operator's
+    // Whisper runs is the dishonest-label failure B rejected. The override is
+    // never silent; it has its own marker, distinct from the failure markers.
+    if (await householdSttProvider() === STT_GEMINI) {
+        if (String(opts.stt_url || '').trim()) {
+            console.warn(`STT-OVERRIDE: household chose ${STT_GEMINI}; the stt_url add-on option (${sttUsage.hostOf(opts.stt_url) || 'unparseable'}) is ignored while it is chosen`);
+        }
+        await geminiSttBranch(req, res, sendJson);
+        return;
+    }
     // Resolved through the per-consumer-class tier: the add-on option first (the
     // operator's direct statement about THIS lane), then the household choice but
     // ONLY when that engine is server-reachable. An on-device household pick
@@ -173,6 +189,37 @@ async function handleStt(req, res, sendJson) {
         console.warn('DROP: stt engine unreachable:', e.message);
         sendJson(res, 504, { error: 'stt_unreachable', message: e.message });
     }
+}
+
+/**
+ * D5 Gemini branch. 🔴 No fall-through on failure, to cloud OR to a local
+ * engine: the household chose its own key, and routing the audio somewhere it
+ * did not choose (or billing it to the account) to hide a fault is the rule the
+ * BYOK TTS branch states at handleTts. Each failure has its own marker.
+ */
+async function geminiSttBranch(req, res, sendJson) {
+    let audio;
+    try {
+        audio = await readRawBody(req);
+    } catch (e) {
+        sendJson(res, 400, { error: 'bad_audio', message: e.message });
+        return;
+    }
+    if (!geminiStt.available()) {
+        console.warn('DROP: stt-gemini-no-key — household chose gemini but no Gemini key is stored');
+        sendJson(res, 503, { error: 'gemini_stt_no_key', message: 'Add a Gemini key in API Keys, or choose another speech-to-text engine.' });
+        return;
+    }
+    const t0 = Date.now();
+    const r = await geminiStt.transcribe(audio);
+    if (!r.ok) {
+        console.warn(`DROP: stt-gemini-failed — ${r.error} (status ${r.status}); not falling through`);
+        sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+        return;
+    }
+    console.log(`DASHIE-STT route=gemini text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+    sttUsage.recordSttCall(audio, readOptions(), 'gemini');
+    sendJson(res, 200, { text: r.text });
 }
 
 /** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}). */

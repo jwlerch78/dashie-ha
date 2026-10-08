@@ -157,6 +157,13 @@ node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 echo "==> Checking STT usage capture (derived seconds · no zero rows · lanes apart)"
 node "$ADDON_ROOT/scripts/check-stt-usage.mjs"
 
+# D5 BYOK Gemini STT: the key reaches Google in a header and nowhere else, both
+# response shapes are read (one of them reads as silence if missed), household
+# Gemini outranks stt_url with a loud STT-OVERRIDE, and a failure never falls
+# through to another engine or records usage.
+echo "==> Checking Gemini STT (key custody · both response shapes · precedence · no fall-through)"
+node "$ADDON_ROOT/scripts/check-gemini-stt.mjs"
+
 # The READ half of the same record. Until 2026-08-28 `readUsage()` was exported and
 # called by nothing — the box accumulated usage nobody could see. This gate asserts
 # the whole reachability CHAIN (whitelist → registry → nav → script tag), because
