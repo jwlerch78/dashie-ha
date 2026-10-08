@@ -306,6 +306,16 @@ const VoiceAiOptions = {
           ] },
         { id: 'va_default', label: 'Home Assistant', locality: 'local', cost: 'Free', haOnly: true,
           description: "Your Home Assistant voice pipeline's speech-to-text." },
+        // D5 BYOK Gemini STT. 🔴 The id `gemini` is a WIRE VALUE: Kotlin
+        // `VoiceAiOptions.kt` is the naming source, and the add-on's handleStt
+        // (STT_GEMINI) reads the same household value (JS_KOTLIN_CONTRACTS row).
+        // haOnly: the audio reaches the add-on through HA's STT API and the
+        // Dashie Voice integration, so there is no path without HA.
+        // ⚠️ The LABEL is a placeholder: wording is John's (provenance rules above).
+        // Locality is CLOUD: the audio goes to Google, whoever's key pays.
+        { id: 'gemini', label: 'Gemini (your key)', locality: 'cloud', haOnly: true,
+          cost: 'Your Gemini key · ~$0.005/min (Google estimate)',
+          description: 'Transcribed by Google Gemini on the key stored in API Keys, called from your Home Assistant box. Also used by voice satellites routed to Dashie Voice.' },
         // "On-Device" family (grouped in the picker). Provenance labels, not quality
         // labels (naming ruling 2026-08-20, Kotlin VoiceAiOptions.kt is the source):
         // (Built-in) = the OS SpeechRecognizer (Google-services devices only, plays a
