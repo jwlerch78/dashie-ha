@@ -55,7 +55,8 @@ class PowerManagementEngineImpl {
             window.evalInHaIframe(`
                 (function() {
                     try {
-                        var hass = document.querySelector('home-assistant')?.hass;
+                        var haEl = document.querySelector('home-assistant');
+                        var hass = haEl && haEl.hass;
                         if (!hass) { console.warn('PowerEngine: hass not available'); return; }
                         hass.callService('switch', '${action}', { entity_id: '${entityId}' });
                         console.log('PowerEngine: switch.${action} sent to ${entityId} (watchdog)');
@@ -223,7 +224,8 @@ class PowerManagementEngineImpl {
         window.evalInHaIframe(`
             (function() {
                 try {
-                    var hass = document.querySelector('home-assistant')?.hass;
+                    var haEl = document.querySelector('home-assistant');
+                    var hass = haEl && haEl.hass;
                     if (!hass) { console.warn('PowerEngine: ❌ hass not available in iframe'); return; }
                     hass.callService('switch', '${action}', { entity_id: '${entityId}' });
                     console.log('PowerEngine: ✅ switch.${action} sent to ${entityId}');
@@ -242,7 +244,8 @@ class PowerManagementEngineImpl {
         window.evalInHaIframe(`
             (function() {
                 try {
-                    var hass = document.querySelector('home-assistant')?.hass;
+                    var haEl = document.querySelector('home-assistant');
+                    var hass = haEl && haEl.hass;
                     if (!hass) return;
                     var state = hass.states['${entityId}'];
                     var val = state ? state.state : 'entity_not_found';

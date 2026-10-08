@@ -89,7 +89,25 @@ const sharedOptions = {
   sourcemap: false,
   format: 'esm',
   external: ['node:fs', 'node:path'],
-  target: ['chrome100'],
+  // 🔴 chrome61, NOT chrome100 (John, 2026-09-28: "Yes - lower to 61"). See BUGS D-142/D-178/D-184.
+  //
+  // `target` is PERMISSION TO EMIT, not an instruction to inject: it tells esbuild what it may
+  // leave UNLOWERED. At chrome100 it left 555 optional-chainings and 56 nullish-coalescings in
+  // kiosk-shell.bundle.js, so the bundle's real floor was Chrome 80 — while `minSdk = 23` claims
+  // we support platforms whose stock WebView is far below that. 61 is the floor set by the
+  // `<script type="module">` tag in kiosk-shell.html, so it is the lowest target worth asking for
+  // without also abandoning modules.
+  //
+  // Why it matters, measured rather than assumed (D-142): a WebView that cannot parse the bundle
+  // does not error, does not crash and logs NOTHING — the tag is silently ignored and the user
+  // sees a black screen. One reporter's Android 6 tablet (Chrome 50) produced ZERO [KioskShell]
+  // lines in 4,700 of logcat while the page itself loaded cleanly.
+  //
+  // ⚠️ THIS FLAG IS NOT THE WHOLE FLOOR. Code we ship as a STRING and eval in the HA realm
+  // (`evalInHaIframe`) is DATA to esbuild and SYNTAX to the runtime, so no target can lower it.
+  // Those sites were rewritten by hand (D-184); if you add an injected-script string, it must be
+  // ES2019 by hand — nothing here will catch it for you.
+  target: ['chrome61'],
   metafile: true,
   // esbuild hands back the bytes instead of writing them; the write decision is ours,
   // in the .then() below. Without this, esbuild writes before we can compare.

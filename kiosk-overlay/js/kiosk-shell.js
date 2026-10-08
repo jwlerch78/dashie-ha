@@ -1110,7 +1110,10 @@ function extractHaTokens() {
     try {
       var tokens = localStorage.getItem('hassTokens');
       if (!tokens) {
-        var d = document.querySelector('home-assistant')?.hass?.auth?.data;
+        var haEl = document.querySelector('home-assistant');
+      var haHass = haEl && haEl.hass;
+      var haAuth = haHass && haHass.auth;
+      var d = haAuth && haAuth.data;
         if (d && d.access_token && d.refresh_token) {
           tokens = JSON.stringify(d);
           localStorage.setItem('hassTokens', tokens);
@@ -1154,7 +1157,8 @@ function syncVideoFeedsFromHa() {
   } catch(e) {}
   window.evalInHaIframe(`
     try {
-      var hass = document.querySelector('home-assistant')?.hass;
+      var haEl = document.querySelector('home-assistant');
+      var hass = haEl && haEl.hass;
       if (hass && hass.callApi) {
         Promise.all([
           hass.callApi('GET', 'dashie/feeds'),

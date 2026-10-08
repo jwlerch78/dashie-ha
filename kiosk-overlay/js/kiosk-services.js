@@ -20,7 +20,8 @@
 
 import { TimerService, BrowserStorage } from '@dashieapp/timer-service';
 import { normalizeWordNumbers } from '@dashieapp/core-utils';
-import { classifyTimerIntent, classifyMediaIntent, classifyVolumeIntent, parseDuration } from '@dashieapp/intent-classifier';
+import { classifyTimerIntent, classifyMediaIntent, classifyVolumeIntent, parseDuration,
+  MEDIA_FLEXIBLE_NEXT, MEDIA_FLEXIBLE_STOP, MEDIA_FLEXIBLE_PREVIOUS } from '@dashieapp/intent-classifier';
 // Shared with full mode (pure module, no app imports — bundles cleanly): answers
 // "what time / date / day is it" on-device instead of a billable brain round-trip.
 import { answerTimeQuery } from '../../js/core/voice/time-fast-path.js';
@@ -1125,16 +1126,38 @@ class KioskServicesController {
     const hasKotlinBridge = typeof DashieNative !== 'undefined' && DashieNative.sendMusicCommand;
     if (!hasKotlinBridge) return null;
 
-    // Check if music is currently playing (for flexible matching)
-    const musicPlaying = typeof DashieNative !== 'undefined' &&
-                         DashieNative.isMusicPlaying &&
-                         DashieNative.isMusicPlaying();
+    // Is music playing? Bare "next"/"skip"/"pause" only count as music commands while it is (D-222).
+    const playState = this._readMusicPlayState();
+    const musicPlaying = playState.found === true && playState.playing === true;
 
     // Use shared classifier for media intent matching
     const result = classifyMediaIntent(lower, { musicPlaying });
-    if (!result) return null;
+    if (!result) {
+      const first = lower.split(/\s+/)[0];
+      if (!musicPlaying && [...MEDIA_FLEXIBLE_NEXT, ...MEDIA_FLEXIBLE_STOP, ...MEDIA_FLEXIBLE_PREVIOUS].includes(first)) {
+        console.warn(`[KioskServices] DROP: MEDIA_FLEXIBLE_NOT_PLAYING — bare "${lower}" not taken as a music command ` +
+          `(play state ${JSON.stringify(playState)}); falls through to the ai_lane`);
+      }
+      return null;
+    }
 
     return this._executeMediaIntent(result, lower);
+  }
+
+  /**
+   * Native play state: `{source, found, playing}` from DashieNative.getMusicPlayState().
+   * source is coordinator | local | unavailable | unwired; `bridge-missing` = the method is absent.
+   */
+  _readMusicPlayState() {
+    if (typeof DashieNative === 'undefined' || typeof DashieNative.getMusicPlayState !== 'function') {
+      return { source: 'bridge-missing', found: false, playing: false };
+    }
+    try {
+      return JSON.parse(DashieNative.getMusicPlayState());
+    } catch (e) {
+      console.warn('[KioskServices] DROP: MUSIC_PLAY_STATE_UNREADABLE —', e?.message);
+      return { source: 'error', found: false, playing: false };
+    }
   }
 
   /**
