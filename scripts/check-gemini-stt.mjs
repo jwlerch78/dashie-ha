@@ -225,6 +225,18 @@ const usageText = () => JSON.stringify(usageStore.readUsage());
     else fail(`[5d] ${JSON.stringify(out)} calls=${k.calls.length}`);
 }
 
+// ── 6: the wire id agrees between the console row and the server ───────────
+{
+    const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+    const eng = strip(readFileSync(join(SERVER, 'engines.js'), 'utf8'));
+    const opt = strip(readFileSync(join(SERVER, '..', 'frontend', 'console', 'js', 'lib', 'voice-ai-options.js'), 'utf8'));
+    const serverId = eng.match(/const STT_GEMINI\s*=\s*'([^']+)'/)?.[1];
+    const sttBlock = opt.match(/\bSTT:\s*\[([\s\S]*?)\n\s{4}\],/)?.[1] || '';
+    const consoleHas = serverId && new RegExp(`id:\\s*'${serverId}'`).test(sttBlock);
+    if (serverId && consoleHas) ok(`6: the console STT row id equals the server's STT_GEMINI ('${serverId}')`);
+    else fail(`[6] server STT_GEMINI=${serverId} but the console STT rows ${sttBlock ? 'do not contain it' : 'could not be read'}`);
+}
+
 for (const m of pass) console.log(`  ✓ ${m}`);
 for (const m of errors) console.error(`  ✗ ${m}`);
 if (errors.length) { console.error(`check-gemini-stt: ${errors.length} violation(s)`); process.exit(1); }
