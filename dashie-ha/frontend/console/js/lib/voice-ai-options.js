@@ -298,7 +298,9 @@ const VoiceAiOptions = {
         { id: 'dashie_cloud',
           label: `${BRAND.cloudName} STT`,
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
-          description: 'Streaming, premium accuracy, provided by Deepgram.' },
+          // D5(i), John 2026-10-08: "Streaming" dropped (false under batch Gemini), and the vendor now reads
+          // from CLOUD_SUPPLIERS — the single holder the comment above names — instead of a hard-coded copy.
+          get description() { return `Premium accuracy, provided by ${VoiceAiOptions.CLOUD_SUPPLIERS[0].vendors}.`; } },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
           description: 'Whisper server on your own box (OpenAI-compatible, LAN, direct).',
           configFields: [
