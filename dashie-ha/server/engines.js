@@ -113,6 +113,18 @@ function readRawBody(req, limit = MAX_AUDIO_BYTES) {
  */
 async function handleStt(req, res, sendJson) {
     const opts = readOptions();
+    // D5: an EXPLICIT engine in the request (the integration's Gemini STT entity
+    // sends ?engine=gemini). HA's /api/stt carries no device identity, so a
+    // tablet's PER-DEVICE pick (contract row 78) can only reach this box as the
+    // entity it targets. Explicit beats household and stt_url, and is not an
+    // override: the caller named its engine. An unknown value is refused loudly.
+    const engine = String(req.query?.engine || '').trim();
+    if (engine) {
+        if (engine === STT_GEMINI) { await geminiSttBranch(req, res, sendJson); return; }
+        console.warn(`DROP: stt-unknown-engine — ?engine=${engine.slice(0, 40)} is not a known STT engine`);
+        sendJson(res, 400, { error: 'unknown_engine', message: `Unknown STT engine "${engine.slice(0, 40)}".` });
+        return;
+    }
     // D5: the household chose BYOK Gemini. Checked FIRST, ahead of `stt_url`
     // (O's ruling, decision 1): a picker that says "Gemini" while the operator's
     // Whisper runs is the dishonest-label failure B rejected. The override is

@@ -104,8 +104,9 @@ const googleText = (t) => json(200, { candidates: [{ content: { parts: [{ text: 
 const googleAT = (t) => json(200, { candidates: [{ content: { parts: [{ audioTranscription: { text: t } }] } }] });
 
 /** Drive the real handleStt. Returns {status, body}. */
-async function callHandleStt(audio) {
+async function callHandleStt(audio, query = {}) {
     const req = Readable.from([audio]);
+    req.query = query;
     let out = null;
     await engines.handleStt(req, null, (_res, status, body) => { out = { status, body }; });
     return out;
@@ -202,6 +203,26 @@ const usageText = () => JSON.stringify(usageStore.readUsage());
     const p = await capture(async () => json(200, { text: 'operator engine' }), async () => { out = await callHandleStt(wav()); });
     if (out?.status === 200 && out.body?.text === 'operator engine' && p.calls[0]?.url.startsWith('http://whisper.lan:9000') && !p.logs.some((l) => l.startsWith('STT-OVERRIDE:'))) ok('4i: control — a non-gemini household still uses stt_url, with no override marker');
     else fail(`[4i] ${JSON.stringify(out)} urls=${p.calls.map((c) => c.url)}`);
+}
+
+// ── 5: explicit ?engine=gemini (the integration's Gemini entity) ────────────
+{
+    __setVoice({ sttProvider: 'sherpa_moonshine_base' });
+    __setKeys({ gemini: { key: KEY } });
+    setOptions({ stt_url: 'http://whisper.lan:9000' });
+    let out;
+    const e = await capture(async (url) => String(url).includes('generativelanguage') ? googleText('lights off') : json(200, { text: 'WRONG ENGINE' }),
+        async () => { out = await callHandleStt(wav(), { engine: 'gemini' }); });
+    if (out?.status === 200 && out.body?.text === 'lights off' && e.calls.length === 1 && e.calls[0].url.includes('generativelanguage')) ok('5a: ?engine=gemini uses Gemini on a non-gemini household with stt_url set');
+    else fail(`[5a] ${JSON.stringify(out)} urls=${e.calls.map((c) => c.url)}`);
+    if (!e.logs.some((l) => l.startsWith('STT-OVERRIDE:'))) ok('5b: an explicit engine is not logged as an override'); else fail('[5b] explicit engine logged STT-OVERRIDE');
+    const u = await capture(async () => json(200, { text: 'WRONG ENGINE' }), async () => { out = await callHandleStt(wav(), { engine: 'deepgram' }); });
+    if (out?.status === 400 && out.body?.error === 'unknown_engine' && u.calls.length === 0 && u.logs.some((l) => l.startsWith('DROP: stt-unknown-engine'))) ok('5c: an unknown ?engine is a loud 400, nothing called');
+    else fail(`[5c] ${JSON.stringify(out)} calls=${u.calls.length} logs=${JSON.stringify(u.logs)}`);
+    __setKeys({});
+    const k = await capture(async () => json(200, { text: 'WRONG ENGINE' }), async () => { out = await callHandleStt(wav(), { engine: 'gemini' }); });
+    if (out?.status === 503 && out.body?.error === 'gemini_stt_no_key' && k.calls.length === 0) ok('5d: explicit gemini with no key → 503, no fall-through');
+    else fail(`[5d] ${JSON.stringify(out)} calls=${k.calls.length}`);
 }
 
 for (const m of pass) console.log(`  ✓ ${m}`);
