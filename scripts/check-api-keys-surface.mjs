@@ -108,23 +108,67 @@ if (SPEECH.length < 3) {
 }
 
 // ── LEG 2 — the BRAIN routability filter does not eat them ──────────────────
+//
+// ⚠️ AMENDED 2026-10-08. Leg 2a used to assert that EVERY speech provider
+// survives `_visibleProviders()`, naming all three. Deepgram and Inworld were
+// then `retired` (adapter 'pending' — nothing on the box spends either key), and
+// the leg went red for a reason it is not about: its subject is "`routable` is
+// the wrong question for a speech provider", and those two are now filtered by
+// the `retired` rule instead, which is correct behaviour.
+//
+// The repair is NOT to re-pin the old specimen set — that would make a product
+// decision un-makeable by a gate that is supposed to be about a different
+// filter. It is to scope 2a to the providers the page actually OFFERS, keep a
+// control so it cannot pass with zero specimens, and give the retirement its own
+// legs (2c/2d) — including the one property that makes retiring safe at all:
+// a key already stored stays visible, and therefore removable.
 {
+    const SPEECH_OFFERED = Manifest.PROVIDERS
+        .filter(p => p.group === 'speech' && !p.retired).map(p => p.id);
+    const SPEECH_RETIRED = Manifest.PROVIDERS
+        .filter(p => p.group === 'speech' && p.retired).map(p => p.id);
+
     // What the server really sends: brain providers only. A speech provider can
     // never appear here, however well its adapter works.
     Page._routable = ['openrouter', 'gemini', 'openai', 'hermes'];
     Page._providers = {};
     const visible = Page._visibleProviders();
     const ids = visible.map(p => p.id);
-    const missing = SPEECH.filter(id => !ids.includes(id));
+    const missing = SPEECH_OFFERED.filter(id => !ids.includes(id));
     const wronglyOrphaned = visible.filter(p => p.group === 'speech' && p.orphaned).map(p => p.id);
-    check('leg 2a — a speech provider survives the `routable` filter with no key stored',
-        missing.length === 0,
+
+    check(`leg 2a CONTROL — at least one speech provider is still OFFERED (${SPEECH_OFFERED.length}: ${SPEECH_OFFERED.join(', ') || 'NONE'})`,
+        SPEECH_OFFERED.length > 0,
+        'every speech provider is retired, so leg 2a below has no specimen',
+        'with an empty specimen set leg 2a passes by iterating nothing — the vacuous pass this repo keeps finding. If every speech key really is retired, delete leg 2a deliberately rather than leaving a control that cannot fail');
+    check(`leg 2a — an OFFERED speech provider survives the \`routable\` filter with no key stored (${SPEECH_OFFERED.join(', ')})`,
+        SPEECH_OFFERED.length > 0 && missing.length === 0,
         `filtered out: ${missing.join(', ')}`,
         '`routable` answers "does this key flip BRAIN routing", which is the wrong question here — applying it hides the very fields this page now exists to offer');
     check('leg 2b — and is never flagged `orphaned`',
         wronglyOrphaned.length === 0,
         `orphaned: ${wronglyOrphaned.join(', ')}`,
         'the orphaned card tells the user to switch to an OpenRouter key and remove this one — advice that is simply false for a text-to-speech credential');
+
+    // ── The retirement itself (2026-10-08) ──────────────────────────────────
+    if (SPEECH_RETIRED.length) {
+        const stillShown = SPEECH_RETIRED.filter(id => ids.includes(id));
+        check(`leg 2c — a RETIRED speech provider is hidden when no key is stored (${SPEECH_RETIRED.join(', ')})`,
+            stillShown.length === 0,
+            `still offered: ${stillShown.join(', ')}`,
+            'the point of retiring a provider whose adapter is pending is to stop asking households for a credential nothing can spend; if the field still renders, the retirement did nothing');
+
+        // 🔴 The half that actually matters. A hard DELETE would leave an
+        // account holding a live, billable key it can no longer see or remove.
+        Page._providers = Object.fromEntries(SPEECH_RETIRED.map(id => [id, { set: true, fields: {} }]));
+        const withKeys = Page._visibleProviders().map(p => p.id);
+        const vanished = SPEECH_RETIRED.filter(id => !withKeys.includes(id));
+        check('leg 2d — ...and is STILL shown once a key IS stored, so it stays removable',
+            vanished.length === 0,
+            `unreachable despite a stored key: ${vanished.join(', ')}`,
+            'this is the difference between `retired` and deleted: a household that already pasted one of these keys must be able to find and remove it. A key that is stored, billable and unreachable is the worst outcome of this change');
+        Page._providers = {};
+    }
 }
 
 // ── LEG 3 — a stored key with a PENDING adapter says so, in the SHARED words ─

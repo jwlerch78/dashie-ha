@@ -225,6 +225,24 @@
             fields: [{ id: 'key', label: 'API key', placeholder: 'BSA…', secret: true }],
         },
         {
+            // ⚠️ RETIRED FROM THE PICKER 2026-10-08 (John, for the HA first
+            // release) — alongside Inworld below. Same `retired` mechanism as
+            // OpenRouter: hidden from anyone with no key, still rendered and
+            // removable for anyone who has one. To bring it back: delete the flag.
+            //
+            // 🔴 THE REASON IS NOT "cut the surface area", it is that THERE IS
+            // NOTHING BEHIND THIS FIELD. `adapter` is 'pending' below, and that
+            // is the honest state: no on-box code spends a Deepgram key. So
+            // retiring it removes a setup step, a support question and a
+            // priced-looking promise, and removes NO capability a household has
+            // today. John framed this as "adding a 3rd provider to have true
+            // cloud capabilities seems to push it over the top" — measured, the
+            // third provider was never wired, so the tradeoff he was weighing
+            // did not exist.
+            //
+            // STT for the first release comes from Home Assistant's own Whisper
+            // (keyless, `va_default`/`local_stt_url` in VoiceAiOptions.STT).
+            retired: true,
             id: 'deepgram', name: 'Deepgram', kind: 'tool', group: 'speech',
             surfaces: ['api-keys', 'onboarding'],
             capabilities: [CAP.STT], credential: CRED_STATIC,
@@ -249,6 +267,19 @@
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
         {
+            // ⚠️ RETIRED FROM THE PICKER 2026-10-08, same ruling and same
+            // reason as Deepgram above: adapter 'pending', so the field stores
+            // and validates a credential nothing on the box can spend.
+            //
+            // 📌 Worth being precise about what this does NOT retire. Inworld
+            // is still named in personality-templates' `voices` preference
+            // lists, and that is correct and harmless: `resolveVoice` walks
+            // those refs through `ProviderAvailability.isAvailable`, which
+            // returns false for a 'pending' adapter whatever the picker shows.
+            // The ref simply never wins, and the walk falls through to the
+            // keyless engines. Retiring the FIELD and leaving the REF is the
+            // consistent pair, not an oversight.
+            retired: true,
             id: 'inworld', name: 'Inworld', kind: 'tool', group: 'speech',
             surfaces: ['api-keys', 'onboarding'],
             capabilities: [CAP.TTS], credential: CRED_STATIC,
