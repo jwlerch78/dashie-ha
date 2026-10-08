@@ -332,6 +332,17 @@ node "$ADDON_ROOT/scripts/check-bluetooth-surface.mjs"
 echo "==> Checking the entitlement gate DENIES (unknown/expired/ha_only)"
 node "$ADDON_ROOT/scripts/check-entitlement-gate.mjs"
 
+# The HA first release is BYOK-only: credits and scheduled actions are alpha-gated
+# (John, 2026-10-08). The cut was two lines out of PUBLISHED_RULE_OVERRIDES, but one
+# of those two lines was itself a BUG FIX -- the 2026-08-01 repair for a page that
+# was shown locked signed-out and then VANISHED on sign-in -- so deleting it naively
+# reships that defect. This gate asserts the cut AND the invariant that made it safe
+# (locked signed-out => reachable signed-in), stated over every page and cohort
+# rather than about credits, plus the fault injection that proves the invariant leg
+# can fail at all.
+echo "==> Checking the BYOK-only release scope (no pay surfaces, no vanishing pages)"
+node "$ADDON_ROOT/scripts/check-release-scope.mjs"
+
 # A <select> whose stored value matches NO option shows its FIRST option — so a
 # device holding a value this console does not offer renders as a different
 # setting entirely, silently. That is what made the Samsung's screensaver

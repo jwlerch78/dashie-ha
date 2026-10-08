@@ -287,6 +287,24 @@ const FeatureGate = {
         if (!this.requiresAccount(page)) return false;
         if (!this.ACCOUNT_LOCKED_PAGES.has(page)) return false;
         if (this.CLOSED_DELTA_PAGES.has(page)) return false;
+        // 🔴 A page the cohort rules HIDE must not be teased as locked either
+        // (2026-10-08). Exactly the same argument as the CLOSED_DELTA_PAGES
+        // line above: that one refuses to tease a page whose FILE is absent,
+        // this one refuses to tease a page whose FEATURE is off. Both are dead
+        // ends rather than teasers — the user taps "Credits", creates the
+        // account the lock asked for, and the page is STILL gone, because the
+        // thing hiding it was never the missing account.
+        //
+        // This is what lets `credits` and `scheduledActions` leave
+        // PUBLISHED_RULE_OVERRIDES without reintroducing the 2026-08-01
+        // disappear-on-sign-in defect recorded there.
+        //
+        // Reuses PAGE_FEATURE rather than declaring a second set, so there is
+        // nothing to keep in sync. Pages absent from that map ('account',
+        // 'preferences', 'devices') are unaffected and still tease correctly —
+        // those genuinely do need an account, which is what the lock is for.
+        const key = this.PAGE_FEATURE[page];
+        if (key && !this.shouldShow(key)) return false;
         return true;
     },
 
@@ -390,26 +408,47 @@ const FeatureGate = {
     },
 
     /**
-     * FEATURE_RULES overrides for the published build. Voice/AI and the
-     * Dashie Cloud credits meter ARE the product there, so the family
-     * beta-cohort gate ('beta-only') doesn't apply.
+     * FEATURE_RULES overrides for the published build. Voice/AI IS the product
+     * there, so the family beta-cohort gate ('beta-only') doesn't apply to it.
+     *
+     * ⚠️ Removing a line here does not HIDE a feature — it stops UN-hiding one.
+     * FEATURE_RULES below is the decision; this block is only the
+     * published-build exception list.
      */
     PUBLISHED_RULE_OVERRIDES: {
         voiceAi: true,
-        credits: true,
-        // scheduledActions (2026-08-01, John): OFF 'alpha-only' here.
+
+        // 🔴 `credits` WAS HERE and is deliberately gone (2026-10-08, John, for
+        // the HA first release): *"credits can't be part of the first release"*,
+        // *"it needs to be exclusively BYOK to start"*. It now falls through to
+        // FEATURE_RULES, where it is already 'alpha-only'.
         //
-        // Not a product expansion — a repair. ACCOUNT_LOCKED_PAGES makes
-        // 'scheduled-actions' VISIBLE-but-locked signed out, but the family rule is
-        // 'alpha-only', so a standard-tier user saw it locked, signed in to unlock
-        // it, and watched it DISAPPEAR. Signing in must never remove a feature you
-        // were just shown. The locked set cannot express "would be visible if you
-        // had the tier" — signed out there is no specialAccess to test — so the
-        // repair belongs on the rule, not on the lock.
+        // The old rationale — "the Dashie Cloud credits meter IS the product
+        // there" — was true of the metered edition and is false of a BYOK-only
+        // one: a credits meter with nothing to meter is a pay surface with
+        // nothing behind it. This is the state ACCOUNT_LOCKED_PAGES' own
+        // brand-arc note anticipated ("fully open, free, BYOK-only — *no pay
+        // surfaces at all*"), and that note said the pay pages should then be
+        // ABSENT rather than locked. `isLocked()` now enforces that.
+
+        // 🔴 `scheduledActions` WAS HERE TOO (John, same ruling: *"scheduled
+        // actions are out for first release (should be alpha gated)"*), and
+        // removing it needed ONE EXTRA CHANGE. Read this before re-adding it.
         //
-        // Scoped to the published build ONLY: the family build's 'alpha-only'
-        // (FEATURE_RULES) is untouched, so this changes nothing for Dashie users.
-        scheduledActions: true,
+        // The 2026-08-01 override was not a product expansion — it repaired a
+        // real defect: 'scheduled-actions' is in ACCOUNT_LOCKED_PAGES, so a
+        // signed-out standard user saw it VISIBLE-but-locked, signed in to
+        // unlock it, and watched it DISAPPEAR, because the family rule is
+        // 'alpha-only'. Signing in must never remove a feature you were just
+        // shown.
+        //
+        // ⚠️ So deleting this line ALONE would have reintroduced that defect
+        // verbatim — the cut John asked for would have shipped the bug the
+        // override existed to fix. What makes it safe is the new guard in
+        // `isLocked()`: a page the cohort rules hide is no longer offered as a
+        // locked teaser either, so it is never shown and then taken away. The
+        // lock and the rule now agree by construction instead of by two people
+        // remembering to edit both.
 
         // 🔴 `locations` IS DELIBERATELY ABSENT. Do not add it.
         //
