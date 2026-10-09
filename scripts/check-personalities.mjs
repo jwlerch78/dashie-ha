@@ -310,6 +310,38 @@ function check(name, ok, detail, why) {
         `isConfigured(espn, undefined) = ${espn && M.isConfigured(espn, undefined)}`,
         'the delegation in isAvailable routes all three shapes through READINESS; if NONE stopped answering true, keyless providers would become unconfigurable again — the bug that rule exists to prevent');
 
+    // ── 8i — the manifest↔detector join, at BUILD time ─────────────────────
+    //
+    // `provider-manifest.js` DECLARES `detect: 'ha-tts-engine'`; this file's
+    // DETECTORS map IMPLEMENTS that key. Two files must agree on two strings.
+    // A typo there already fails closed and warns loudly at runtime, which is
+    // the right behaviour — but a runtime DROP on a household's box is not a
+    // gate, and the symptom ("that personality has no voice") is indistinguishable
+    // from the defect D6 just fixed.
+    //
+    // Asserted BEHAVIOURALLY rather than by comparing two lists: with every
+    // engine present, every LOCAL_ENGINE row must read available. A row whose
+    // `detect` names nothing stays false and turns this red. That scales to new
+    // rows with no per-row fixture to maintain here — which would itself be the
+    // hand-mirror this check is about.
+    //
+    // 📌 Triage note (lint:discovery, 2026-10-09): the mirror-shaped comment in
+    // provider-availability.js is BENIGN for JS_KOTLIN_CONTRACTS.md — that
+    // registry governs the JS↔Kotlin LANGUAGE boundary ("Kotlin can't import
+    // JS"), and this join is JS↔JS inside one directory. It gets this gate
+    // instead of a row.
+    {
+        const M2 = sandbox.window.ProviderManifest;
+        const localRows = M2.PROVIDERS.filter((p) => p.auth === M2.AUTH.LOCAL_ENGINE);
+        A._setKeyStatusForTest({});
+        A._setEnginesForTest(KOKORO_TOO);          // piper engine + kokoro installed
+        const dead = localRows.filter((p) => A.isAvailable(p.id) !== true).map((p) => p.id);
+        check(`leg 8i — every LOCAL_ENGINE row's \`detect\` reaches a real detector (${localRows.length} row(s): ${localRows.map((p) => p.id).join(', ')})`,
+            localRows.length > 0 && dead.length === 0,
+            `rows that stayed unavailable with every engine present: ${dead.join(', ') || '(none)'}`,
+            'a row whose `detect` names no detector fails closed and warns at RUNTIME, on a household\'s box, with the symptom "that personality has no voice" — which is indistinguishable from the defect D6 fixed. This makes the join a build-time failure instead');
+    }
+
     A._setKeyStatusForTest({});
     A._setEnginesForTest(null);
 }
