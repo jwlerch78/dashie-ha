@@ -35,7 +35,7 @@ const VoiceAiPresetPicker = {
 
     _card(p, selected, available, isAddonMode, localMode) {
         const O = window.VoiceAiOptions;
-        const costColor = p.needsCreditsOrKey ? O.COLOR.cloud : O.COLOR.local;
+        const costColor = p.needsKey ? O.COLOR.cloud : O.COLOR.local;
         // Mixed presets color each tagline half by its locality (Hybrid:
         // "Cloud AI" orange · "local voice" green); others use one color.
         const tagline = Array.isArray(p.taglineParts)
@@ -80,7 +80,14 @@ const VoiceAiPresetPicker = {
         // asks the gate instead of inferring from the mode.
         const creditsReachable = typeof FeatureGate !== 'undefined'
             && FeatureGate.isPageEnabled('credits');
-        const keysLink = `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">AI key${creditsReachable ? 's' : ''}</a>`;
+        // 🔴 NAMES THE KEY THIS CARD NEEDS (2026-10-09, D3). It used to say "AI key(s)"
+        // on every locked card, which was the best it could do while the gate itself
+        // only knew "some key exists". Cloud needs GEMINI — both its brain and its
+        // transcription run on that one credential — so a Cloud card that asked for
+        // "an AI key" was sending the user off to store something that would not
+        // unlock it, and the card would stay dim with no explanation.
+        const whichKey = p.needsKey === 'gemini' ? 'Gemini key' : `AI key${creditsReachable ? 's' : ''}`;
+        const keysLink = `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">${whichKey}</a>`;
         const prompt = available ? '' : (localMode ? `
             <div style="font-size: 11px; color: var(--text-muted, #777); margin-top: auto; padding-top: 8px; line-height: 1.4; opacity: 1;">
                 <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.startSignIn()" style="color: var(--accent); font-weight: 600;">Sign in</a> or add your own ${keysLink} →

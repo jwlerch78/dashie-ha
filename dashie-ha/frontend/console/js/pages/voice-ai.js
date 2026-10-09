@@ -569,40 +569,83 @@ const VoiceAiPage = {
         return 'cloud';
     },
 
-    /** Cloud & Hybrid need credits OR a BYO AI key; Local & HA Assist are
-     *  always available. Optimistic while balances are still loading so the
-     *  picker never flash-disables. */
+    /** Cloud & Hybrid need the key their row names (`needsKey`); Local & HA
+     *  Assist are always available. Optimistic while the answer is still
+     *  unknown, so the picker never flash-disables. */
     _presetAvailable(id) {
         const p = window.VoiceAiOptions.PRESETS.find(x => x.id === id);
-        if (!p?.needsCreditsOrKey) return true;
-        return this._hasCreditsOrKey();
+        if (!p?.needsKey) return true;
+        return this._hasKeyFor(p.needsKey);
     },
 
-    _hasCreditsOrKey() {
-        // Accounts that don't see the credits feature aren't metered from the
-        // console's perspective — don't lock their presets.
-        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return true;
-        // A BYO provider key unlocks a cloud-AI preset in EVERY mode, including
-        // local: the key lives on the box (/data/api-keys.json) and the brain runs
-        // BYOK without an account. Checked before the local-mode bail below on
-        // purpose — "no account" must not lock a user out of their own key.
-        if (this._keyStatus && Object.values(this._keyStatus).some(Boolean)) return true;
-        // Local mode: no account, therefore no credit balance to spend. This is
-        // the one place the answer is a definite NO rather than the optimistic
-        // default below — and it must not fall through to the balance check,
-        // whose "still loading → true" would flash the presets as available.
+    /**
+     * Is the key this preset needs present — three-valued, because "we looked and
+     * there is none" and "we cannot look from here" are different answers and the
+     * old code collapsed them.
+     *
+     * `true`  — stored on the box.
+     * `false` — the box answered, and it is not there.
+     * `null`  — UNMEASURABLE: no `/api/keys/status` reading. Either the fetch has
+     *           not resolved, or this is not add-on mode at all (`_fetchKeyStatus`
+     *           nulls it outright off-box), so the console has no view of the key
+     *           file. Must NOT read as absent: a household with a working key would
+     *           find its preset locked by a measurement that never ran.
+     *
+     * ⚠️ `keyStore.status()` always returns a row per provider (all `false` on a
+     * keyless box), so a loaded object with everything false is a real measurement
+     * — which is what makes the null case specifically "we did not measure".
+     */
+    _storedKeyFor(need) {
+        const ks = this._keyStatus;
+        if (!ks || typeof ks !== 'object') return null;
+        if (need === 'any') return Object.values(ks).some(Boolean);
+        return ks[need] === true;
+    },
+
+    /**
+     * 🔴 REPLACES `_hasCreditsOrKey()` (2026-10-09, D3). That function opened with
+     *
+     *     if (!FeatureGate.shouldShow('credits')) return true;
+     *
+     * which was correct while credits were the only way to fund a cloud preset —
+     * "not metered, so nothing to gate" — and became a BLANKET UNLOCK the moment
+     * D1 alpha-gated credits: every standard user on the HA release takes that
+     * branch, so Cloud and Hybrid unlocked with no key and no credits at all. The
+     * picker would offer a preset whose first utterance cannot run.
+     *
+     * The order below is the correction: ask about the KEY first, and let credits
+     * unlock only where credits actually exist for this account.
+     */
+    _hasKeyFor(need) {
+        const keyed = this._storedKeyFor(need);
+        if (keyed === true) return true;
+        // Cannot measure (off-box, or still in flight) → stay optimistic. This is the
+        // standing picker rule: never flash-disable on an answer we do not have yet.
+        if (keyed === null) return true;
+
+        // Measured, and the key is absent. Credits are the only other funding source
+        // — and only for an account that can SEE them. For everyone else credits do
+        // not exist as a thing they could have, so they cannot unlock anything.
+        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return false;
+        // Local mode: no account, therefore no balance to spend. A definite NO, and it
+        // must not fall through to the optimistic branch below.
         if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) return false;
         const bal = window.CreditsService?.balance();
         if (!bal || typeof bal.balance !== 'number') return true;   // still loading → optimistic
         return bal.balance > 0;
     },
 
-    /** Why a Cloud/Hybrid card is locked, for the card's own copy. */
-    _lockedPresetReason() {
+    /** Why a Cloud/Hybrid card is locked, for the card's own copy. Takes the
+     *  preset id so the sentence can name the key THAT card needs — the old
+     *  shared "credits or AI keys" line could not, and sent a Cloud user to
+     *  store any key at all. */
+    _lockedPresetReason(id) {
+        const p = window.VoiceAiOptions.PRESETS.find(x => x.id === id);
+        const which = p?.needsKey === 'gemini' ? 'Gemini key' : 'AI key';
         if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) {
-            return `Needs a ${BRAND.productName} account — or add your own AI key`;
+            return `Needs a ${BRAND.productName} account — or add your own ${which}`;
         }
-        return null;   // signed in: the existing out-of-credits treatment applies
+        return null;   // signed in: the picker's own prompt names the key
     },
 
     /**

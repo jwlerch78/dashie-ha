@@ -69,14 +69,38 @@ const VoiceAiOptions = {
     // The top-level Voice & AI selector: three Dashie Intelligence presets
     // (Cloud / Hybrid / Local) + HA Voice Assist. Stored in
     // voice.pipelinePreset; granular providers are seeded from the preset
-    // and Customize lets them diverge. Cloud & Hybrid need credits OR a
-    // BYO AI key (add-on API Keys page) — gated by the page, never a
-    // silent charge.
+    // and Customize lets them diverge.
+    //
+    // ── `needsKey`: WHICH key, not WHETHER one exists (2026-10-09, D3) ───────
+    //
+    // 🔴 This replaced `needsCreditsOrKey: true`, which could not express the
+    // release's funding model and had become a gate that cannot fail.
+    //
+    // Two defects, both from D1 alpha-gating credits:
+    //   1. `_hasCreditsOrKey()` opened with "credits feature hidden ⇒ not metered
+    //      ⇒ don't lock" — correct while credits were the ONLY funding source, and
+    //      a blanket unlock for every standard user the moment they stopped being.
+    //   2. It asked whether ANY key is stored. Cloud needs GEMINI specifically; a
+    //      stored Serper key would have unlocked a preset that cannot run on it.
+    //
+    // So each gated preset now names the key it actually needs, and the page
+    // answers that question instead of "is this household funded at all".
+    //   'gemini' — this exact provider (Cloud: the brain AND the transcription
+    //              both run on it, so nothing else substitutes)
+    //   'any'    — any stored AI key (Hybrid: cloud brain, and every brain
+    //              provider in key-store serves it)
     PRESETS: [
-        { id: 'cloud', label: 'Cloud', locality: 'cloud', cost: 'Uses credits', needsCreditsOrKey: true,
+        { id: 'cloud', label: 'Cloud', locality: 'cloud', cost: 'Your Gemini key', needsKey: 'gemini',
           tagline: 'Best quality, zero setup',
-          description: 'Anonymized cloud AI and voices, ready out of the box.' },
-        { id: 'hybrid', label: 'Hybrid', locality: 'mixed', cost: 'Credits or your AI key', needsCreditsOrKey: true,
+          // ⚠️ COPY CHANGED 2026-10-09, and not for style. It said "Anonymized cloud
+          // AI and voices, ready out of the box" — a promise that belonged to the
+          // credits path, where the audio and prompts reached the vendor through a
+          // Dashie proxy that stripped identity. On a household's own Gemini key the
+          // call goes from the box straight to Google, under that household's own
+          // account: there is no proxy left to anonymize anything, so the old line
+          // would now be a privacy claim the architecture does not make.
+          description: 'Cloud AI and speech-to-text on your own Gemini key, called straight from your box.' },
+        { id: 'hybrid', label: 'Hybrid', locality: 'mixed', cost: 'Your AI key', needsKey: 'any',
           tagline: 'Cloud AI · local voice',
           // Two-tone tagline: the cloud half renders in the cloud swatch, the
           // local half in the local swatch (picker falls back to `tagline`).

@@ -57,10 +57,33 @@
  *    the invariant to actually BREAK. If E ever goes green-with-zero, D has
  *    stopped measuring anything.
  *
- * ⚠️ What this is blind to: it reads feature-gate.js only. It does not prove
+ * G. 🔴 THE PRESET FUNDING GATE — D3, added 2026-10-09, and the reason it is
+ *    here is that the D1 cut BROKE it in a way every other leg stays green for.
+ *
+ *    Keeping the Cloud preset (John, 2026-10-09: *"We probably can keep cloud,
+ *    but it requires a gemini key"*) means a preset now has a KEY requirement.
+ *    `_hasCreditsOrKey()` could not express one. It opened with
+ *
+ *        if (!FeatureGate.shouldShow('credits')) return true;
+ *
+ *    — right while credits were the only way to fund a cloud preset, and a
+ *    BLANKET UNLOCK the instant leg A hid them, which is every standard user on
+ *    this release. It also asked only whether SOME key is stored, so a Serper
+ *    key unlocked Cloud, which runs on Gemini and cannot touch it.
+ *
+ *    Both defects are invisible to legs A–F: the pages really are hidden, the
+ *    invariant really does hold. What shipped was a picker offering a preset
+ *    whose first utterance cannot run — the membership-is-not-enforcement shape
+ *    this repo keeps paying for. G drives the REAL `VoiceAiPage._hasKeyFor`
+ *    against a fully-specified world, and G9 re-injects the old branch and
+ *    requires the result to flip, so G2 cannot pass vacuously.
+ *
+ * ⚠️ What this is blind to: legs A–F read feature-gate.js only. They do not prove
  * the SIDEBAR asks these questions (check-entitlement-gate drives the real
  * Sidebar.render for that axis), nor that no page body renders a credits CTA of
- * its own. Leg F covers the one such CTA known to exist.
+ * its own. Leg F covers the one such CTA known to exist. Leg G proves the gate
+ * FUNCTION answers correctly; it does not prove the picker renders its answer
+ * (`available(id)` is passed in by the page — one hop this gate does not walk).
  *
  * Exit 0 = every leg passes, 1 = a violation, 2 = cannot check.
  */
@@ -73,7 +96,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CONSOLE_DIR = `${ROOT}/dashie-ha/frontend/console`;
 const GATE = `${CONSOLE_DIR}/js/lib/feature-gate.js`;
 const PICKER = `${CONSOLE_DIR}/js/components/voice-ai-preset-picker.js`;
-for (const f of [GATE, PICKER]) {
+const BRANDJS = `${CONSOLE_DIR}/js/lib/brand.js`;
+const OPTIONS = `${CONSOLE_DIR}/js/lib/voice-ai-options.js`;
+const PAGE = `${CONSOLE_DIR}/js/pages/voice-ai.js`;
+for (const f of [GATE, PICKER, BRANDJS, OPTIONS, PAGE]) {
     if (!existsSync(f)) { console.log(`BLIND: ${f.replace(ROOT + '/', '')} not found`); process.exit(2); }
 }
 
@@ -194,6 +220,117 @@ t(`F2 CONTROL: the picker still HAS a credits link to gate (${navCredits} call s
   navCredits > 0,
   'F1 passes vacuously if the link was deleted outright rather than gated — then this gate '
   + 'is asserting a conditional around nothing');
+
+
+// ── G. the preset funding gate (D3) ────────────────────────────────────────
+//
+// Loaded into the SAME sandbox so `_hasKeyFor` calls the real FeatureGate and
+// the real DashieAuth that `world()` sets, not stubs of them. `pages/voice-ai.js`
+// ends in a bare `const VoiceAiPage = {...};` with no window assignment (the
+// router holds the reference in classic-script scope), so the export line is
+// appended to reach it. That appends a reference, not behaviour — the methods
+// under test are untouched.
+console.log('G — the preset funding gate asks for the key the preset NEEDS');
+sandbox.document = { title: '', querySelector: () => null };
+sandbox.fetch = async () => { throw new Error('check-release-scope: no network'); };
+try {
+    for (const f of [BRANDJS, OPTIONS]) vm.runInContext(readFileSync(f, 'utf8'), ctx, { filename: f });
+    vm.runInContext(`${readFileSync(PAGE, 'utf8')}\n;window.__VoiceAiPage = VoiceAiPage;`,
+                    ctx, { filename: PAGE });
+} catch (e) {
+    die(`the Voice & AI page did not evaluate: ${e.message}`);
+}
+const VP = sandbox.__VoiceAiPage;
+const O = sandbox.VoiceAiOptions;
+if (!VP || typeof VP._hasKeyFor !== 'function' || typeof VP._presetAvailable !== 'function') {
+    die('VoiceAiPage._hasKeyFor / _presetAvailable did not load');
+}
+if (!O || !Array.isArray(O.PRESETS)) die('VoiceAiOptions.PRESETS did not load');
+
+/** One fully-specified funding world. `keys` is the /api/keys/status reading:
+ *  an OBJECT is a measurement (keyStore.status() always returns a row per
+ *  provider), `null` means no reading was taken at all. */
+function fund({ keys, balance = null, ...w }) {
+    world(w);
+    VP._keyStatus = keys;
+    sandbox.CreditsService = { balance: () => balance };
+}
+const avail = (id, f) => { fund(f); return VP._presetAvailable(id); };
+
+const needs = Object.fromEntries(O.PRESETS.map(p => [p.id, p.needsKey || null]));
+t(`G1 CONTROL: the presets declare WHICH key they need (cloud=${needs.cloud}, hybrid=${needs.hybrid})`,
+  needs.cloud === 'gemini' && needs.hybrid === 'any',
+  'the rows no longer name a key requirement, so every leg below is asserting about a '
+  + 'gate with nothing to gate on — this is the vacuous-pass shape, not a copy change');
+
+const NO_KEYS = { gemini: false, openrouter: false, anthropic: false, serper: false };
+t('G2 🔴 standard user, box measured with NO keys: Cloud is UNAVAILABLE',
+  avail('cloud', { keys: NO_KEYS }) === false,
+  'THE D1 DEFECT. With credits alpha-gated, `!shouldShow(\'credits\') => return true` '
+  + 'unlocked every preset for every standard user with no key and no credits.');
+t('G3 standard user, no keys: Hybrid is UNAVAILABLE too',
+  avail('hybrid', { keys: NO_KEYS }) === false);
+
+t('G4 a stored GEMINI key unlocks Cloud',
+  avail('cloud', { keys: { ...NO_KEYS, gemini: true } }) === true,
+  'the key the preset needs is present and it still will not unlock — the gate now '
+  + 'fails CLOSED on a household that did exactly what the card asked');
+t('G5 🔴 a stored NON-Gemini key unlocks Hybrid but NOT Cloud',
+  avail('hybrid', { keys: { ...NO_KEYS, openrouter: true } }) === true
+  && avail('cloud', { keys: { ...NO_KEYS, openrouter: true } }) === false,
+  'the second half of the defect: `Object.values(ks).some(Boolean)` asked whether ANY key '
+  + 'exists. Cloud runs its brain AND its transcription on Gemini; an OpenRouter key '
+  + 'cannot serve either, so unlocking Cloud on one offers a preset that cannot speak.');
+
+t('G6 CONTROL: Local and HA Assist are never gated',
+  avail('local', { keys: NO_KEYS }) === true && avail('ha_assist', { keys: NO_KEYS }) === true,
+  'the keyless presets started requiring a key — the gate is over-reaching, and G2/G3 '
+  + 'would pass on a picker that locks everything');
+t('G7 CONTROL: an UNMEASURED key file stays optimistic (no flash-disable)',
+  avail('cloud', { keys: null }) === true && avail('hybrid', { keys: null }) === true,
+  'off-box (`_fetchKeyStatus` nulls `_keyStatus` outside add-on mode) and in-flight both '
+  + 'read as null. Treating "we did not look" as "there is none" locks a working household '
+  + 'out of its own key on a measurement that never ran.');
+
+// Credits are still a funding source where they EXIST — the cut is a cohort gate
+// (leg B), so an alpha account with a balance must keep working.
+t('G8 an ALPHA account with a positive balance and no keys: Cloud is available',
+  avail('cloud', { keys: NO_KEYS, specialAccess: 'alpha', state: ACTIVE,
+                   balance: { balance: 500 } }) === true,
+  'the fix over-corrected: credits were cut from the standard cohort, not deleted');
+t('G9 an ALPHA account at ZERO balance with no keys: Cloud is UNAVAILABLE',
+  avail('cloud', { keys: NO_KEYS, specialAccess: 'alpha', state: ACTIVE,
+                   balance: { balance: 0 } }) === false);
+
+// ── G10. fault injection: restore the pre-fix branch; G2 must flip ─────────
+// 🔴 THE STUB IS COMPILED INSIDE THE VM CONTEXT, not in this module. First
+// attempt defined it here, where `FeatureGate` is not a binding at all — so
+// `typeof FeatureGate !== 'undefined'` was false, the blanket branch never ran,
+// and the injection returned the RIGHT answer for the wrong reason. G10 caught
+// it (trap 13: did the instrument do to the subject what it claims?), and it
+// would have read as "the defect is already gone" rather than as a broken probe.
+const realHasKeyFor = VP._hasKeyFor;
+vm.runInContext(`window.__VoiceAiPage._hasKeyFor = function () {
+    // verbatim first branch of the old _hasCreditsOrKey()
+    if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return true;
+    const ks = this._keyStatus;
+    if (ks && Object.values(ks).some(Boolean)) return true;
+    return false;
+};`, ctx, { filename: 'inject-pre-fix-gate' });
+const injected = {
+    cloudNoKeys: avail('cloud', { keys: NO_KEYS }),
+    cloudWrongKey: avail('cloud', { keys: { ...NO_KEYS, openrouter: true } }),
+};
+VP._hasKeyFor = realHasKeyFor;
+t('G10 FAULT INJECTION: the pre-fix gate DOES unlock Cloud with no key '
+  + `(no-keys => ${injected.cloudNoKeys}, wrong-key => ${injected.cloudWrongKey})`,
+  injected.cloudNoKeys === true && injected.cloudWrongKey === true,
+  'the old branch no longer produces the wrong answer, which means G2/G5 are not '
+  + 'measuring what they claim — an injection that fails to turn a leg red is a '
+  + 'finding about the leg, not about the code');
+t('G11 CONTROL: the real gate is back in place after the injection',
+  VP._presetAvailable('cloud') !== undefined && avail('cloud', { keys: NO_KEYS }) === false,
+  'the injection leaked — every leg after it is running against a stub');
 
 console.log(`\ncheck-release-scope: ${pass} pass, ${fail} fail`);
 if (fail === 0) console.log('ALL PASS');
