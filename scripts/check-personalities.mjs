@@ -346,6 +346,60 @@ function check(name, ok, detail, why) {
     A._setEnginesForTest(null);
 }
 
+// ── LEG 9 — the Kokoro mapping (John's D7, 2026-10-09) ─────────────────────
+//
+// ⚠️ WHAT THIS CAN AND CANNOT DO. `resolveVoice` checks the PROVIDER, never the
+// voice ID, and `_detectKokoro` returns `voices: []` by design (enumeration is a
+// later step), so nothing on this side can verify that a Kokoro voice NAME
+// exists. A wrong ID resolves happily and fails at SPEECH time, on a box.
+//
+// So 9a asserts SHAPE against Kokoro's documented `{language}{gender}_{name}`
+// convention — `bf_alice` is b + f + _alice. That catches a typo'd or
+// Piper-styled ref without hand-mirroring Kokoro's 54-voice catalogue into this
+// repo, which would be a list that drifts the first time Kokoro ships a voice.
+// It cannot catch a well-formed name that does not exist; that needs the add-on
+// on a real box and is on John's device list. Stated here so a green run is not
+// read as "the voices were verified".
+{
+    const all = T.listTemplates();
+    const refs = all.flatMap((t) => (t.voices || []).map((v) => ({ key: t.key, ref: String(v) })));
+    const kokoro = refs.filter((r) => r.ref.startsWith('kokoro:'));
+
+    check(`leg 9 CONTROL — the roster actually carries Kokoro refs (${kokoro.length}: ${kokoro.map((r) => r.ref).join(', ') || 'NONE'})`,
+        kokoro.length > 0,
+        'no kokoro: ref in any template',
+        'D7 mapped the roster onto Kokoro; with none present 9a and 9c below iterate nothing and pass while asserting nothing');
+
+    const KOKORO_NAME = /^[a-z][fm]_[a-z]+$/;
+    const malformed = kokoro.filter((r) => !KOKORO_NAME.test(r.ref.slice('kokoro:'.length)));
+    check('leg 9a — every Kokoro ref matches the {language}{gender}_{name} convention',
+        malformed.length === 0,
+        `malformed: ${malformed.map((r) => `${r.key} → ${r.ref}`).join(', ')}`,
+        'a Piper-styled ref (en_GB-alan-low) or a typo resolves as soon as the add-on is installed, because resolveVoice only checks the provider — then fails at speech time with nothing in the console to see');
+
+    const dashie = all.find((t) => t.key === 'dashie');
+    check('leg 9b 🔴 — the DEFAULT personality still prefers NO voice',
+        !!dashie && (dashie.voices || []).length === 0,
+        `dashie.voices = ${JSON.stringify(dashie && dashie.voices)}`,
+        'naming a voice here makes the default personality OVERRIDE the household\'s own text-to-speech choice — a family that picked Piper "Amy" would silently get something else, because the personality outranked their setting. It also turns the one personality that can never be degraded into one that renders "(voice not available)" on an engine-less box. Read the note on that field before changing this');
+
+    const order = (t) => {
+        const ix = (pfx) => (t.voices || []).findIndex((v) => String(v).startsWith(pfx));
+        return { el: ix('elevenlabs:'), ko: ix('kokoro:'), pi: ix('piper:') };
+    };
+    const misordered = all.filter((t) => {
+        const o = order(t);
+        if (o.ko < 0) return false;
+        if (o.el >= 0 && o.el > o.ko) return true;      // paid must rank first
+        if (o.pi >= 0 && o.ko > o.pi) return true;      // kokoro must beat piper
+        return false;
+    }).map((t) => t.key);
+    check('leg 9c — ranking holds: a paid voice outranks Kokoro, Kokoro outranks Piper',
+        misordered.length === 0,
+        `misordered: ${misordered.join(', ')}`,
+        'the list is a PREFERENCE order. Kokoro above ElevenLabs would silently demote the voice a paying household chose; Piper above Kokoro would hand a Butler the plainer engine when the better-suited one is installed');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);

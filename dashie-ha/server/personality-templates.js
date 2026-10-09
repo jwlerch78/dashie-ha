@@ -40,6 +40,34 @@
 // What would retire that omission: the matrix settling. Then the refs become a
 // registered vocabulary with a gate, in one change.
 //
+// ── 2026-10-09: NARROWED, NOT RETIRED ───────────────────────────────────────
+//
+// John's D7 settled the KOKORO half for THIS edition's V1 roster: Princess
+// `bf_alice`, Butler `bm_george`, and the default personality deliberately left
+// with no voice at all (see its own note). So the refs above are now concrete
+// rather than placeholder.
+//
+// The omission above STILL STANDS, because what settled is one quadrant of what
+// it describes: the matrix was "across Kokoro/Piper/Inworld/Gemini Live... on
+// BOTH editions", and Gemini Live and the other edition are untouched. Pinning a
+// vocabulary now would still pin the wrong one. Declaring this settled because
+// the part we needed is settled is how a decision about one edition becomes an
+// accidental decision about two.
+//
+// 🔴 AND A LIMIT THAT IS NOT A STYLE POINT: `resolveVoice` checks the PROVIDER,
+// never the voice ID. `kokoro:bm_george` resolves as soon as the Kokoro add-on
+// is installed, whether or not that add-on serves a voice by that name — and
+// `server/voice-engines.js:_detectKokoro` returns `voices: []` by design
+// ("voice enumeration of the add-on is a later step"), so nothing on this side
+// CAN check it. A wrong ID therefore fails at SPEECH time, on a box, silently
+// from the console's point of view.
+//
+// check-personalities asserts the refs are well-formed against Kokoro's
+// documented `{lang}{gender}_{name}` convention, which catches a typo in SHAPE
+// without hand-mirroring Kokoro's 54-voice catalogue into this repo. It cannot
+// catch a well-formed name that does not exist. That one needs the add-on on a
+// real box and is on John's device list.
+//
 // Resolution walks the list against the providers actually available. If none
 // resolve, the personality STAYS SELECTED AND FUNCTIONAL and only its VOICE
 // degrades to the standard one — a Butler with no Butler voice is still a
@@ -71,9 +99,22 @@ const TEMPLATES = [
         adjectives: ['warm', 'concise', 'practical'],
         topics: [],
         example_phrases: [],
-        // Empty on purpose: this IS the standard voice, so it has nothing to
-        // prefer and nothing to degrade to. An empty list is a valid, meaningful
-        // value here — not a missing one.
+        // 🔴 STILL EMPTY, AND DELIBERATELY SO — re-decided 2026-10-09 while
+        // mapping the others onto Kokoro, because "give every personality a
+        // Kokoro voice" is the obvious next step and it is wrong here.
+        //
+        // This IS the standard voice, so it has nothing to prefer and nothing to
+        // degrade to; an empty list is a valid, meaningful value, not a missing
+        // one. Naming a voice here would make the DEFAULT personality OVERRIDE
+        // the household's own text-to-speech choice: a family that picked Piper
+        // "Amy" in the TTS card would silently get `af_bella` instead, because
+        // the personality ranked higher than their setting. The character
+        // personalities earn a specific voice — for Butler the voice IS the
+        // character — and the default one does not.
+        //
+        // It would also convert a personality that can never be degraded into
+        // one that renders "(voice not available)" on a box with no engines,
+        // which is a worse first impression for the row most households see.
         voices: [],
     },
     {
@@ -87,7 +128,10 @@ const TEMPLATES = [
         adjectives: ['cheerful', 'gentle', 'whimsical'],
         topics: ['kindness', 'small celebrations'],
         example_phrases: ['Oh, how lovely!', 'Shall we?'],
-        voices: ['elevenlabs:princess', 'inworld:princess', 'piper:en_US-amy-low'],
+        // Kokoro inserted ahead of Piper (2026-10-09, John's D7). `bf_alice` is
+        // Kokoro's British female voice documented as "elegant, refined", which
+        // is the closest thing in a keyless engine to what this persona is for.
+        voices: ['elevenlabs:princess', 'inworld:princess', 'kokoro:bf_alice', 'piper:en_US-amy-low'],
     },
     {
         key: 'butler',
@@ -100,7 +144,11 @@ const TEMPLATES = [
         adjectives: ['formal', 'dry', 'composed'],
         topics: ['the household', 'punctuality'],
         example_phrases: ['Very good.', 'As you wish.'],
-        voices: ['elevenlabs:butler', 'inworld:butler', 'piper:en_GB-alan-low'],
+        // `bm_george` is one of Kokoro's four British male voices — the thing
+        // Piper cannot match for this persona, and the reason John asked whether
+        // Kokoro had voices suited to the roster. It does: 54 across 9 languages,
+        // 4 British male and 4 British female.
+        voices: ['elevenlabs:butler', 'inworld:butler', 'kokoro:bm_george', 'piper:en_GB-alan-low'],
     },
 ];
 
