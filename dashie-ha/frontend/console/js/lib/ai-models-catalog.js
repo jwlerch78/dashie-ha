@@ -281,10 +281,15 @@
         // ai.google.dev/gemini-api/docs/pricing — $2.00 / 1M audio-input tokens, $12.00 / 1M text-output
         // tokens, 25 audio tokens/s. perMinute is Google's own blended estimate (~$0.005/min), kept for
         // side-by-side comparison with Deepgram only; the route never bills from it.
+        // perMinuteStreaming is the LIVE model (gemini-3.5-transcribe-live, gemini-stt-stream), and that
+        // route DOES bill from it: the Live socket reports no usageMetadata, so seconds are the only
+        // basis. Verified 2026-10-08 on the same page — $3.50 / 1M audio-in + $21.00 / 1M text-out,
+        // Google's blended estimate ~$0.009/min (about 2× batch).
         gemini: {
           perMillionInputTokens: 2.00,
           perMillionOutputTokens: 12.00,
-          perMinute: 0.005
+          perMinute: 0.005,
+          perMinuteStreaming: 0.009
         },
     
         // Native (Web Speech API, Android STT)
