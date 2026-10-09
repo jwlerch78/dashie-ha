@@ -346,7 +346,8 @@ const VoiceAiOptions = {
         // (STT_GEMINI) reads the same household value (JS_KOTLIN_CONTRACTS row).
         // haOnly: the audio reaches the add-on through HA's STT API and the
         // Dashie Voice integration, so there is no path without HA.
-        // ⚠️ The LABEL is a placeholder: wording is John's (provenance rules above).
+        // LABEL ruled by John 2026-10-09 ("that wording is fine"). Note the order: the 0.9.55 cut had
+        // already published it, marked as a placeholder, before he ruled.
         // Locality is CLOUD: the audio goes to Google, whoever's key pays.
         { id: 'gemini', label: 'Gemini (your key)', locality: 'cloud', haOnly: true,
           // No price here (John 2026-10-09: "it's subject to change by google") — a restated vendor price goes
