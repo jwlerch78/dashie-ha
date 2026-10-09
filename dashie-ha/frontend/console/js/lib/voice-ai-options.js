@@ -12,9 +12,18 @@
      per-unit for STT/TTS/Search; 'Free' for local/native).
    - group: optional section header within a card (model card groups
      by provider; STT/TTS/Search have none).
-   - comingSoon: engines not yet wired to the runtime (Local LLM,
-     SearXNG, bundled Whisper/Piper) — configurable now (storage-
-     first), active once the L3 add-on brain ships.
+   - comingSoon: engines not yet wired to the runtime — configurable
+     now (storage-first), active once the runtime catches up.
+     ⚠️ CORRECTED 2026-10-09: this list used to name "Local LLM,
+     SearXNG, bundled Whisper/Piper". **Local LLM is WIRED and has
+     been for some time** — `account-config.js:134` reads
+     `voice.localLlmUrl` (falling back to a saved Local Engines
+     entry's url), and `converse.js:186`/`:214` route on
+     `routeReason === 'local_model'` and build the model shell from
+     it. So "our brain, your model" is a shipped configuration, and
+     reading this comment would have told you it was not. SearXNG is
+     still unwired, but its row is COMMENTED OUT below rather than
+     flagged, so no live row carries this flag at all today.
    - configFields: revealed when the option is selected; each
      persists to its own account-level user_settings key.
    - installGuide: { url, label? } — renders an "Install ↗" badge-link
