@@ -349,7 +349,9 @@ const VoiceAiOptions = {
         // ⚠️ The LABEL is a placeholder: wording is John's (provenance rules above).
         // Locality is CLOUD: the audio goes to Google, whoever's key pays.
         { id: 'gemini', label: 'Gemini (your key)', locality: 'cloud', haOnly: true,
-          cost: 'Your Gemini key · ~$0.005/min (Google estimate)',
+          // No price here (John 2026-10-09: "it's subject to change by google") — a restated vendor price goes
+          // stale when Google moves it. The internal estimate stays in ai-models-catalog.js (perMinute).
+          cost: 'Your Gemini key',
           description: 'Transcribed by Google Gemini on the key stored in API Keys, called from your Home Assistant box. Also used by voice satellites routed to Dashie Voice.' },
         // "On-Device" family (grouped in the picker). Provenance labels, not quality
         // labels (naming ruling 2026-08-20, Kotlin VoiceAiOptions.kt is the source):
