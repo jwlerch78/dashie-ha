@@ -45,6 +45,10 @@ const FILES = {
     api: join(CONSOLE, 'js', 'lib', 'voice-ai-api.js'),
     editor: join(CONSOLE, 'js', 'pages', 'voice-ai-personality-edit.js'),
     page: join(CONSOLE, 'js', 'pages', 'voice-ai.js'),
+    // Loaded lazily inside LEG 10 (it is pure data and nothing before it needs it),
+    // but declared here so a missing file exits 2 BLIND rather than failing a leg as
+    // if the map were wrong.
+    icons: join(CONSOLE, 'js', 'lib', 'personality-icons.js'),
 };
 for (const [name, f] of Object.entries(FILES)) {
     if (!existsSync(f)) {
@@ -398,6 +402,154 @@ function check(name, ok, detail, why) {
         misordered.length === 0,
         `misordered: ${misordered.join(', ')}`,
         'the list is a PREFERENCE order. Kokoro above ElevenLabs would silently demote the voice a paying household chose; Piper above Kokoro would hand a Butler the plainer engine when the better-suited one is installed');
+}
+
+
+// ── LEG 10 — the personality SURFACE: icon, description, status, upgrade hint ─
+//
+// John, 2026-10-08: personalities should *"give them icon + description +
+// active-inactive status"*, and 2026-10-09: *"we should tell them which key to add
+// to get the personality."* Legs 1-9 prove the roster and the resolver; these prove
+// the household is actually TOLD.
+//
+// 🔴 Leg 10d is the one that matters most, and it is a NEGATIVE. The hint must never
+// name a provider whose adapter is `pending`: that credential stores and validates,
+// and nothing on the box spends it. Sending a household to sign up for Inworld to
+// hear Princess costs them a signup, a dashboard and a paste, and changes nothing —
+// and because it LOOKS like the fix, the voice still being missing afterwards reads
+// as a broken product rather than an unbuilt adapter.
+{
+    const M = sandbox.window.ProviderManifest;
+    const I = (() => {
+        try {
+            vm.runInContext(readFileSync(FILES.icons, 'utf8'), ctx, { filename: FILES.icons });
+            return sandbox.window.PersonalityIcons;
+        } catch (e) { return null; }
+    })();
+    const all = T.listTemplates();
+
+    check('leg 10 CONTROL — the icon map loaded',
+        !!I && typeof I.for === 'function' && typeof I.DEFAULT === 'string',
+        `PersonalityIcons = ${I ? 'loaded' : 'MISSING'}`,
+        'every leg below is about what it declares; without it they assert nothing');
+
+    const noIcon = all.filter(t => I.for(t.key) === I.DEFAULT && t.key !== 'dashie');
+    check(`leg 10a — every CHARACTER personality has its own icon (${all.length} template(s))`,
+        !!I && noIcon.length === 0,
+        `falling back to the generic face: ${noIcon.map(t => t.key).join(', ')}`,
+        'the icon is how a household tells Princess from Butler at a glance; a roster where '
+        + 'they all wear the generic persona face has the field and none of the benefit. '
+        + "('dashie' is exempt: the generic face IS its mark.)");
+
+    const iconFiles = [...new Set(all.map(t => I.for(t.key)).concat(I.DEFAULT))];
+    const missingFiles = iconFiles.filter(n => !existsSync(join(CONSOLE, 'assets', 'icons', `${n}.svg`)));
+    check(`leg 10b — every icon the map names EXISTS on disk (${iconFiles.length} file(s))`,
+        missingFiles.length === 0,
+        `named but absent: ${missingFiles.map(n => n + '.svg').join(', ')}`,
+        'a map entry pointing at a missing asset renders a broken-image box beside a '
+        + 'personality name, and nothing in the console can tell — the <img> just fails');
+
+    const noDesc = all.filter(t => !t.description || !String(t.description).trim());
+    check('leg 10c — every personality ships a description',
+        noDesc.length === 0,
+        `no description: ${noDesc.map(t => t.key).join(', ')}`,
+        'the description is the line under the name that says what this personality IS; '
+        + 'without it the row is a bare name and the icon is the only clue');
+
+    // The hint is asked of a BARE BOX — no keys, no engines — which is the state every
+    // one of these chains is degraded in, and therefore the only state where a hint
+    // renders at all.
+    A._setKeyStatusForTest({});
+    A._setEnginesForTest(null);
+    const PENDING = (M.PROVIDERS || []).filter(p => p.adapter !== M.ADAPTER.SHIPPED).map(p => p.id);
+    const hints = all.map(t => ({ key: t.key, voices: t.voices || [], hint: A.voiceUpgradeHint(t.voices || []) }));
+    const degraded = hints.filter(h => h.voices.length && !A.resolveVoice(h.voices));
+
+    check(`leg 10 CONTROL — on a bare box the character personalities ARE degraded (${degraded.length} of ${all.length})`,
+        degraded.length > 0,
+        'nothing is degraded on a box with no keys and no engines',
+        'leg 10d/10e are about the hint shown WHEN a voice is missing; with nothing missing '
+        + 'they would both pass having examined no hint at all');
+
+    const namesPending = hints.filter(h => h.hint && PENDING.some(id => {
+        const row = M.byId(id);
+        return row && row.voiceHint && h.hint === row.voiceHint;
+    }));
+    check(`leg 10d 🔴 — no hint names an UNSPENT provider (pending: ${PENDING.join(', ') || 'none'})`,
+        namesPending.length === 0,
+        `hint points at a pending adapter for: ${namesPending.map(h => h.key).join(', ')}`,
+        'the credential would store and validate and nothing on the box would spend it. The '
+        + 'household does the work, nothing changes, and because the instruction looked like '
+        + 'the fix the remaining silence reads as a broken product');
+
+    // ⚠️ 10d ALONE IS NOT ENOUGH, and the reason is worth stating. It passes today
+    // partly for an accidental reason: `inworld` is in both character chains AND has
+    // `adapter: 'pending'`, but it also has no `voiceHint` field — so the walk would
+    // skip it even with the pending check deleted. A leg that cannot tell which of two
+    // guards saved it is not testing either.
+    //
+    // 🔴 AND THE FIRST VERSION OF THIS LEG WAS ITSELF VACUOUS, which is the more useful
+    // record. It injected a hint onto `inworld` and asked the REAL chains, where
+    // `elevenlabs:` sits at index 0 — unsatisfied, shipped, and carrying a hint — so
+    // the walk returned there and NEVER REACHED inworld. Deleting the pending check
+    // left the leg green. Being "in a chain" is not the same as being REACHED, and the
+    // control said the former while the leg needed the latter (trap 13).
+    //
+    // So the chain below is SYNTHETIC and minimal: the pending row first, one keyless
+    // engine behind it. On a bare box both are unsatisfied, so the walk must step over
+    // the pending one and land on Piper — and asserting it returns PIPER's sentence,
+    // not merely "not inworld's", is what proves it stepped over rather than bailed.
+    const inworld = M.byId('inworld');
+    const piper = M.byId('piper');
+    if (!inworld || !piper) {
+        check('leg 10d2 CONTROL — the specimens exist', false,
+            `inworld=${!!inworld} piper=${!!piper}`,
+            'this leg needs a PENDING provider and a SHIPPED keyless one to put behind it');
+    } else {
+        check('leg 10d2 CONTROL — pending in front, shipped-and-hinting behind',
+            inworld.adapter !== M.ADAPTER.SHIPPED
+            && piper.adapter === M.ADAPTER.SHIPPED && !!piper.voiceHint,
+            `inworld.adapter=${inworld.adapter}, piper.adapter=${piper.adapter}, piper.voiceHint=${!!piper.voiceHint}`,
+            'without a hinting row BEHIND the pending one, "the pending row was skipped" and '
+            + '"the walk gave up" produce the same null and the leg cannot tell them apart');
+        const saved = inworld.voiceHint;
+        inworld.voiceHint = 'INJECTED — add an Inworld key for this voice';
+        const got = A.voiceUpgradeHint(['inworld:princess', 'piper:en_US-amy-low']);
+        inworld.voiceHint = saved;
+        check('leg 10d2 🔴 FAULT INJECTION — a REACHED pending row is stepped over, not offered',
+            got === piper.voiceHint,
+            `expected Piper's hint, got: ${JSON.stringify(got)}`,
+            'the `adapter !== SHIPPED` skip is not doing the work. An unspendable credential '
+            + 'reaches the upgrade line as soon as somebody writes a sentence for its manifest '
+            + 'row — and the household does a signup, a dashboard and a paste for nothing');
+    }
+
+    const unactionable = degraded.filter(h => !h.hint);
+    check(`leg 10e — every degraded personality names something to DO (${degraded.length} checked)`,
+        unactionable.length === 0,
+        `degraded with no hint: ${unactionable.map(h => h.key).join(', ')}`,
+        '"voice not available" with no next step is a dead end on the one surface where the '
+        + 'household could fix it. Every chain here ends in a keyless local engine, so there '
+        + 'is always an answer — if one has none, the chain lost its free arm');
+
+    // POSITIVE CONTROL on the hint: install the engine the hint pointed at and the
+    // hint must GO AWAY. Without this, 10e passes on a function that returns a
+    // constant string whatever the box holds.
+    A._setEnginesForTest({ available: true, tts: [{ engine_id: 'tts.piper', name: 'piper' }], stt: [], kokoro: { installed: true } });
+    const stillHinting = all.filter(t => (t.voices || []).length && A.voiceUpgradeHint(t.voices));
+    check('leg 10f — POSITIVE CONTROL: with the local engines installed, no hint is offered',
+        stillHinting.length === 0,
+        `still hinting: ${stillHinting.map(t => t.key).join(', ')}`,
+        'the hint does not depend on what the box actually has, so leg 10e was reading a '
+        + 'constant — an upgrade suggested to a household that already has it');
+    const resolved = all.filter(t => (t.voices || []).length).map(t => A.describeVoice(A.resolveVoice(t.voices)));
+    check(`leg 10g — a resolved voice describes READABLY (${resolved.join(', ')})`,
+        resolved.length > 0 && resolved.every(d => d && d.includes(' · ') && !d.includes(':')),
+        `got: ${JSON.stringify(resolved)}`,
+        "the status line reads 'Speaks as <provider> · <voice>'; leaking the raw "
+        + "'kokoro:bm_george' ref puts an internal wire value under a personality's name");
+    A._setKeyStatusForTest({});
+    A._setEnginesForTest(null);
 }
 
 console.log('');

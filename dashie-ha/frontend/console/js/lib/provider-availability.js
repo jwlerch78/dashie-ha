@@ -195,6 +195,79 @@
         return null;
     }
 
+    /**
+     * A readable name for a resolved voice ref: 'kokoro:bm_george' → 'Kokoro · bm_george'.
+     *
+     * The provider half comes from the manifest so one rename reaches every surface;
+     * the voice half is printed VERBATIM and deliberately not prettified. These ids are
+     * the engine's own vocabulary (Kokoro's `{lang}{gender}_{name}`), nothing on this
+     * side can enumerate them — `voice-engines.js:_detectKokoro` returns `voices: []`
+     * by design — and inventing a friendly label for one would mean inventing it
+     * without the engine's list. An unrecognised id is still an answer; a made-up one
+     * is not.
+     */
+    function describeVoice(ref) {
+        const s = String(ref || '');
+        if (!s) return '';
+        const i = s.indexOf(':');
+        if (i < 0) return s;
+        const M = window.ProviderManifest;
+        const p = M && M.byId(s.slice(0, i));
+        return p ? `${p.name} · ${s.slice(i + 1)}` : s;
+    }
+
+    /**
+     * The ONE thing a household could do to give this personality its voice — or
+     * null when there is nothing honest to suggest.
+     *
+     * John, 2026-10-09: *"For personalities — we should tell them which key to add
+     * to get the personality."*
+     *
+     * Walks the same preference-ordered chain `resolveVoice` walks, and returns the
+     * first provider that is BOTH unsatisfied and actually actionable. Three kinds of
+     * row are skipped, and each skip is the point:
+     *
+     *   · already available — not an upgrade, and suggesting it would read as a
+     *     failure of something that works.
+     *   · 🔴 `adapter: 'pending'` — the credential STORES and VALIDATES, and nothing
+     *     on this box spends it. Telling a household to go and get an Inworld key to
+     *     hear Princess would send them to a signup, a dashboard and a paste, and
+     *     change nothing at all. That is the worst possible instruction: it looks
+     *     like the fix, so a voice still missing afterwards reads as a broken product
+     *     rather than an unbuilt adapter.
+     *   · unknown id — there is no row, so there is no action to name.
+     *
+     * The sentence itself lives on the manifest row (`voiceHint`), so adding a
+     * provider does not mean editing a renderer.
+     */
+    function voiceUpgradeHint(voices) {
+        const M = window.ProviderManifest;
+        if (!M) return null;
+        // 🔴 NOTHING TO SUGGEST WHEN THE VOICE ALREADY RESOLVES. Without this, a
+        // household with Kokoro installed still gets "Add an ElevenLabs key for this
+        // voice" — true in the sense that a paid key ranks higher, and wrong as an
+        // answer to "what do I do to hear Butler", which is: nothing, you already do.
+        //
+        // The personality row happens to guard this by only rendering the hint in its
+        // 'degraded' branch, so the bug was invisible there. That is exactly why it
+        // belongs HERE: the next caller will not have that guard, and a function whose
+        // name promises "the one thing that would give this its voice" must not answer
+        // for a personality that has one. (check-personalities leg 10f found it.)
+        if (resolveVoice(voices)) return null;
+        for (const ref of (Array.isArray(voices) ? voices : [])) {
+            const s = String(ref || '');
+            const i = s.indexOf(':');
+            if (i < 0) continue;                 // provider-less ref — already speakable
+            const id = s.slice(0, i);
+            if (isAvailable(id)) continue;       // satisfied, not an upgrade
+            const p = M.byId(id);
+            if (!p) continue;
+            if (p.adapter !== M.ADAPTER.SHIPPED) continue;   // storable but UNSPENT
+            if (p.voiceHint) return p.voiceHint;
+        }
+        return null;
+    }
+
     /** Test seam ONLY — lets a control set the key half without a server.
      *  Never call this from a page; `refresh()` is the live path. */
     function _setKeyStatusForTest(status) { _keyStatus = status || {}; }
@@ -210,5 +283,6 @@
     }
 
     window.ProviderAvailability = { refresh, hasKey, isAvailable, resolveVoice,
+                                    describeVoice, voiceUpgradeHint,
                                     _setKeyStatusForTest, _setEnginesForTest };
 })();

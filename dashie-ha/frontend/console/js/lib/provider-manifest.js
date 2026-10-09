@@ -286,6 +286,7 @@
             auth: AUTH.API_KEY, required: false, adapter: ADAPTER.SHIPPED,
             unlocks: 'More natural text-to-speech',
             keySource: { url: 'https://elevenlabs.io/app/settings/api-keys', free: 'Free tier is non-commercial, with attribution' },
+            voiceHint: 'Add an ElevenLabs key for this voice',
             note: 'An upgrade over Home Assistant’s built-in Piper, which works without any key.',
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
@@ -386,6 +387,11 @@
             required: false, adapter: ADAPTER.SHIPPED,
             unlocks: 'Free local text-to-speech, already running in Home Assistant',
             keySource: {},
+            // The sentence a PERSONALITY card shows when this provider is the next
+            // thing that would give it its voice. Lives on the row, not in the
+            // renderer, so the card does not branch on provider ids — a renderer
+            // that did would be a second list of providers to keep in step.
+            voiceHint: 'Enable a Piper voice in Home Assistant for this voice',
             note: 'Detected from your Home Assistant voice pipeline. No key, nothing to set up.',
             fields: [],
         },
@@ -397,6 +403,7 @@
             required: false, adapter: ADAPTER.SHIPPED,
             unlocks: 'Free local text-to-speech with character voices',
             keySource: {},
+            voiceHint: 'Install the Kokoro add-on for this voice',
             note: 'Detected when the Kokoro add-on is installed. 54 voices, runs on your own box.',
             fields: [],
         },

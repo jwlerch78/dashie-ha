@@ -370,12 +370,31 @@ const VoiceAiPage = {
      *  A personality with NO preferred voices is not degraded; it simply uses
      *  the standard voice, which is what it always meant to do. Only a
      *  personality that ASKED for voices and got none says so. */
+    /**
+     * A personality's live VOICE state — John's *"active-inactive status"*.
+     *
+     * Four outcomes, deliberately distinguished, because collapsing any two of them
+     * puts a wrong sentence under a personality's name:
+     *
+     *   { kind: 'standard' }   no preference list at all (the default personality).
+     *                          It IS the standard voice, so there is nothing to
+     *                          resolve and nothing to be missing — an empty list is a
+     *                          meaningful value, not an absent one.
+     *   { kind: 'unknown' }    ProviderAvailability is not loaded. Says NOTHING. An
+     *                          unreadable answer is not a negative one, and this
+     *                          renders on first paint of every visit.
+     *   { kind: 'active', ... } resolved — names the voice it will actually speak in.
+     *   { kind: 'degraded', hint } nothing in the chain resolves. The persona and its
+     *                          prompt are untouched; only the voice falls back.
+     */
     _voiceStateFor(p) {
         const list = Array.isArray(p?.voices) ? p.voices : [];
-        if (!list.length) return '';
+        if (!list.length) return { kind: 'standard' };
         const A = window.ProviderAvailability;
-        if (!A) return '';
-        return A.resolveVoice(list) ? '' : '(voice not available)';
+        if (!A) return { kind: 'unknown' };
+        const ref = A.resolveVoice(list);
+        if (ref) return { kind: 'active', ref, label: A.describeVoice?.(ref) || ref };
+        return { kind: 'degraded', hint: A.voiceUpgradeHint?.(list) || null };
     },
 
     /** Fetch local voice engine detection (GET /api/voice/engines). Add-on mode
@@ -2474,13 +2493,53 @@ const VoiceAiPage = {
         `;
     },
 
+    /**
+     * One personality row: icon beside the NAME, description on its OWN line, then
+     * the live voice status and — when degraded — the one thing to do about it.
+     *
+     * 🔴 THE DESCRIPTION IS ITS OWN BLOCK, NOT PART OF A JOINED SUBTITLE (John,
+     * 2026-10-09: *"The spacing is off on the description. it should go below the
+     * name of the personality."*). It used to be `[description, notes, voiceState]
+     * .join(' · ')` on one line, which ran a sentence, a state and an instruction
+     * together in one grey run — and in the mockup it also sat inside the title's
+     * flex row, so it was indented into the icon's column rather than under the name.
+     *
+     * The three now have three jobs and three lines: what this personality IS, what
+     * it will SPEAK AS, and what would change that. Voice state was previously hidden
+     * here entirely ("matches the tablet's Voice & AI menu, which doesn't surface the
+     * underlying voice") — that reasoning is RETIRED, not forgotten: John asked for
+     * active/inactive status on this surface specifically, and the console is where a
+     * household sets the thing up, while the tablet is where they use it.
+     */
     _personalityRow(p, isCustom) {
-        const id = this._escape(isCustom ? p.id : (p.key || p.id));
-        // Voice name intentionally hidden here — matches the tablet's Voice & AI menu,
-        // which doesn't surface the underlying voice on the personality list.
-        const notes = isCustom ? '' : this.overrideNotes(p.key || p.id);
-        const subtitle = [p.description || '', notes ? '✏️ family notes set' : '', this._voiceStateFor(p)]
-            .filter(Boolean).join(' · ');
+        const key = isCustom ? p.id : (p.key || p.id);
+        const id = this._escape(key);
+        const notes = isCustom ? '' : this.overrideNotes(key);
+        const v = this._voiceStateFor(p);
+        const I = window.PersonalityIcons;
+
+        // One line, three states that read differently. 'standard' and 'unknown' both
+        // render nothing — but for opposite reasons, and neither may render as a
+        // negative: 'standard' has no voice to be missing, 'unknown' has no answer yet.
+        const dot = (c) => `<span aria-hidden="true" style="color:${c}; font-size:9px; line-height:1;">●</span>`;
+        const status = v.kind === 'active'
+            ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-secondary);">
+                   ${dot('var(--status-success, #16a34a)')}<span>Speaks as ${this._escape(v.label)}</span>
+               </div>`
+            : v.kind === 'degraded'
+                ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-muted);">
+                       ${dot('var(--text-muted, #999)')}<span>Voice not available — speaks in your standard voice</span>
+                   </div>`
+                : '';
+        // The upgrade line is SEPARATE from the status line on purpose: the status is
+        // a fact about this box, the hint is an action, and a user scanning for "what
+        // do I do" should not have to parse one sentence for both.
+        const hint = (v.kind === 'degraded' && v.hint)
+            ? `<div style="margin-top:3px; font-size:12px; color: var(--accent);">${this._escape(v.hint)}</div>`
+            : '';
+        const notesLine = notes
+            ? `<div style="margin-top:3px; font-size:12px; color: var(--text-muted);">✏️ Family notes set</div>`
+            : '';
 
         const actions = isCustom
             ? `<button class="btn btn-ghost btn-sm" onclick="VoiceAiPersonalityEdit.openEdit('${id}')">Edit</button>
@@ -2490,8 +2549,15 @@ const VoiceAiPage = {
         return `
             <div class="list-item" style="border-top: 1px solid var(--border, #e5e7eb);">
                 <div class="list-item-content">
-                    <div class="list-item-title">${this._escape(p.name)}${isCustom ? '' : ' <span class="list-item-badge">built-in</span>'}</div>
-                    ${subtitle ? `<div class="list-item-subtitle">${this._escape(subtitle)}</div>` : ''}
+                    <div class="list-item-title" style="display:flex; align-items:center; gap:8px;">
+                        ${I ? I.img(key, 16) : ''}
+                        <span>${this._escape(p.name)}</span>
+                        ${isCustom ? '' : '<span class="list-item-badge">built-in</span>'}
+                    </div>
+                    ${p.description ? `<div style="margin-top:3px; font-size:12.5px; color: var(--text-muted); line-height:1.45;">${this._escape(p.description)}</div>` : ''}
+                    ${status}
+                    ${hint}
+                    ${notesLine}
                 </div>
                 ${actions}
             </div>
