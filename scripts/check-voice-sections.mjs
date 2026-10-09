@@ -287,6 +287,46 @@ P._expandedCards = new Set();
   P._defaults['voice.agentMode'] = 'single';
 }
 
+
+// ── 31–33. the PAY-SURFACE cohort axis (D3, 2026-10-09) ────────────────────
+//
+// 📌 This belongs conceptually to check-release-scope ("no pay surfaces in the
+// first release"), and it lives HERE because this is the harness that can drive
+// the real `_renderAiDefaults()`. check-release-scope's leg G notes the hop it
+// does not walk; these are it. Keep them cross-referenced if either moves.
+//
+// 🔴 EVERY LEG ABOVE RUNS AS AN ALPHA ACCOUNT. The stub is
+// `shouldShow: () => true`, so legs 13/29/30 assert the Retrieve-pictures row
+// exists — true for alpha, and the opposite of what a standard user must see on
+// this release. A gate with one cohort hardcoded cannot notice a cohort gate at
+// all, which is how the row would have shipped with its per-search price.
+{
+  const realShouldShow = sandbox.FeatureGate.shouldShow;
+  sandbox.FeatureGate.shouldShow = (f) => f !== 'credits';
+  S._state = { voice: true, tools: true };
+  const standard = P._renderAiDefaults();
+  sandbox.FeatureGate.shouldShow = realShouldShow;
+  const alpha = P._renderAiDefaults();
+
+  t('31 CONTROL: an ALPHA account still SEES Retrieve pictures',
+    alpha.includes('Retrieve pictures'),
+    'the row was deleted rather than cohort-gated — John asked for "alpha gated", and '
+    + 'leg 32 would then pass on an absence that is true for everybody');
+  t('32 a STANDARD account sees NO Retrieve pictures row',
+    !standard.includes('Retrieve pictures'),
+    'the row quotes a per-search price and the feature behind it bills credits through '
+    + "Dashie's own Serper key — both cut from this release. Switching it on would arm a "
+    + 'feature that cannot bill, and a picture that never arrives reads as a broken product');
+  t('33 …and the collapsed summary does not report a state for it either',
+    !/pictures (on|off)/.test(standard) && /pictures (on|off)/.test(alpha),
+    'the section summary still says "pictures off" for a control the standard user cannot '
+    + 'find — naming a setting that, for them, does not exist');
+  t('33b CONTROL: the standard render is otherwise intact',
+    standard.length > 500 && standard.includes('AI Model') && standard.includes('Voice &amp; LLM'),
+    `${standard.length} chars — hiding the row broke the page, so 32/33 pass vacuously`);
+  S._state = null;
+}
+
 console.log(`check-voice-sections: ${pass} pass, ${fail} fail`);
 if (fail) { console.error(`\ncheck-voice-sections FAILED (${fail} leg(s))`); process.exit(1); }
 console.log('check-voice-sections ALL PASS');

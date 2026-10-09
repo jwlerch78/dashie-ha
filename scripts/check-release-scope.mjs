@@ -85,6 +85,11 @@
  * FUNCTION answers correctly; it does not prove the picker renders its answer
  * (`available(id)` is passed in by the page — one hop this gate does not walk).
  *
+ * 📌 The OTHER pay surface on that page — the credit-priced "Retrieve pictures"
+ * row — is cohort-gated the same way and asserted in **check-voice-sections legs
+ * 31–33**, which lives there because that is the harness able to drive the real
+ * `_renderAiDefaults()`. Keep the two cross-referenced if either moves.
+ *
  * Exit 0 = every leg passes, 1 = a violation, 2 = cannot check.
  */
 import vm from 'node:vm';

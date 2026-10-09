@@ -1889,7 +1889,30 @@ const VoiceAiPage = {
         // silently, so it was deliberately not touched.
         const toolToggles = [
             !isLive ? this._renderDialogRows(d, agentMode) : '',
-            this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled']),
+            // 🔴 ALPHA-GATED for the HA first release (D3, 2026-10-09) — the same cohort
+            // shape as credits and scheduled actions, not a deletion.
+            //
+            // This row is a PAY SURFACE whichever way you read it. Its own copy quotes a
+            // per-search price, and the thing behind it runs on DASHIE'S Serper key
+            // through a cloud gateway and bills credits — both of which the release
+            // removes. Leaving the row with the price stripped would be worse than
+            // either: the household would switch on a feature that silently cannot
+            // bill, and a picture that never appears reads as a broken product.
+            //
+            // ⚠️ It is NOT replaced by "a household Serper key" yet, and that is the
+            // whole reason it waits rather than being rewired. Serper's manifest row is
+            // `adapter: 'pending'`: nothing on the box spends a stored Serper key,
+            // because the brain has no image-search hook to spend it through
+            // (`addon-io.js` says outright that image search has no hook and the core
+            // resolves it inline). John bumped Serper's priority on 2026-10-09 — when
+            // that hook lands and the adapter flips to shipped, this row comes back
+            // UNGATED and priced at the household's own key.
+            //
+            // The stored key is untouched, exactly as with 'Always use AI for chores'
+            // (hidden 2026-10-04): an account that already chose it keeps its choice.
+            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
+                ? this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                : '',
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
             // FeatureGate.shouldShow('promptForFeedback').
@@ -1927,7 +1950,11 @@ const VoiceAiPage = {
             // one setting in here that changes how every single turn behaves, so a
             // collapsed section that omitted it was hiding the most consequential row.
             isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
-            d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
+            // Only summarised where the row is actually offered. A collapsed section
+            // reporting 'pictures off' for a control the user cannot find is naming a
+            // setting that, for them, does not exist.
+            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
+                ? (d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off') : '',
         ].filter(Boolean).join(' · ');
 
         return `
