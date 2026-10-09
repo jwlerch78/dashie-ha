@@ -32,6 +32,73 @@
     let _keyStatus = null;
 
     /**
+     * ── LOCAL-ENGINE DETECTION (2026-10-09) ─────────────────────────────────
+     *
+     * The second half of `available()` for a provider that has no credential.
+     * "Do I hold a key" is the wrong question for Home Assistant's Piper or the
+     * Kokoro add-on; the right one is "is this engine present on THIS BOX", and
+     * only detection answers it.
+     *
+     * 🔴 EACH DETECTOR REUSES AN EXISTING PREDICATE RATHER THAN RE-DERIVING ONE.
+     * That is the whole design, and it is the seam rule rather than tidiness: a
+     * second `/piper/i` here would be a hand-mirror of the picker's, and the two
+     * would disagree the first time Home Assistant renamed an engine — with the
+     * visible symptom being a personality whose voice the picker offers and the
+     * resolver refuses. So `ha-tts-engine` asks `HaEngines.haOption('tts')`,
+     * which is non-null EXACTLY when `VoiceAiOptions._piperOption(detection)`
+     * matched a Piper engine. One predicate, two readers.
+     *
+     * Every detector FAILS CLOSED. An unverifiable detection — no HA, a failed
+     * probe, a cloud console with no add-on to ask — must read as unavailable,
+     * never as available: claiming an engine we could not see is what would put
+     * a voice on a personality this box cannot speak, and that failure is
+     * invisible until someone listens to it.
+     */
+    const DETECTORS = {
+        /** Home Assistant's own TTS engine (Piper in practice). */
+        'ha-tts-engine': () => {
+            const H = window.HaEngines;
+            if (!H || !H.raw) return false;           // not loaded / no HA ⇒ closed
+            return H.haOption('tts') !== null;
+        },
+        /** Our optional own-box Kokoro add-on, by Supervisor add-on list. */
+        'kokoro-addon': () => {
+            const H = window.HaEngines;
+            return !!(H && H.raw && H.raw.kokoro && H.raw.kokoro.installed === true);
+        },
+    };
+
+    /** Run a row's declared detector. Unknown or throwing ⇒ false, loudly. */
+    function _detected(p) {
+        const fn = DETECTORS[p && p.detect];
+        if (!fn) {
+            console.warn(`DROP: provider '${p && p.id}' declares auth 'local-engine' but `
+                + `detect='${p && p.detect}' names no detector `
+                + `(${Object.keys(DETECTORS).join(', ')}) — treating as unavailable.`);
+            return false;
+        }
+        try {
+            return fn() === true;
+        } catch (e) {
+            console.warn(`DROP: detector '${p.detect}' for provider '${p.id}' threw — `
+                + `${e && e.message} — treating as unavailable.`);
+            return false;
+        }
+    }
+
+    /**
+     * The second argument `ProviderManifest.isConfigured` expects, chosen by the
+     * row's auth SHAPE rather than by its id. Adding a shape is adding a line
+     * here and a READINESS rule there — never a branch inside an existing one.
+     */
+    function _statusFor(p) {
+        const M = window.ProviderManifest;
+        if (p.auth === M.AUTH.LOCAL_ENGINE) return _detected(p);
+        if (p.auth === M.AUTH.API_KEY) return hasKey(p.id);
+        return undefined;                             // AUTH.NONE reads nothing
+    }
+
+    /**
      * Refresh the key half. Best-effort: a failure leaves the previous answer
      * rather than asserting "no keys", because an unreadable status and an empty
      * store are different facts and only one of them means "add a key".
@@ -46,6 +113,17 @@
         } catch (e) {
             console.warn(`DROP: provider-availability could not read key status — ${e?.message || e}` +
                 (_keyStatus ? ' (keeping the previous answer)' : ' (nothing cached yet)'));
+        }
+        // The engine half, from the SHARED loader — never a second fetcher of
+        // /api/voice/engines (the Voice & AI and Devices pages already read it
+        // through HaEngines, and a third caller is the hand-mirror the seam rule
+        // forbids). Its own cache coalesces concurrent callers, so asking here
+        // costs nothing when a page has already asked.
+        try {
+            if (window.HaEngines) await window.HaEngines.load();
+        } catch (e) {
+            console.warn(`DROP: provider-availability could not load engine detection — `
+                + `${e && e.message} — local engines will read unavailable.`);
         }
         return _keyStatus || {};
     }
@@ -70,12 +148,24 @@
         const p = M && M.byId(id);
         if (!p) return false;
         if (p.adapter !== M.ADAPTER.SHIPPED) return false;
-        // A keyless provider (auth 'none') is available as soon as its adapter
-        // ships — it has no credential to hold, and demanding one would make it
-        // permanently unavailable, which is the bug that once made keyless
-        // providers unconfigurable.
-        if (p.auth === M.AUTH.NONE) return true;
-        return hasKey(id);
+        // 🔴 DELEGATES to the manifest's READINESS registry (2026-10-09) instead
+        // of branching on auth here. It used to read:
+        //
+        //     if (p.auth === M.AUTH.NONE) return true;
+        //     return hasKey(id);
+        //
+        // which is two of the three shapes hardcoded, and the third — a local
+        // engine — could only be expressed by misfiling it as NONE, whose rule
+        // is `() => true`. That would have reported Kokoro available on a box
+        // with no Kokoro: the reassuring direction, and undetectable from the
+        // console. There are now two predicates in two places for two different
+        // questions, joined by one call.
+        //
+        // The keyless note that was here still holds and now lives on
+        // READINESS[AUTH.NONE]: such a provider has no credential to hold, and
+        // demanding one is the bug that once made keyless providers
+        // unconfigurable.
+        return M.isConfigured(p, _statusFor(p)) === true;
     }
 
     /**
@@ -105,9 +195,94 @@
         return null;
     }
 
+    /**
+     * A readable name for a resolved voice ref: 'kokoro:bm_george' → 'Kokoro · bm_george'.
+     *
+     * The provider half comes from the manifest so one rename reaches every surface;
+     * the voice half is printed VERBATIM and deliberately not prettified. These ids are
+     * the engine's own vocabulary (Kokoro's `{lang}{gender}_{name}`), nothing on this
+     * side can enumerate them — `voice-engines.js:_detectKokoro` returns `voices: []`
+     * by design — and inventing a friendly label for one would mean inventing it
+     * without the engine's list. An unrecognised id is still an answer; a made-up one
+     * is not.
+     */
+    function describeVoice(ref) {
+        const s = String(ref || '');
+        if (!s) return '';
+        const i = s.indexOf(':');
+        if (i < 0) return s;
+        const M = window.ProviderManifest;
+        const p = M && M.byId(s.slice(0, i));
+        return p ? `${p.name} · ${s.slice(i + 1)}` : s;
+    }
+
+    /**
+     * The ONE thing a household could do to give this personality its voice — or
+     * null when there is nothing honest to suggest.
+     *
+     * John, 2026-10-09: *"For personalities — we should tell them which key to add
+     * to get the personality."*
+     *
+     * Walks the same preference-ordered chain `resolveVoice` walks, and returns the
+     * first provider that is BOTH unsatisfied and actually actionable. Three kinds of
+     * row are skipped, and each skip is the point:
+     *
+     *   · already available — not an upgrade, and suggesting it would read as a
+     *     failure of something that works.
+     *   · 🔴 `adapter: 'pending'` — the credential STORES and VALIDATES, and nothing
+     *     on this box spends it. Telling a household to go and get an Inworld key to
+     *     hear Princess would send them to a signup, a dashboard and a paste, and
+     *     change nothing at all. That is the worst possible instruction: it looks
+     *     like the fix, so a voice still missing afterwards reads as a broken product
+     *     rather than an unbuilt adapter.
+     *   · unknown id — there is no row, so there is no action to name.
+     *
+     * The sentence itself lives on the manifest row (`voiceHint`), so adding a
+     * provider does not mean editing a renderer.
+     */
+    function voiceUpgradeHint(voices) {
+        const M = window.ProviderManifest;
+        if (!M) return null;
+        // 🔴 NOTHING TO SUGGEST WHEN THE VOICE ALREADY RESOLVES. Without this, a
+        // household with Kokoro installed still gets "Add an ElevenLabs key for this
+        // voice" — true in the sense that a paid key ranks higher, and wrong as an
+        // answer to "what do I do to hear Butler", which is: nothing, you already do.
+        //
+        // The personality row happens to guard this by only rendering the hint in its
+        // 'degraded' branch, so the bug was invisible there. That is exactly why it
+        // belongs HERE: the next caller will not have that guard, and a function whose
+        // name promises "the one thing that would give this its voice" must not answer
+        // for a personality that has one. (check-personalities leg 10f found it.)
+        if (resolveVoice(voices)) return null;
+        for (const ref of (Array.isArray(voices) ? voices : [])) {
+            const s = String(ref || '');
+            const i = s.indexOf(':');
+            if (i < 0) continue;                 // provider-less ref — already speakable
+            const id = s.slice(0, i);
+            if (isAvailable(id)) continue;       // satisfied, not an upgrade
+            const p = M.byId(id);
+            if (!p) continue;
+            if (p.adapter !== M.ADAPTER.SHIPPED) continue;   // storable but UNSPENT
+            if (p.voiceHint) return p.voiceHint;
+        }
+        return null;
+    }
+
     /** Test seam ONLY — lets a control set the key half without a server.
      *  Never call this from a page; `refresh()` is the live path. */
     function _setKeyStatusForTest(status) { _keyStatus = status || {}; }
 
-    window.ProviderAvailability = { refresh, hasKey, isAvailable, resolveVoice, _setKeyStatusForTest };
+    /** Test seam ONLY — the engine half, so a gate can drive a box with/without
+     *  a local engine without an HA to ask. Writes HaEngines' cache directly
+     *  rather than shadowing the detectors, so the leg exercises the REAL
+     *  predicate (`haOption('tts')` → `_piperOption`) and not a stub of it. */
+    function _setEnginesForTest(payload) {
+        if (!window.HaEngines) { window.HaEngines = {}; }
+        window.HaEngines._cache = payload || null;
+        window.HaEngines._loaded = true;
+    }
+
+    window.ProviderAvailability = { refresh, hasKey, isAvailable, resolveVoice,
+                                    describeVoice, voiceUpgradeHint,
+                                    _setKeyStatusForTest, _setEnginesForTest };
 })();

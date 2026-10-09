@@ -40,9 +40,9 @@
     <!-- Provider manifest BEFORE any page that reads it: the API Keys page
          renders from this one list, and provider-availability joins it to the
          key store to answer "can this box actually do X". -->
-    <script src="js/lib/provider-manifest.js?v=20260801a"></script>
+    <script src="js/lib/provider-manifest.js?v=20261009a"></script>
     <script src="js/lib/provider-auth-renderers.js?v=20260801a"></script>
-    <script src="js/lib/provider-availability.js?v=20260804a"></script>
+    <script src="js/lib/provider-availability.js?v=20261009a"></script>
     <script src="js/lib/console-state.js?v=20260712a"></script>
     <!-- ONE cache of the household's account settings, shared by the device CARD
          (diff dots) and the device MODAL. Must load before either. Two caches on
@@ -101,7 +101,7 @@
          engines-store.js, which reads window.ENGINE_RESOLUTION from it. -->
     <script src="js/lib/engine-resolution.js?v=20260716a"></script>
     <script src="js/lib/engines-store.js?v=20260716a"></script>
-    <script src="js/lib/voice-ai-options.js?v=20260925c"></script>
+    <script src="js/lib/voice-ai-options.js?v=20261009a"></script>
     <!-- The ONE sentence describing a device's voice pipeline, asked by the Voice & AI
          page and the device card. Must load AFTER voice-ai-options.js (labels) and
          voice-profile-keys.js (resolution through the device's profile). -->
@@ -110,14 +110,22 @@
          Must load AFTER voice-ai-options.js: haOption() reads window.VoiceAiOptions. -->
     <script src="js/lib/ha-engines.js?v=20260920a"></script>
     <script src="js/components/voice-ai-cards.js?v=20260923a"></script>
-    <script src="js/components/voice-ai-profile-switcher.js?v=20260925c"></script>
-    <script src="js/components/voice-ai-preset-picker.js?v=20260730b"></script>
+    <script src="js/components/voice-ai-profile-switcher.js?v=20261009a"></script>
+    <script src="js/components/voice-ai-preset-picker.js?v=20261009a"></script>
     <script src="js/components/voice-ai-defaults-cards.js?v=20260925a"></script>
     <!-- The two collapsible groups on the Voice & AI Settings tab. Must load BEFORE
          voice-ai.js, which reads window.VoiceAiSections while rendering. -->
     <script src="js/components/voice-ai-sections.js?v=20260923a"></script>
+    <!-- Simple/Advanced (D8). Must load BEFORE voice-ai.js, which asks it which cards
+         to render. Holds the PARTITION, so it is a lib and not a component: the gate
+         reads SIMPLE_CARDS / ADVANCED_ONLY from it. -->
+    <script src="js/lib/voice-ai-mode.js?v=20261009a"></script>
+    <!-- Which icon stands for which personality. The ONE declaration, read by the
+         personality list; a key this map does not name gets the generic persona face,
+         which is the normal case for a custom personality. -->
+    <script src="js/lib/personality-icons.js?v=20261009a"></script>
     <script src="js/components/voice-ai-prompt-section.js?v=20260923a"></script>
-    <script src="js/pages/voice-ai.js?v=20260925c"></script>
+    <script src="js/pages/voice-ai.js?v=20261009a"></script>
     <script src="js/pages/scheduled-actions.js?v=20260725b"></script>
     <!-- Devices. Published core since 2026-07-30 (was the closed family delta):
          the HA edition manages Dashie devices too. Load order matters —

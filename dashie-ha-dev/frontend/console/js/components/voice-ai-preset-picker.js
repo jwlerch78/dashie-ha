@@ -35,7 +35,7 @@ const VoiceAiPresetPicker = {
 
     _card(p, selected, available, isAddonMode, localMode) {
         const O = window.VoiceAiOptions;
-        const costColor = p.needsCreditsOrKey ? O.COLOR.cloud : O.COLOR.local;
+        const costColor = p.needsKey ? O.COLOR.cloud : O.COLOR.local;
         // Mixed presets color each tagline half by its locality (Hybrid:
         // "Cloud AI" orange · "local voice" green); others use one color.
         const tagline = Array.isArray(p.taglineParts)
@@ -66,12 +66,36 @@ const VoiceAiPresetPicker = {
         // hold credits, and the Credits page is not even routable, so offering
         // it would be a dead link. The AI-keys half is unchanged — a BYO key
         // works on the box with no account at all, which is the point.
+        // 🔴 The credits half is gated on the page being REACHABLE (2026-10-08).
+        // With credits alpha-gated for the HA first release, a standard user
+        // offered "Add credits" taps a link the sidebar does not render and
+        // `_isRoutable` refuses — a dead end inside the error message that is
+        // supposed to tell them how to recover.
+        //
+        // The localMode branch below already reasoned exactly this way ("the
+        // Credits page is not even routable, so offering it would be a dead
+        // link"). It just scoped the reasoning to local mode, when the real
+        // predicate was never "signed out" but "can this session reach the
+        // page" — which is now false for a signed-in standard user too. So this
+        // asks the gate instead of inferring from the mode.
+        const creditsReachable = typeof FeatureGate !== 'undefined'
+            && FeatureGate.isPageEnabled('credits');
+        // 🔴 NAMES THE KEY THIS CARD NEEDS (2026-10-09, D3). It used to say "AI key(s)"
+        // on every locked card, which was the best it could do while the gate itself
+        // only knew "some key exists". Cloud needs GEMINI — both its brain and its
+        // transcription run on that one credential — so a Cloud card that asked for
+        // "an AI key" was sending the user off to store something that would not
+        // unlock it, and the card would stay dim with no explanation.
+        const whichKey = p.needsKey === 'gemini' ? 'Gemini key' : `AI key${creditsReachable ? 's' : ''}`;
+        const keysLink = `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">${whichKey}</a>`;
         const prompt = available ? '' : (localMode ? `
             <div style="font-size: 11px; color: var(--text-muted, #777); margin-top: auto; padding-top: 8px; line-height: 1.4; opacity: 1;">
-                <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.startSignIn()" style="color: var(--accent); font-weight: 600;">Sign in</a> or add your own <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">AI key</a> →
+                <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.startSignIn()" style="color: var(--accent); font-weight: 600;">Sign in</a> or add your own ${keysLink} →
             </div>` : `
             <div style="font-size: 11px; color: var(--status-error, #c00); margin-top: auto; padding-top: 8px; line-height: 1.4; opacity: 1;">
-                Add <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('credits')" style="color: var(--accent); font-weight: 600;">credits</a> or <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('api-keys')" style="color: var(--accent); font-weight: 600;">AI keys</a> →
+                ${creditsReachable
+                    ? `Add <a href="#" onclick="event.preventDefault(); event.stopPropagation(); App.navigate('credits')" style="color: var(--accent); font-weight: 600;">credits</a> or ${keysLink} →`
+                    : `Add your own ${keysLink} →`}
             </div>`);
         return `
             <div ${onclick}

@@ -1989,6 +1989,7 @@ Deno.test('kid turn: persona comes from the SESSION, not options.personality_id;
   let askedFor: string | null | undefined;
   m.io.resolvePersonality = (_s, _u, _e, id) => { askedFor = id; return Promise.resolve(null); };
   m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  m.io.countKidTurn = () => Promise.resolve({ ok: true as const });
   const turn = await runOrchestration(deps({ kid_session_id: 's1', options: { personality_id: 'bad_santa' } }), m.io);
   assertEquals(turn.voice, 'Ahoy Ava');
   assertEquals(askedFor, 'pirate');
@@ -2005,10 +2006,12 @@ Deno.test('kid turn control: an ordinary turn still uses options.personality_id 
   assert(!m.lastPrompt()!.includes('You are talking with'));
 });
 
-for (const code of ['kid_cap_reached', 'kid_session_expired', 'kid_session_invalid', 'kid_cap_unconfigured']) {
-  Deno.test(`kid turn refused (${code}) → terminal, metadata.kid_code, no AI call, no log`, async () => {
+// Session codes come from VALIDATION (resolveKidTurn); cap codes from COUNTING (countKidTurn).
+for (const [code, at] of [['kid_session_expired', 'resolve'], ['kid_session_invalid', 'resolve'], ['kid_cap_reached', 'count'], ['kid_cap_unconfigured', 'count']] as const) {
+  Deno.test(`kid turn refused at ${at} (${code}) → terminal, metadata.kid_code, no AI call, no log`, async () => {
     const m = makeIO(['{"type":"response","voice":"should not run"}']);
-    m.io.resolveKidTurn = () => Promise.resolve({ ok: false as const, code });
+    m.io.resolveKidTurn = () => Promise.resolve(at === 'resolve' ? { ok: false as const, code } : { ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+    m.io.countKidTurn = () => Promise.resolve(at === 'count' ? { ok: false as const, code } : { ok: true as const });
     const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
     assertEquals(turn.metadata?.kid_code, code);
     assertEquals(turn.route, 'kid_refused');
@@ -2017,6 +2020,48 @@ for (const code of ['kid_cap_reached', 'kid_session_expired', 'kid_session_inval
     assertEquals(m.logs.length, 0);
   });
 }
+
+// ── Count AFTER the gates (2026-10-07): a turn the rate limit or the credit gate refuses must not spend
+// one of the household's monthly turns. Each case pairs with a control where the same fixture DOES count,
+// so a count spy that is never wired cannot pass for a fix.
+function kidCountSpy(m: ReturnType<typeof makeIO>) {
+  const calls: string[] = [];
+  m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  m.io.countKidTurn = (_s, _u, sid) => { calls.push(sid); return Promise.resolve({ ok: true as const }); };
+  return calls;
+}
+
+Deno.test('kid turn out of credits → insufficient_credits, allowance NOT counted', async () => {
+  const m = makeIO(['{"type":"response","voice":"should not run"}'], { spendable: false });
+  const calls = kidCountSpy(m);
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.route, 'insufficient_credits');
+  assertEquals(calls, []);
+});
+
+Deno.test('kid turn rate-limited → rate_limited, allowance NOT counted', async () => {
+  const m = makeIO(['{"type":"response","voice":"should not run"}'], { rateLimited: true });
+  const calls = kidCountSpy(m);
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.route, 'rate_limited');
+  assertEquals(calls, []);
+});
+
+Deno.test('kid turn control: spendable + allowed → counted exactly once, then answered', async () => {
+  const m = makeIO(['{"type":"response","voice":"Ahoy"}'], { spendable: true });
+  const calls = kidCountSpy(m);
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.voice, 'Ahoy');
+  assertEquals(calls, ['s1']);
+});
+
+Deno.test('kid turn with resolveKidTurn but NO countKidTurn IO → refused as invalid, no AI call', async () => {
+  const m = makeIO(['{"type":"response","voice":"should not run"}']);
+  m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  const turn = await runOrchestration(deps({ kid_session_id: 's1' }), m.io);
+  assertEquals(turn.metadata?.kid_code, 'kid_session_invalid');
+  assertEquals(m.gatewayCalls(), 0);
+});
 
 Deno.test('kid turn with NO resolveKidTurn IO → refused as invalid, never served as an ordinary turn', async () => {
   const m = makeIO(['{"type":"response","voice":"should not run"}']);

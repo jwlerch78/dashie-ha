@@ -370,12 +370,31 @@ const VoiceAiPage = {
      *  A personality with NO preferred voices is not degraded; it simply uses
      *  the standard voice, which is what it always meant to do. Only a
      *  personality that ASKED for voices and got none says so. */
+    /**
+     * A personality's live VOICE state — John's *"active-inactive status"*.
+     *
+     * Four outcomes, deliberately distinguished, because collapsing any two of them
+     * puts a wrong sentence under a personality's name:
+     *
+     *   { kind: 'standard' }   no preference list at all (the default personality).
+     *                          It IS the standard voice, so there is nothing to
+     *                          resolve and nothing to be missing — an empty list is a
+     *                          meaningful value, not an absent one.
+     *   { kind: 'unknown' }    ProviderAvailability is not loaded. Says NOTHING. An
+     *                          unreadable answer is not a negative one, and this
+     *                          renders on first paint of every visit.
+     *   { kind: 'active', ... } resolved — names the voice it will actually speak in.
+     *   { kind: 'degraded', hint } nothing in the chain resolves. The persona and its
+     *                          prompt are untouched; only the voice falls back.
+     */
     _voiceStateFor(p) {
         const list = Array.isArray(p?.voices) ? p.voices : [];
-        if (!list.length) return '';
+        if (!list.length) return { kind: 'standard' };
         const A = window.ProviderAvailability;
-        if (!A) return '';
-        return A.resolveVoice(list) ? '' : '(voice not available)';
+        if (!A) return { kind: 'unknown' };
+        const ref = A.resolveVoice(list);
+        if (ref) return { kind: 'active', ref, label: A.describeVoice?.(ref) || ref };
+        return { kind: 'degraded', hint: A.voiceUpgradeHint?.(list) || null };
     },
 
     /** Fetch local voice engine detection (GET /api/voice/engines). Add-on mode
@@ -569,40 +588,83 @@ const VoiceAiPage = {
         return 'cloud';
     },
 
-    /** Cloud & Hybrid need credits OR a BYO AI key; Local & HA Assist are
-     *  always available. Optimistic while balances are still loading so the
-     *  picker never flash-disables. */
+    /** Cloud & Hybrid need the key their row names (`needsKey`); Local & HA
+     *  Assist are always available. Optimistic while the answer is still
+     *  unknown, so the picker never flash-disables. */
     _presetAvailable(id) {
         const p = window.VoiceAiOptions.PRESETS.find(x => x.id === id);
-        if (!p?.needsCreditsOrKey) return true;
-        return this._hasCreditsOrKey();
+        if (!p?.needsKey) return true;
+        return this._hasKeyFor(p.needsKey);
     },
 
-    _hasCreditsOrKey() {
-        // Accounts that don't see the credits feature aren't metered from the
-        // console's perspective — don't lock their presets.
-        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return true;
-        // A BYO provider key unlocks a cloud-AI preset in EVERY mode, including
-        // local: the key lives on the box (/data/api-keys.json) and the brain runs
-        // BYOK without an account. Checked before the local-mode bail below on
-        // purpose — "no account" must not lock a user out of their own key.
-        if (this._keyStatus && Object.values(this._keyStatus).some(Boolean)) return true;
-        // Local mode: no account, therefore no credit balance to spend. This is
-        // the one place the answer is a definite NO rather than the optimistic
-        // default below — and it must not fall through to the balance check,
-        // whose "still loading → true" would flash the presets as available.
+    /**
+     * Is the key this preset needs present — three-valued, because "we looked and
+     * there is none" and "we cannot look from here" are different answers and the
+     * old code collapsed them.
+     *
+     * `true`  — stored on the box.
+     * `false` — the box answered, and it is not there.
+     * `null`  — UNMEASURABLE: no `/api/keys/status` reading. Either the fetch has
+     *           not resolved, or this is not add-on mode at all (`_fetchKeyStatus`
+     *           nulls it outright off-box), so the console has no view of the key
+     *           file. Must NOT read as absent: a household with a working key would
+     *           find its preset locked by a measurement that never ran.
+     *
+     * ⚠️ `keyStore.status()` always returns a row per provider (all `false` on a
+     * keyless box), so a loaded object with everything false is a real measurement
+     * — which is what makes the null case specifically "we did not measure".
+     */
+    _storedKeyFor(need) {
+        const ks = this._keyStatus;
+        if (!ks || typeof ks !== 'object') return null;
+        if (need === 'any') return Object.values(ks).some(Boolean);
+        return ks[need] === true;
+    },
+
+    /**
+     * 🔴 REPLACES `_hasCreditsOrKey()` (2026-10-09, D3). That function opened with
+     *
+     *     if (!FeatureGate.shouldShow('credits')) return true;
+     *
+     * which was correct while credits were the only way to fund a cloud preset —
+     * "not metered, so nothing to gate" — and became a BLANKET UNLOCK the moment
+     * D1 alpha-gated credits: every standard user on the HA release takes that
+     * branch, so Cloud and Hybrid unlocked with no key and no credits at all. The
+     * picker would offer a preset whose first utterance cannot run.
+     *
+     * The order below is the correction: ask about the KEY first, and let credits
+     * unlock only where credits actually exist for this account.
+     */
+    _hasKeyFor(need) {
+        const keyed = this._storedKeyFor(need);
+        if (keyed === true) return true;
+        // Cannot measure (off-box, or still in flight) → stay optimistic. This is the
+        // standing picker rule: never flash-disable on an answer we do not have yet.
+        if (keyed === null) return true;
+
+        // Measured, and the key is absent. Credits are the only other funding source
+        // — and only for an account that can SEE them. For everyone else credits do
+        // not exist as a thing they could have, so they cannot unlock anything.
+        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return false;
+        // Local mode: no account, therefore no balance to spend. A definite NO, and it
+        // must not fall through to the optimistic branch below.
         if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) return false;
         const bal = window.CreditsService?.balance();
         if (!bal || typeof bal.balance !== 'number') return true;   // still loading → optimistic
         return bal.balance > 0;
     },
 
-    /** Why a Cloud/Hybrid card is locked, for the card's own copy. */
-    _lockedPresetReason() {
+    /** Why a Cloud/Hybrid card is locked, for the card's own copy. Takes the
+     *  preset id so the sentence can name the key THAT card needs — the old
+     *  shared "credits or AI keys" line could not, and sent a Cloud user to
+     *  store any key at all. */
+    _lockedPresetReason(id) {
+        const p = window.VoiceAiOptions.PRESETS.find(x => x.id === id);
+        const which = p?.needsKey === 'gemini' ? 'Gemini key' : 'AI key';
         if (typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode) {
-            return `Needs a ${BRAND.productName} account — or add your own AI key`;
+            return `Needs a ${BRAND.productName} account — or add your own ${which}`;
         }
-        return null;   // signed in: the existing out-of-credits treatment applies
+        return null;   // signed in: the picker's own prompt names the key
     },
 
     /**
@@ -1188,11 +1250,17 @@ const VoiceAiPage = {
         // has not resolved yet simply renders no switcher rather than blocking the page.
         window.AccountSettingsStore?.ensure?.();
         this.applyScope();
+        // D8: household sharing is Advanced — it is an account-wide decision about
+        // OTHER people's devices, not part of getting voice working. The profile
+        // switcher is Advanced too, but only in its empty state: a household that
+        // already HAS named profiles keeps the control that switches between them,
+        // because Simple withholds controls and must not withhold a configured value.
+        const simple = window.VoiceAiMode?.isSimple?.() === true;
         return `
             <div style="max-width: 760px;">
-                ${window.VoiceAiProfileSwitcher?.render?.(this._defaults) || ''}
+                ${window.VoiceAiProfileSwitcher?.render?.(this._defaults, { simple }) || ''}
                 ${this._renderAiDefaults()}
-                ${this._renderHouseholdSharing()}
+                ${simple ? '' : this._renderHouseholdSharing()}
             </div>
         `;
     },
@@ -1664,13 +1732,30 @@ const VoiceAiPage = {
         // about what the user chose. ⚠️ That asymmetry is real and is flagged to John:
         // the console now always shows these; the tablet still honours the stored key.
         const customPipeline = true;
-        const showPipeline = customPipeline && !isLive;
+        // ── D8: Simple withholds controls; the SUMMARY still reports their values ──
+        //
+        // 🔴 `pipelineReal` and `showPipeline` are deliberately two names for what
+        // used to be one. `pipelineReal` asks whether the cascade pipeline is live
+        // at all (it is not under Live, which owns STT+LLM+TTS itself);
+        // `showPipeline` asks whether to RENDER its cards here.
+        //
+        // Collapsing them is the bug this split exists to prevent: the collapsed
+        // section summary reads `showPipeline ? lbl(ttsAll, ...) : ''`, so a Simple
+        // mode that reused one flag would hide the text-to-speech CARD and the
+        // text-to-speech VALUE together. A household running their own Kokoro box
+        // would then see a page that describes a system they are not running —
+        // which is strictly worse than the busy page Simple is fixing. Simple may
+        // hide a control. It must never hide a value.
+        const simple = window.VoiceAiMode?.isSimple?.() === true;
+        const pipelineReal = customPipeline && !isLive;
+        const showPipeline = pipelineReal && !simple;
         // STT shows whenever the pipeline is customized — in cascade (with TTS/search) AND
         // in Live mode (on its own, below Live Voice). In Live it's the engine that
         // transcribes the FIRST wake command for the local-vs-Live routing decision; the
         // rest of the pipeline stays hidden (Live speaks its own voice, grounds via the
         // model). Gated on the Customize-pipeline toggle so it's opt-in. Asterisked in Live.
-        const showStt = customPipeline;
+        const sttReal = customPipeline;
+        const showStt = sttReal && !simple;
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
@@ -1751,7 +1836,10 @@ const VoiceAiPage = {
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${S.grid([
                 gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
-                D.renderWakeWordCard({
+                // Wake word is Advanced (D8): one choice, set once, and 'Hey Dashie'
+                // is right for nearly every household. Its VALUE is not lost — a
+                // non-default wake word is named in the section summary below.
+                simple ? '' : D.renderWakeWordCard({
                     currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                     saving: this._savingKey === 'ai.defaultWakeWord',
                     compact: true,
@@ -1768,12 +1856,13 @@ const VoiceAiPage = {
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
                 S.full([
-                    isLive ? this._renderLiveVoiceRow(d) : '',
+                    isLive && !simple ? this._renderLiveVoiceRow(d) : '',
                     showStt && isLive ? this._renderLiveSttNote() : '',
                     showPipeline ? this._renderEngineDetectionRow() : '',
                     showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
                 ].filter(Boolean).join('')),
             ].filter(Boolean))}
+            ${window.VoiceAiMode?.renderFooter?.() || ''}
 `;
         // 🔴 Web search source and HA entities MOVED to section 2 (John, 2026-09-23):
         // they are what the assistant may reach for, not how it hears or speaks. They
@@ -1800,7 +1889,30 @@ const VoiceAiPage = {
         // silently, so it was deliberately not touched.
         const toolToggles = [
             !isLive ? this._renderDialogRows(d, agentMode) : '',
-            this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled']),
+            // 🔴 ALPHA-GATED for the HA first release (D3, 2026-10-09) — the same cohort
+            // shape as credits and scheduled actions, not a deletion.
+            //
+            // This row is a PAY SURFACE whichever way you read it. Its own copy quotes a
+            // per-search price, and the thing behind it runs on DASHIE'S Serper key
+            // through a cloud gateway and bills credits — both of which the release
+            // removes. Leaving the row with the price stripped would be worse than
+            // either: the household would switch on a feature that silently cannot
+            // bill, and a picture that never appears reads as a broken product.
+            //
+            // ⚠️ It is NOT replaced by "a household Serper key" yet, and that is the
+            // whole reason it waits rather than being rewired. Serper's manifest row is
+            // `adapter: 'pending'`: nothing on the box spends a stored Serper key,
+            // because the brain has no image-search hook to spend it through
+            // (`addon-io.js` says outright that image search has no hook and the core
+            // resolves it inline). John bumped Serper's priority on 2026-10-09 — when
+            // that hook lands and the adapter flips to shipped, this row comes back
+            // UNGATED and priced at the household's own key.
+            //
+            // The stored key is untouched, exactly as with 'Always use AI for chores'
+            // (hidden 2026-10-04): an account that already chose it keeps its choice.
+            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
+                ? this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                : '',
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
             // FeatureGate.shouldShow('promptForFeedback').
@@ -1821,20 +1933,28 @@ const VoiceAiPage = {
 
         // Summaries: what each section says when shut. Read from the SAME ids the
         // cards render from, so a collapsed page cannot disagree with an open one.
+        // 🔴 `sttReal` / `pipelineReal`, NEVER `showStt` / `showPipeline`. This line is
+        // the only place a Simple-mode household sees which engines they are actually
+        // running, so it must report the pipeline's real state and not whether this
+        // view happens to draw its cards. (D8, 2026-10-09.)
         const voiceSummary = [
             lbl(this._haFilter(O.PRESETS), preset),
             isHaAssist ? '' : lbl(this._modelOptions(preset), this._selectedModelId(agentMode)),
-            showStt ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
-            showPipeline ? lbl(ttsAll, ttsSelectedId) : '',
+            sttReal ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
+            pipelineReal ? lbl(ttsAll, ttsSelectedId) : '',
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
             ...window.VoiceAiPromptSection.summary(promptSectionArgs),
-            showPipeline ? lbl(searchOptions, searchSelected) : '',
+            pipelineReal ? lbl(searchOptions, searchSelected) : '',
             // John, 2026-09-23: the summary must capture conversation mode. It is the
             // one setting in here that changes how every single turn behaves, so a
             // collapsed section that omitted it was hiding the most consequential row.
             isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
-            d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
+            // Only summarised where the row is actually offered. A collapsed section
+            // reporting 'pictures off' for a control the user cannot find is naming a
+            // setting that, for them, does not exist.
+            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
+                ? (d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off') : '',
         ].filter(Boolean).join(' · ');
 
         return `
@@ -1842,8 +1962,9 @@ const VoiceAiPage = {
                  switcher's own "Voice & AI Profile" heading now titles this whole area, and
                  two headings a few pixels apart were naming the same thing twice. The
                  locality legend stays and keeps its row, right-aligned on its own. -->
-            <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 16px; margin: 20px 0 10px;">
+            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 16px; margin: 20px 0 10px;">
                 ${this._renderLocalityLegend()}
+                ${window.VoiceAiMode?.render?.() || ''}
             </div>
             ${S.render({
                 id: 'voice',
@@ -1859,7 +1980,7 @@ const VoiceAiPage = {
                     })}
                     ${body}`,
             })}
-            ${isHaAssist ? '' : S.render({
+            ${(isHaAssist || simple) ? '' : S.render({
                 id: 'tools',
                 title: 'AI Prompt & Tools',
                 summary: toolsSummary,
@@ -2399,13 +2520,53 @@ const VoiceAiPage = {
         `;
     },
 
+    /**
+     * One personality row: icon beside the NAME, description on its OWN line, then
+     * the live voice status and — when degraded — the one thing to do about it.
+     *
+     * 🔴 THE DESCRIPTION IS ITS OWN BLOCK, NOT PART OF A JOINED SUBTITLE (John,
+     * 2026-10-09: *"The spacing is off on the description. it should go below the
+     * name of the personality."*). It used to be `[description, notes, voiceState]
+     * .join(' · ')` on one line, which ran a sentence, a state and an instruction
+     * together in one grey run — and in the mockup it also sat inside the title's
+     * flex row, so it was indented into the icon's column rather than under the name.
+     *
+     * The three now have three jobs and three lines: what this personality IS, what
+     * it will SPEAK AS, and what would change that. Voice state was previously hidden
+     * here entirely ("matches the tablet's Voice & AI menu, which doesn't surface the
+     * underlying voice") — that reasoning is RETIRED, not forgotten: John asked for
+     * active/inactive status on this surface specifically, and the console is where a
+     * household sets the thing up, while the tablet is where they use it.
+     */
     _personalityRow(p, isCustom) {
-        const id = this._escape(isCustom ? p.id : (p.key || p.id));
-        // Voice name intentionally hidden here — matches the tablet's Voice & AI menu,
-        // which doesn't surface the underlying voice on the personality list.
-        const notes = isCustom ? '' : this.overrideNotes(p.key || p.id);
-        const subtitle = [p.description || '', notes ? '✏️ family notes set' : '', this._voiceStateFor(p)]
-            .filter(Boolean).join(' · ');
+        const key = isCustom ? p.id : (p.key || p.id);
+        const id = this._escape(key);
+        const notes = isCustom ? '' : this.overrideNotes(key);
+        const v = this._voiceStateFor(p);
+        const I = window.PersonalityIcons;
+
+        // One line, three states that read differently. 'standard' and 'unknown' both
+        // render nothing — but for opposite reasons, and neither may render as a
+        // negative: 'standard' has no voice to be missing, 'unknown' has no answer yet.
+        const dot = (c) => `<span aria-hidden="true" style="color:${c}; font-size:9px; line-height:1;">●</span>`;
+        const status = v.kind === 'active'
+            ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-secondary);">
+                   ${dot('var(--status-success, #16a34a)')}<span>Speaks as ${this._escape(v.label)}</span>
+               </div>`
+            : v.kind === 'degraded'
+                ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-muted);">
+                       ${dot('var(--text-muted, #999)')}<span>Voice not available — speaks in your standard voice</span>
+                   </div>`
+                : '';
+        // The upgrade line is SEPARATE from the status line on purpose: the status is
+        // a fact about this box, the hint is an action, and a user scanning for "what
+        // do I do" should not have to parse one sentence for both.
+        const hint = (v.kind === 'degraded' && v.hint)
+            ? `<div style="margin-top:3px; font-size:12px; color: var(--accent);">${this._escape(v.hint)}</div>`
+            : '';
+        const notesLine = notes
+            ? `<div style="margin-top:3px; font-size:12px; color: var(--text-muted);">✏️ Family notes set</div>`
+            : '';
 
         const actions = isCustom
             ? `<button class="btn btn-ghost btn-sm" onclick="VoiceAiPersonalityEdit.openEdit('${id}')">Edit</button>
@@ -2415,8 +2576,15 @@ const VoiceAiPage = {
         return `
             <div class="list-item" style="border-top: 1px solid var(--border, #e5e7eb);">
                 <div class="list-item-content">
-                    <div class="list-item-title">${this._escape(p.name)}${isCustom ? '' : ' <span class="list-item-badge">built-in</span>'}</div>
-                    ${subtitle ? `<div class="list-item-subtitle">${this._escape(subtitle)}</div>` : ''}
+                    <div class="list-item-title" style="display:flex; align-items:center; gap:8px;">
+                        ${I ? I.img(key, 16) : ''}
+                        <span>${this._escape(p.name)}</span>
+                        ${isCustom ? '' : '<span class="list-item-badge">built-in</span>'}
+                    </div>
+                    ${p.description ? `<div style="margin-top:3px; font-size:12.5px; color: var(--text-muted); line-height:1.45;">${this._escape(p.description)}</div>` : ''}
+                    ${status}
+                    ${hint}
+                    ${notesLine}
                 </div>
                 ${actions}
             </div>

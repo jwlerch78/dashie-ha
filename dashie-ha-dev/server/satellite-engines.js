@@ -128,4 +128,12 @@ async function resolveSatelliteBase(kind) {
     return { base, source: 'household' };
 }
 
-module.exports = { resolveSatelliteBase, SERVER_REACHABLE };
+/** The household's chosen STT provider id ('' when none). Never throws.
+ *  D5: engines.handleStt reads this for the Gemini branch, which is not a
+ *  base-URL engine and so does not go through resolveSatelliteBase. */
+async function householdSttProvider() {
+    const voice = await _householdVoice();
+    return String(voice?.sttProvider || '');
+}
+
+module.exports = { resolveSatelliteBase, householdSttProvider, SERVER_REACHABLE };

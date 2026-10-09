@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 73fe83c5bbce1fcac45cb66f90815886a12bacb2
+   Source git SHA: 3017e4ab820d38843e7ceceb4616f12e9e48dab1
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5181,6 +5181,10 @@ async function orchestrate(deps, io, voiceCtx) {
   if (!rateLimit.allowed) return rateLimitedTurn(t0, rateLimit.retryAfterSeconds);
   const byokBrain = io.billing === "byok";
   if (!spend.spendable && !byokBrain) return insufficientCreditsTurn(t0, spend.balance);
+  if (kid) {
+    const c = io.countKidTurn ? await timed("prep_kid_count", prep, () => io.countKidTurn(supabase, userId, req.kid_session_id)) : { ok: false, code: "kid_session_invalid" };
+    if (!c.ok) return kidRefusedTurn(t0, c.code);
+  }
   const paidToolsOk = spend.spendable && io.paidTools !== false;
   const modelId = req.options?.model || account.model || await timed("prep_model", prep, () => io.getDefaultModel(supabase));
   const provider = providerForModel(modelId);
@@ -6442,4 +6446,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "73fe83c5bbce1fcac45cb66f90815886a12bacb2";
+module.exports.BRAIN_SOURCE_SHA = "3017e4ab820d38843e7ceceb4616f12e9e48dab1";

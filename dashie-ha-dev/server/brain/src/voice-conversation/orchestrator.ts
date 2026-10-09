@@ -406,6 +406,11 @@ export interface OrchestratorIO {
   // silently served as an ordinary turn. Bound in default-io.ts (kid-session.ts).
   resolveKidTurn?: (supabase: unknown, userId: string, sessionId: string, endpointId: string) =>
     Promise<{ ok: true; personalityId: string; childName: string | null } | { ok: false; code: string }>;
+  // Spends one of the household's monthly kid turns. Called ONLY after the rate-limit and credit gates
+  // pass, so a turn they refuse costs no allowance (kid-session.ts header). Absent IO → a kid turn is
+  // refused as invalid, same as resolveKidTurn.
+  countKidTurn?: (supabase: unknown, userId: string, sessionId: string) =>
+    Promise<{ ok: true } | { ok: false; code: string }>;
   // BYOK (Open Brain WS-I): 'byok' = the AI tokens run on the USER'S OWN key/model
   // (add-on brain), so out-of-credits must NOT reject the turn — the AI costs Dashie
   // nothing. Instead the DASHIE-FUNDED tools (web search / image search) are disabled
@@ -560,8 +565,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // (no voice) so nothing is spoken/re-heard; no AI call, no credit.
   if (isEndIntent(req.text)) return endIntentTurn(t0);
 
-  // Kid "Talk to a friend" turn: the persona and the child come from the SESSION row, and the turn is
-  // counted against the household's monthly cap (atomic). A refusal is terminal and costs no AI call.
+  // Kid "Talk to a friend" turn: the persona and the child come from the SESSION row. VALIDATED here;
+  // COUNTED against the household's monthly cap only after the rate-limit and credit gates below. A
+  // refusal is terminal and costs no AI call.
   let kid: { personalityId: string; childName: string | null } | null = null;
   if (req.kid_session_id) {
     const r = io.resolveKidTurn
@@ -632,6 +638,13 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // below via paidToolsOk, and the prompt tells the model honestly.
   const byokBrain = io.billing === 'byok';
   if (!spend.spendable && !byokBrain) return insufficientCreditsTurn(t0, spend.balance);
+  // Kid turn: spend the allowance turn only now, once nothing above can still refuse it.
+  if (kid) {
+    const c = io.countKidTurn
+      ? await timed('prep_kid_count', prep, () => io.countKidTurn!(supabase, userId, req.kid_session_id!))
+      : { ok: false as const, code: 'kid_session_invalid' };
+    if (!c.ok) return kidRefusedTurn(t0, c.code);
+  }
   // Two independent reasons a Dashie-funded tool is unavailable: no credit to spend,
   // or no account to bill at all (the self-hosted shell). Both must gate it — see
   // OrchestratorIO.paidTools.

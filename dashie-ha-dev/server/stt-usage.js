@@ -44,6 +44,8 @@
 const { recordLocalUsage } = require('./usage-store');
 // B2b (row 80): the per-turn history. Gated inside turn-log — this lane just reports.
 const turnLog = require('./turn-log');
+// D5: the model id has one home (gemini-stt.js); recorded from there, never retyped.
+const { MODEL: GEMINI_MODEL } = require('./gemini-stt');
 
 /** Canonical PCM WAV layout, per D's §8c.2. */
 const OFF = { channels: 22, sampleRate: 24, bitsPerSample: 34, dataTag: 36, dataBytes: 40 };
@@ -105,7 +107,7 @@ function hostOf(url) {
  *
  * @param {Buffer} audio  the exact bytes sent to the engine
  * @param {object} opts   add-on options (readOptions())
- * @param {'local'|'cloud'} route  which branch of handleStt ran
+ * @param {'local'|'cloud'|'gemini'} route  which branch of handleStt ran
  */
 function recordSttCall(audio, opts, route) {
     try {
@@ -154,6 +156,18 @@ function recordSttCall(audio, opts, route) {
                 lane: 'stt', provider: 'dashie_cloud', model: '',
                 billing: 'metered', success: true, latency_ms: null, units,
             });
+            return;
+        }
+
+        if (route === 'gemini') {
+            // D5: the household's OWN Gemini key, so `byok`, and a store key of its
+            // own — never folded into `cloud` (metered) or `local` (§5a).
+            // `provider: 'gemini'` is the key-store's spelling of this identity:
+            // one identity, one spelling (the `dashie_cloud` lesson above). The
+            // model is recorded rather than defaulted, since `stt_model` is the
+            // operator's Whisper option and says nothing about this call.
+            recordLocalUsage({ lane: 'stt', provider: 'gemini', model: GEMINI_MODEL, billing: 'byok', success: true, units });
+            turnLog.recordTurnIfEnabled({ lane: 'stt', provider: 'gemini', model: GEMINI_MODEL, billing: 'byok', success: true, latency_ms: null, units });
             return;
         }
 
