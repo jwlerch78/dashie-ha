@@ -202,7 +202,7 @@ const VoiceAiProfileSwitcher = {
 
     // ── Render ───────────────────────────────────────────────────────────────
 
-    render(defaultsMap) {
+    render(defaultsMap, opts) {
         const named = this._named();
         const ids = Object.keys(named);
         const editing = this._editingId();
@@ -211,7 +211,16 @@ const VoiceAiProfileSwitcher = {
             : '';
 
         // §7: one profile ⇒ no switcher at all. Just the affordance to make a second.
+        //
+        // D8 (2026-10-09): in SIMPLE mode not even that — a household with one
+        // profile has nothing to switch, so the only thing this renders is an
+        // invitation to a concept they have not asked about, which is precisely the
+        // "naming a concept the user does not have yet" cost the header below
+        // already argues against. The branch BELOW (a named profile exists) is NOT
+        // suppressed in Simple: that is a configured value, and hiding it would
+        // leave a household editing one profile while the page named another.
         if (ids.length === 0) {
+            if (opts?.simple) return err;
             return `${err}<div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
                 <button class="btn btn-secondary btn-sm" ${this._busy ? 'disabled' : ''}
                         onclick="VoiceAiProfileSwitcher.create(VoiceAiPage._defaults)">Create a profile</button>

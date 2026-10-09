@@ -58,6 +58,14 @@ const FILES = [
   `${B}/lib/prompt-tool-catalog.js`,
   `${B}/lib/freeform-prompt.js`,
   `${B}/components/voice-ai-prompt-section.js`,
+  // 🔴 Simple/Advanced (D8, 2026-10-09). MUST be loaded, and this gate must then
+  // SAY which mode it is measuring. The page reads `window.VoiceAiMode?.isSimple?.()`
+  // with optional chaining, so a gate that simply omits this file gets
+  // `simple === false` and measures the ADVANCED page — silently, and forever,
+  // while the product ships SIMPLE as the default. Every leg below stayed green the
+  // moment Simple landed, which is the shape of a gate that has stopped describing
+  // the shipping configuration.
+  `${B}/lib/voice-ai-mode.js`,
   `${B}/pages/voice-ai.js`,
 ];
 const store = {};
@@ -103,6 +111,16 @@ P._expandedCards = new Set(); P._savingKey = null;
 
 let pass=0, fail=0;
 const t=(n,c,d)=>{ if(c){pass++;console.log(`  PASS  ${n}`);} else {fail++;console.log(`  FAIL  ${n}${d?' — '+d:''}`);} };
+
+// 🔴 ADVANCED, DECLARED RATHER THAN INHERITED. Legs 1–30 are about the full page:
+// the two-across grid, the five section-1 pickers, the AI Prompt & Tools section.
+// Simple mode withholds most of them by design, so these legs would be asserting
+// against a view that is not theirs. The partition itself is check-voice-simple-mode's
+// subject. Stating the mode here is the same discipline as `world()` in
+// check-release-scope — a default is how a leg ends up testing a state nobody meant.
+const M = vm.runInContext('VoiceAiMode', ctx);
+if (!M || typeof M.isSimple !== 'function') { console.log('BLIND: VoiceAiMode did not load'); process.exit(2); }
+M._mode = 'advanced';
 
 let html;
 try { html = P._renderAiDefaults(); }

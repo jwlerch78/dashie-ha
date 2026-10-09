@@ -1231,11 +1231,17 @@ const VoiceAiPage = {
         // has not resolved yet simply renders no switcher rather than blocking the page.
         window.AccountSettingsStore?.ensure?.();
         this.applyScope();
+        // D8: household sharing is Advanced — it is an account-wide decision about
+        // OTHER people's devices, not part of getting voice working. The profile
+        // switcher is Advanced too, but only in its empty state: a household that
+        // already HAS named profiles keeps the control that switches between them,
+        // because Simple withholds controls and must not withhold a configured value.
+        const simple = window.VoiceAiMode?.isSimple?.() === true;
         return `
             <div style="max-width: 760px;">
-                ${window.VoiceAiProfileSwitcher?.render?.(this._defaults) || ''}
+                ${window.VoiceAiProfileSwitcher?.render?.(this._defaults, { simple }) || ''}
                 ${this._renderAiDefaults()}
-                ${this._renderHouseholdSharing()}
+                ${simple ? '' : this._renderHouseholdSharing()}
             </div>
         `;
     },
@@ -1707,13 +1713,30 @@ const VoiceAiPage = {
         // about what the user chose. ⚠️ That asymmetry is real and is flagged to John:
         // the console now always shows these; the tablet still honours the stored key.
         const customPipeline = true;
-        const showPipeline = customPipeline && !isLive;
+        // ── D8: Simple withholds controls; the SUMMARY still reports their values ──
+        //
+        // 🔴 `pipelineReal` and `showPipeline` are deliberately two names for what
+        // used to be one. `pipelineReal` asks whether the cascade pipeline is live
+        // at all (it is not under Live, which owns STT+LLM+TTS itself);
+        // `showPipeline` asks whether to RENDER its cards here.
+        //
+        // Collapsing them is the bug this split exists to prevent: the collapsed
+        // section summary reads `showPipeline ? lbl(ttsAll, ...) : ''`, so a Simple
+        // mode that reused one flag would hide the text-to-speech CARD and the
+        // text-to-speech VALUE together. A household running their own Kokoro box
+        // would then see a page that describes a system they are not running —
+        // which is strictly worse than the busy page Simple is fixing. Simple may
+        // hide a control. It must never hide a value.
+        const simple = window.VoiceAiMode?.isSimple?.() === true;
+        const pipelineReal = customPipeline && !isLive;
+        const showPipeline = pipelineReal && !simple;
         // STT shows whenever the pipeline is customized — in cascade (with TTS/search) AND
         // in Live mode (on its own, below Live Voice). In Live it's the engine that
         // transcribes the FIRST wake command for the local-vs-Live routing decision; the
         // rest of the pipeline stays hidden (Live speaks its own voice, grounds via the
         // model). Gated on the Customize-pipeline toggle so it's opt-in. Asterisked in Live.
-        const showStt = customPipeline;
+        const sttReal = customPipeline;
+        const showStt = sttReal && !simple;
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
@@ -1794,7 +1817,10 @@ const VoiceAiPage = {
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${S.grid([
                 gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
-                D.renderWakeWordCard({
+                // Wake word is Advanced (D8): one choice, set once, and 'Hey Dashie'
+                // is right for nearly every household. Its VALUE is not lost — a
+                // non-default wake word is named in the section summary below.
+                simple ? '' : D.renderWakeWordCard({
                     currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                     saving: this._savingKey === 'ai.defaultWakeWord',
                     compact: true,
@@ -1811,12 +1837,13 @@ const VoiceAiPage = {
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
                 S.full([
-                    isLive ? this._renderLiveVoiceRow(d) : '',
+                    isLive && !simple ? this._renderLiveVoiceRow(d) : '',
                     showStt && isLive ? this._renderLiveSttNote() : '',
                     showPipeline ? this._renderEngineDetectionRow() : '',
                     showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
                 ].filter(Boolean).join('')),
             ].filter(Boolean))}
+            ${window.VoiceAiMode?.renderFooter?.() || ''}
 `;
         // 🔴 Web search source and HA entities MOVED to section 2 (John, 2026-09-23):
         // they are what the assistant may reach for, not how it hears or speaks. They
@@ -1864,15 +1891,19 @@ const VoiceAiPage = {
 
         // Summaries: what each section says when shut. Read from the SAME ids the
         // cards render from, so a collapsed page cannot disagree with an open one.
+        // 🔴 `sttReal` / `pipelineReal`, NEVER `showStt` / `showPipeline`. This line is
+        // the only place a Simple-mode household sees which engines they are actually
+        // running, so it must report the pipeline's real state and not whether this
+        // view happens to draw its cards. (D8, 2026-10-09.)
         const voiceSummary = [
             lbl(this._haFilter(O.PRESETS), preset),
             isHaAssist ? '' : lbl(this._modelOptions(preset), this._selectedModelId(agentMode)),
-            showStt ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
-            showPipeline ? lbl(ttsAll, ttsSelectedId) : '',
+            sttReal ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
+            pipelineReal ? lbl(ttsAll, ttsSelectedId) : '',
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
             ...window.VoiceAiPromptSection.summary(promptSectionArgs),
-            showPipeline ? lbl(searchOptions, searchSelected) : '',
+            pipelineReal ? lbl(searchOptions, searchSelected) : '',
             // John, 2026-09-23: the summary must capture conversation mode. It is the
             // one setting in here that changes how every single turn behaves, so a
             // collapsed section that omitted it was hiding the most consequential row.
@@ -1885,8 +1916,9 @@ const VoiceAiPage = {
                  switcher's own "Voice & AI Profile" heading now titles this whole area, and
                  two headings a few pixels apart were naming the same thing twice. The
                  locality legend stays and keeps its row, right-aligned on its own. -->
-            <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 16px; margin: 20px 0 10px;">
+            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 16px; margin: 20px 0 10px;">
                 ${this._renderLocalityLegend()}
+                ${window.VoiceAiMode?.render?.() || ''}
             </div>
             ${S.render({
                 id: 'voice',
@@ -1902,7 +1934,7 @@ const VoiceAiPage = {
                     })}
                     ${body}`,
             })}
-            ${isHaAssist ? '' : S.render({
+            ${(isHaAssist || simple) ? '' : S.render({
                 id: 'tools',
                 title: 'AI Prompt & Tools',
                 summary: toolsSummary,

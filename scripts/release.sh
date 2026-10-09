@@ -362,6 +362,16 @@ node "$ADDON_ROOT/scripts/check-picker-fallback.mjs"
 # Driven: evaluates the real modules and calls the real _renderAiDefaults().
 node "$ADDON_ROOT/scripts/check-voice-sections.mjs"
 
+# D8 Simple/Advanced. Simple WITHHOLDS controls, which is easy; the dangerous part is
+# that it must never withhold a VALUE. A household on their own Whisper box, seeing a
+# Simple page that names neither the card nor the choice, is reading a page that
+# describes a system they are not running -- silent, and worse than the busy page.
+# The mechanism is one identifier wide (the summary must read sttReal/pipelineReal,
+# not the showStt/showPipeline render flags), so leg 16 re-injects the pre-D8 names
+# into the real page source and requires the safety leg to break.
+echo "==> Checking Simple mode hides controls but never values"
+node "$ADDON_ROOT/scripts/check-voice-simple-mode.mjs"
+
 # Editing a NAMED profile must not write into DEFAULT. overlay() handed back the
 # caller's own object on its early returns, so the page's _defaults became the very
 # same object as _accountRaw and optimistic edits leaked into the household copy --
