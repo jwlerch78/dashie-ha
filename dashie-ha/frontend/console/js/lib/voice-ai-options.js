@@ -783,6 +783,11 @@ const VoiceAiOptions = {
                 const stt = this.STT.find(o => o.id === 'dashie_cloud');
                 if (stt) stt.cost = `$${cr.stt.per_min.toFixed(3)}/min · ${perCmd}/command`;
             }
+            // D5(i), John 2026-10-08: the Cloud STT description names the vendor that ACTUALLY runs, from
+            // the server knob carried on this same payload. Absent (older server) → keep the default.
+            const sttVendor = { deepgram: 'Deepgram', gemini: 'Google' }[res?.cloud_stt_provider];
+            if (sttVendor) this.CLOUD_SUPPLIERS[0].vendors = sttVendor;
+            else if (res?.cloud_stt_provider) console.warn(`DROP: cloud-stt-vendor-unknown '${res.cloud_stt_provider}' — keeping '${this.CLOUD_SUPPLIERS[0].vendors}'`);
             if (typeof cr?.image_search?.per_unit === 'number') {
                 this.imageSearchCost = this._usd(cr.image_search.per_unit);
             } else {
