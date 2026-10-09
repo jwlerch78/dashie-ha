@@ -37,6 +37,11 @@ const FILES = {
     brand: join(CONSOLE, 'js', 'lib', 'brand.js'),
     manifest: join(CONSOLE, 'js', 'lib', 'provider-manifest.js'),
     availability: join(CONSOLE, 'js', 'lib', 'provider-availability.js'),
+    // Loaded so LEG 8 exercises the REAL local-engine predicate rather than a
+    // stub of it: the 'ha-tts-engine' detector asks HaEngines.haOption('tts'),
+    // which runs VoiceAiOptions._piperOption. A stub here would test the gate.
+    options: join(CONSOLE, 'js', 'lib', 'voice-ai-options.js'),
+    engines: join(CONSOLE, 'js', 'lib', 'ha-engines.js'),
     api: join(CONSOLE, 'js', 'lib', 'voice-ai-api.js'),
     editor: join(CONSOLE, 'js', 'pages', 'voice-ai-personality-edit.js'),
     page: join(CONSOLE, 'js', 'pages', 'voice-ai.js'),
@@ -58,12 +63,14 @@ try {
 }
 
 // Load the console libs (manifest + the availability join) into one scope.
-const sandbox = { console, document: { title: '', querySelector: () => null }, DashieAuth: { isAddonMode: true } };
+const sandbox = { console, document: { title: '', querySelector: () => null },
+    DashieAuth: { isAddonMode: true, isLocalMode: false, _addonUrl: (p) => p },
+    fetch: async () => { throw new Error('check-personalities: no network'); } };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
 try {
-    for (const k of ['brand', 'manifest', 'availability']) {
+    for (const k of ['brand', 'manifest', 'options', 'engines', 'availability']) {
         vm.runInContext(readFileSync(FILES[k], 'utf8'), ctx, { filename: FILES[k] });
     }
 } catch (e) {
@@ -217,9 +224,99 @@ function check(name, ok, detail, why) {
         'John ruled the two editions\' rosters INDEPENDENTLY AUTHORED (s127): they genuinely differ, so a generator would force agreement between two things that are not the same thing. A later alignment discussion is deferred, not assumed');
 }
 
+// ── LEG 8 — the KEYLESS fallback actually resolves (the 2026-10-09 fix) ────
+//
+// 🔴 THE DEFECT THIS PINS. Princess and Butler each end their voice preference
+// list on `piper:…`, written so a household with no paid key still gets a
+// character voice. That entry could never win: `isAvailable` looks every
+// provider up in ProviderManifest, `piper` was not in it, and an unknown id is
+// false by design (leg 3d). So on EVERY stock box the keyless half of every
+// chain was dead and two of three V1 personalities reported "(voice not
+// available)" while Home Assistant's own Piper ran on the same machine.
+//
+// Measured before the fix, Gemini-key-only box: princess null, butler null;
+// control with an ElevenLabs key resolved elevenlabs:* correctly. So the chain
+// worked for people who had paid and failed for everyone else — which is the
+// configuration the HA release is judged on.
+//
+// ⚠️ 8d/8e ARE THE LEGS THAT MATTER MOST, and they guard the tempting WRONG fix.
+// The obvious patch is two `auth: 'none'` rows. READINESS[NONE] is `() => true`,
+// so that would report Kokoro available on a box with no Kokoro — the
+// reassuring direction, invisible from the console, and only audible when a
+// voice fails to speak. Availability for a local engine must consult DETECTION.
+{
+    const PIPER_ONLY = { available: true, kokoro: { installed: false }, brain: {}, stt: [],
+        tts: [{ engine_id: 'tts.piper', name: 'piper',
+                voices: [{ voice_id: 'en_GB-alan-low', name: 'alan' }] }] };
+    const KOKORO_TOO = { ...PIPER_ONLY, kokoro: { installed: true } };
+    const byKey = (k) => T.listTemplates().find((x) => x.key === k);
+    const res = (k) => A.resolveVoice(byKey(k).voices);
+
+    // Only run if the templates still END on a keyless engine — otherwise this
+    // whole leg is about a fallback that no longer exists and would pass
+    // vacuously while asserting nothing.
+    const chains = ['princess', 'butler'].map(byKey).filter(Boolean);
+    const keylessTailed = chains.filter((t) => {
+        const last = String((t.voices || [])[(t.voices || []).length - 1] || '');
+        return /^(piper|kokoro):/.test(last);
+    });
+    check(`leg 8 PRECONDITION — the V1 chains still end on a keyless engine (${keylessTailed.length}/${chains.length})`,
+        chains.length > 0 && keylessTailed.length === chains.length,
+        `chains ending keyless: ${keylessTailed.map((t) => t.key).join(', ') || 'none'}`,
+        'if the templates stop ending on piper:/kokoro: then 8a-8c below assert nothing and would pass on a box where the keyless path is gone again. Re-point this leg deliberately rather than deleting it');
+
+    A._setKeyStatusForTest({ gemini: true });
+    A._setEnginesForTest(PIPER_ONLY);
+    check('leg 8a — `piper` is a KNOWN provider and reads available when HA offers it',
+        A.isAvailable('piper') === true,
+        `isAvailable('piper') with a detected HA Piper engine = ${A.isAvailable('piper')}`,
+        'this is the fix itself — an engine absent from the manifest can never win a voice chain, however well it works');
+    const pr = res('princess'), bu = res('butler');
+    check('leg 8b — Princess resolves on a box with NO paid key',
+        typeof pr === 'string' && /^(piper|kokoro):/.test(pr), `got ${JSON.stringify(pr)}`,
+        'the shipped defect: "(voice not available)" on every stock box, which is what made personalities look ElevenLabs-dependent');
+    check('leg 8c — Butler too', typeof bu === 'string' && /^(piper|kokoro):/.test(bu),
+        `got ${JSON.stringify(bu)}`);
+
+    check('leg 8d 🔴 — kokoro reads UNAVAILABLE when the add-on is NOT installed',
+        A.isAvailable('kokoro') === false,
+        `isAvailable('kokoro') with kokoro.installed=false = ${A.isAvailable('kokoro')}`,
+        'THE leg that rejects the wrong fix. Two `auth:\'none\'` rows would return true here, claiming an engine this box does not have — undetectable from the console and audible only when speech fails');
+    A._setEnginesForTest(KOKORO_TOO);
+    check('leg 8e — POSITIVE CONTROL: ...and AVAILABLE once it is installed',
+        A.isAvailable('kokoro') === true,
+        `isAvailable('kokoro') with kokoro.installed=true = ${A.isAvailable('kokoro')}`,
+        'without this, 8d passes on a detector that always says no and the engines are simply unreachable by another route');
+
+    A._setEnginesForTest(null);
+    check('leg 8f — detection unavailable ⇒ local engines read unavailable (FAILS CLOSED)',
+        A.isAvailable('piper') === false && A.isAvailable('kokoro') === false,
+        `piper=${A.isAvailable('piper')} kokoro=${A.isAvailable('kokoro')}`,
+        'no HA, a failed probe, or a cloud console must degrade the voice rather than claim an engine nobody observed');
+
+    A._setEnginesForTest(PIPER_ONLY);
+    A._setKeyStatusForTest({ gemini: true, elevenlabs: true });
+    check('leg 8g — CONTROL: a paid key still WINS the chain (preference order intact)',
+        res('butler') === 'elevenlabs:butler', `got ${JSON.stringify(res('butler'))}`,
+        'the keyless entries are a FALLBACK, not a replacement — if they started winning, every household that paid for ElevenLabs would silently lose the voice it chose');
+
+    // The AUTH.NONE shape, tested where the adapter gate cannot mask it.
+    // (isAvailable('espn') is false regardless, because espn's adapter is
+    // 'pending' — so asserting through isAvailable would have been a tautology.)
+    const M = sandbox.window.ProviderManifest;
+    const espn = M.byId('espn');
+    check('leg 8h — CONTROL: the AUTH.NONE readiness rule is untouched',
+        !!espn && M.isConfigured(espn, undefined) === true,
+        `isConfigured(espn, undefined) = ${espn && M.isConfigured(espn, undefined)}`,
+        'the delegation in isAvailable routes all three shapes through READINESS; if NONE stopped answering true, keyless providers would become unconfigurable again — the bug that rule exists to prevent');
+
+    A._setKeyStatusForTest({});
+    A._setEnginesForTest(null);
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);
     process.exit(1);
 }
-console.log('✅ all legs pass — the roster ships account-less, the join is one function, and a missing voice degrades the voice alone');
+console.log('✅ all legs pass — the roster ships account-less, the join is one function, a missing voice degrades the voice alone, and the keyless fallback resolves without claiming engines this box does not have');

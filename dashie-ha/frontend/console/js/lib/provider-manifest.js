@@ -42,6 +42,11 @@
 //               design decision that took work and would otherwise have to be
 //               re-derived. Read it as intent, not as a live surface:
 //               `bySurface('onboarding', …)` has no caller today.
+//   detect      for auth 'local-engine' ONLY: which detector answers "is this
+//               engine present on this box". A key into ProviderAvailability's
+//               DETECTORS map, never a predicate inline here — this file is
+//               data, and a function here would need the engine payload it has
+//               no business holding.
 //   adapter     🔴 'shipped' | 'pending'. Whether the on-box code that USES this
 //               key exists yet. Storing and validating a key is one piece of
 //               work; the adapter that spends it is another. A
@@ -103,6 +108,24 @@
     const AUTH = {
         NONE: 'none',
         API_KEY: 'api-key',
+        // 🔴 LOCAL_ENGINE (2026-10-09) — a provider with no credential whose
+        // availability is a question about THIS BOX, answered by detection.
+        //
+        // It exists because NONE is the wrong shape for a local engine and the
+        // wrongness fails in the REASSURING direction. READINESS[NONE] is
+        // `() => true`: correct for ESPN and Wikimedia, which are public web
+        // APIs that are always there. Applied to Kokoro it would report the
+        // engine available on a box that has never installed it — the WS-I.8
+        // shape this file's header warns about, one step worse because nothing
+        // would even be stored to look at.
+        //
+        // The credential question ("do I hold a key") and the presence question
+        // ("is this engine running on this box") are different questions with
+        // different instruments, so they get different shapes rather than one
+        // shape and a special case. The DETECTION itself lives in
+        // ProviderAvailability, which already owns the join; this file only
+        // declares which detector a row wants, in `detect`.
+        LOCAL_ENGINE: 'local-engine',
     };
 
     /** What a provider can serve. */
@@ -321,6 +344,63 @@
             fields: [{ id: 'key', label: 'API key', placeholder: '', secret: true }],
         },
 
+        // ── Local engines ────────────────────────────────────────────────────
+        // 🔴 ADDED 2026-10-09 to fix a PROVEN defect, not to add a feature.
+        //
+        // `personality-templates.js` gives Princess and Butler an ordered voice
+        // preference list that deliberately ENDS on a keyless local engine
+        // (`piper:en_GB-alan-low`), so that a household with no paid key still
+        // gets a Butler who sounds like a Butler. That fallback could never
+        // resolve: `ProviderAvailability.resolveVoice` walks the refs through
+        // `isAvailable`, which looks each provider up HERE, and `piper` was not
+        // here. An unknown id returns false — correctly, so a typo cannot fake
+        // availability — so the keyless half of every chain was dead and two of
+        // three V1 personalities reported "(voice not available)" on every stock
+        // box while Home Assistant's own Piper ran on the same machine.
+        //
+        // Measured before the fix, with a Gemini-key-only box:
+        //   princess  resolved=null   → "(voice not available)"
+        //   butler    resolved=null   → "(voice not available)"
+        //   control, with an ElevenLabs key → resolves elevenlabs:*
+        //
+        // These are NOT configurable and NOT on the api-keys surface: there is
+        // no credential and nothing to type. They are here because this list is
+        // what `isAvailable` consults, and an engine absent from it is an engine
+        // that can never win a voice chain.
+        {
+            // 🔴 group 'local-engine', NOT 'speech'. The speech GROUP means "a
+            // configurable speech CREDENTIAL", and three existing gates read it
+            // that way: check-api-keys-surface leg 1 requires every speech
+            // provider to be on the API Keys page, and check-byok-tts leg 9
+            // requires every speech provider's `adapter` claim to match what
+            // `byok-tts.js` actually implements. Both are right, and both were
+            // red when these rows said 'speech' — correctly: there is no
+            // credential to enter and `byok-tts.js` does not speak through
+            // Piper (HA's pipeline and engines.js do). A local engine is a
+            // different KIND of thing, so it gets its own group rather than a
+            // special case inside the gates that read the old one.
+            id: 'piper', name: 'Piper (Home Assistant)', kind: 'tool', group: 'local-engine',
+            surfaces: [],                       // nothing to configure anywhere
+            capabilities: [CAP.TTS], credential: CRED_STATIC,
+            auth: AUTH.LOCAL_ENGINE, detect: 'ha-tts-engine',
+            required: false, adapter: ADAPTER.SHIPPED,
+            unlocks: 'Free local text-to-speech, already running in Home Assistant',
+            keySource: {},
+            note: 'Detected from your Home Assistant voice pipeline. No key, nothing to set up.',
+            fields: [],
+        },
+        {
+            id: 'kokoro', name: 'Kokoro', kind: 'tool', group: 'local-engine',
+            surfaces: [],
+            capabilities: [CAP.TTS], credential: CRED_STATIC,
+            auth: AUTH.LOCAL_ENGINE, detect: 'kokoro-addon',
+            required: false, adapter: ADAPTER.SHIPPED,
+            unlocks: 'Free local text-to-speech with character voices',
+            keySource: {},
+            note: 'Detected when the Kokoro add-on is installed. 54 voices, runs on your own box.',
+            fields: [],
+        },
+
         // ── Keyless ──────────────────────────────────────────────────────────
         // Permanently ready: nothing to configure, nothing to expire, nothing to
         // pay. I originally left these OUT, reasoning that a provider with no
@@ -382,6 +462,13 @@
     const READINESS = {
         [AUTH.NONE]: () => true,                       // nothing to configure, always ready
         [AUTH.API_KEY]: (_p, serverStatus) => serverStatus === true,
+        // Same strict test as API_KEY, and deliberately NOT `() => true`: the
+        // caller passes the DETECTION result as `serverStatus`, so an
+        // unverifiable detection (no HA, failed probe, cloud console) arrives as
+        // false/undefined and the engine reads unavailable. Fails closed —
+        // claiming a local engine we could not see is the one direction that
+        // would put a voice on a personality the box cannot speak.
+        [AUTH.LOCAL_ENGINE]: (_p, detected) => detected === true,
     };
 
     /** A build shipping another shape registers how to read its readiness. */

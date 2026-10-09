@@ -129,7 +129,25 @@
     // and registers a renderer nothing can ever reach — that happened once here,
     // and no test noticed because the fallback still failed loudly, just with the
     // wrong message. This turns it into a boot-time complaint.
+    //
+    // ⚠️ SCOPED TO SURFACED PROVIDERS (2026-10-09). It used to walk every value
+    // of AUTH. `AUTH.LOCAL_ENGINE` is declared for rows that are deliberately on
+    // NO surface — `piper` and `kokoro` exist so `ProviderAvailability` can
+    // consult them and are never configured by anyone — so demanding a renderer
+    // for that shape would mean authoring a renderer for a path nothing can
+    // reach, which is the "authored but unreached" pattern this repo has a
+    // standing rule against, and the opposite of what this check is for.
+    //
+    // The original bug is still caught: a renamed constant on a SURFACED
+    // provider still produces a declared shape with no renderer, and the
+    // "undefined" key check below is untouched. A shape only becomes exempt by
+    // having no surfaced provider at all, which is a visible fact in the
+    // manifest rather than a flag someone can set to silence this.
+    const surfacedShapes = new Set((window.ProviderManifest.PROVIDERS || [])
+        .filter(p => (p.surfaces || []).length > 0)
+        .map(p => p.auth));
     for (const shape of Object.values(AUTH)) {
+        if (!surfacedShapes.has(shape)) continue;
         if (!Object.prototype.hasOwnProperty.call(RENDERERS, shape)) {
             console.warn(`DROP: auth shape '${shape}' is declared in ` +
                 `provider-manifest.js but has no renderer registered here.`);
