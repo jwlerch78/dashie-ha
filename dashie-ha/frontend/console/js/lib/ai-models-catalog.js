@@ -276,6 +276,17 @@
           perMinute: 0.006          // $0.006 per minute
         },
     
+        // Google Gemini batch transcription (gemini-3.5-transcribe) — D5(i), Dashie-cloud lane.
+        // Billed per TOKEN (sttTokenCost from usageMetadata), not per minute: Verified 2026-10-08 at
+        // ai.google.dev/gemini-api/docs/pricing — $2.00 / 1M audio-input tokens, $12.00 / 1M text-output
+        // tokens, 25 audio tokens/s. perMinute is Google's own blended estimate (~$0.005/min), kept for
+        // side-by-side comparison with Deepgram only; the route never bills from it.
+        gemini: {
+          perMillionInputTokens: 2.00,
+          perMillionOutputTokens: 12.00,
+          perMinute: 0.005
+        },
+    
         // Native (Web Speech API, Android STT)
         native: {
           perMinute: 0.00           // Free (built-in)
@@ -462,7 +473,9 @@
      *  Falls back to 0 (free) for unknown providers / native paths. */
     function sttCost({ provider, seconds = 0, streaming = false }) {
         const row = TOKEN_COSTS.stt?.[provider];
-        if (!row) return 0;
+        // Rule ②: an unpriced provider bills $0 and every dashboard reads healthy. Say so.
+        // (A row priced at 0, e.g. native, is a real answer and stays quiet.)
+        if (!row) { if (provider) console.warn('DROP: stt-cost-no-row provider=' + provider + ' — billed $0'); return 0; }
         if (streaming && typeof row.perMinuteStreaming === 'number') {
             return (seconds / 60) * row.perMinuteStreaming;
         }
