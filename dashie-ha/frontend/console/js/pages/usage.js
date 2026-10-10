@@ -340,13 +340,24 @@ const UsagePage = {
     },
 
     _renderRow(r) {
-        // 🔴 Units go through UsageUnits (2026-10-09, John approved). This line used to be
+        // 🔴 Units go through UsageUnits (2026-10-09, John approved). This block used to be,
+        // verbatim:
         //
-        //     Object.entries(r.units).map(([k, v]) => `${k} ${v}`).join(' · ')
+        //     const units = Object.entries(r.units || {})
+        //         .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`)
+        //         .join(' · ');
         //
-        // which put STORE FIELD NAMES on screen: a household's row read
-        // `3 calls · bytes 186240 · seconds 5.82`. Live on 0.9.55, and about to get three
-        // more names when token recording lands.
+        // It was correctly ESCAPED — the defect was never injection. The defect is that `k`
+        // is the store's own field name, rendered verbatim, so a household's row read
+        // `3 calls · bytes 186240 · seconds 5.82`.
+        //
+        // ⚠️ And all SIX fields are live on 0.9.55, not the two above: the brain lane already
+        // records input_tokens/output_tokens/total_tokens unconditionally (server/brain/
+        // addon-io.js, above the `signedIn` early return), so a brain-lane household reads
+        // `total_tokens 1234 · input_tokens 980 · output_tokens 254` today. An earlier draft
+        // of this comment said the token names were "about to" appear when STT token
+        // recording lands; that was wrong — that commit is the first token recording for the
+        // STT lane, not the first overall.
         //
         // The original comment's point still stands and is now enforced rather than
         // asserted: units are per-lane and must never be flattened into one "amount"
