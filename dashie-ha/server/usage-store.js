@@ -174,6 +174,20 @@ function recordLocalUsage(u) {
         const bucket = (days[day] = days[day] || {});
         const entry = (bucket[key] = bucket[key] || { calls: 0, errors: 0 });
 
+        // The LANE lives on the entry, not in the key: a 4th key component would
+        // mislabel every row in a reader that splits three, and a SCHEMA_VERSION
+        // bump would wipe every household's history (agreed with B, 2026-10-10).
+        // Three states: absent = not recorded yet (a pre-lane row: backfilled now),
+        // a string = known, null = two lanes summed into one row, so unknowable.
+        // 🔴 null is STICKY: never backfilled. `undefined` would serialise as an
+        // absent key and the next call would re-label a merged row — a wrong word
+        // on the household's screen where a missing one belongs.
+        if (!('lane' in entry)) entry.lane = lane;
+        else if (entry.lane !== null && entry.lane !== lane) {
+            console.warn(`DROP: usage-local-lane-mismatch key=${key} had=${entry.lane} got=${lane} — the row now sums two lanes; its lane is recorded as unknown`);
+            entry.lane = null;
+        }
+
         entry.calls += 1;
         if (!success) entry.errors += 1;
 

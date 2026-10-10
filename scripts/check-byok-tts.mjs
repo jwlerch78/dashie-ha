@@ -177,7 +177,9 @@ const TEXT = 'Tomorrow looks sunny with a high of seventy five.';
         u[0] === expected,
         `expected  ${expected}\n     got       ${u[0]}`,
         "lane= must come first so a single grep isolates one lane, and n= must be the CHARACTERS the provider bills — not the byte count of the audio");
-    check('leg 2c — the turn returned audio',
+    // audio/mpeg is ElevenLabs' container (mp3_44100_128). Gemini serves audio/wav —
+    // asserted in check-gemini-tts.mjs — so this leg names the provider it is about.
+    check('leg 2c — the ElevenLabs turn returned audio/mpeg',
         value?.ok === true && Buffer.isBuffer(value.audio) && value.contentType === 'audio/mpeg',
         `ok=${value?.ok} audio=${Buffer.isBuffer(value?.audio)} contentType=${value?.contentType}`,
         'a control that only counted log lines would pass on an adapter that never returns audio');
@@ -363,7 +365,7 @@ const TEXT = 'Tomorrow looks sunny with a high of seventy five.';
         && out.head?.headers?.['Content-Type'] === 'audio/mpeg'
         && Buffer.isBuffer(out.body)
         && out.json === null;
-    check('leg 10a — DRIVEN: handleTts with a stored key serves BYOK audio (not the cloud, not a 503)',
+    check('leg 10a — DRIVEN: handleTts with a stored ElevenLabs key serves BYOK audio/mpeg (not the cloud, not a 503)',
         servedByok,
         `head=${JSON.stringify(out.head)} json=${JSON.stringify(out.json)} body-is-buffer=${Buffer.isBuffer(out.body)}`,
         'this is the only assertion that distinguishes a wired branch from a dead-coded one — the static form of this leg stayed green against `if (false && …)`');

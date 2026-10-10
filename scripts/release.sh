@@ -143,6 +143,13 @@ echo "==> Checking disclosure (docs still describe the code)"
 # number rather than an error.
 echo "==> Checking the BYOK speech lane (adapter/key join · no key in logs · one USAGE: per call)"
 node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
+# Its Gemini adapter (John 2026-10-10: only with no speech key and not signed in):
+# precedence, WAV passthrough / L16 wrapped at the mimeType's rate, billed-on-2xx.
+echo "==> Checking the Gemini speech adapter (precedence · WAV proven by the box's own parser · billed on 2xx)"
+node "$ADDON_ROOT/scripts/check-gemini-tts.mjs"
+# The lane on each usage row: backfilled when absent, null (sticky) when two lanes share a key.
+echo "==> Checking the usage-row lane (sticky null after a mismatch, asserted on the raw file)"
+node "$ADDON_ROOT/scripts/check-usage-lane.mjs"
 
 # The other end of the same lane: a household can ENTER a speech key, the brain
 # routability filter does not eat it, and one with no adapter yet says so in the

@@ -230,6 +230,7 @@ async function mayTakeMeteredRoute() {
 }
 
 module.exports = {
+    signedIn,   // byok-tts.js resolves its Gemini precedence on the same answer
     LEASABLE_CAPABILITIES,
     METERED_KEYS,
     ACCOUNTLESS_SHARING_DEFAULT,
