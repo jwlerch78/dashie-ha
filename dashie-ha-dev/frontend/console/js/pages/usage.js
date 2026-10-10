@@ -233,6 +233,29 @@ const UsagePage = {
         }
 
         const t = UsageSource.totals(this._rows);
+        // 🔴 THE DRIFT REPORT, and it is wired HERE rather than per-row on purpose: once
+        // per render over the whole set, so a household with forty rows gets one line per
+        // unrecognised id instead of forty.
+        //
+        // ⚠️ Added 2026-10-10 because it was MISSING: `unknownIds` shipped in 8ce625a with
+        // the gate as its only caller, so the reporter existed and nothing reached it —
+        // authored-but-unreached, in the same change whose registry row (201) claimed
+        // "runtime drift is ALSO loud, not only gated". That claim was false for a day.
+        // Leg 29 now asserts the PAGE calls these, not merely that they exist.
+        const P = window.UsageProviders;
+        if (P) {
+            const ids = typeof P.unknownIds === 'function' ? P.unknownIds(this._rows) : [];
+            if (ids.length) {
+                console.warn(`DROP: usage-provider-unknown ${ids.join(', ')} — the store recorded a `
+                    + `provider id no vocabulary names; usage-providers.js needs a row or the `
+                    + `manifest needs the provider`);
+            }
+            const lanes = typeof P.unknownLanes === 'function' ? P.unknownLanes(this._rows) : [];
+            if (lanes.length) {
+                console.warn(`DROP: usage-lane-unknown ${lanes.join(', ')} — usage-store.js grew a `
+                    + `lane with no LANE_LABELS row`);
+            }
+        }
         const byDay = new Map();
         for (const r of this._rows) {
             if (!byDay.has(r.day)) byDay.set(r.day, []);
@@ -293,15 +316,53 @@ const UsagePage = {
             </div></div>`;
     },
 
+    /**
+     * The household-facing name for one recorded provider id, escaped.
+     *
+     * Both renderers go through this one method so the aggregate row and the
+     * per-turn row can never name the same provider two different ways — the
+     * defect that made this page's column incoherent in the first place.
+     *
+     * A missing `UsageProviders` degrades to the escaped raw id rather than
+     * throwing: a Usage label is not worth a blank page.
+     */
+    _providerText(id) {
+        const P = window.UsageProviders;
+        if (!P) return DevicesPage._escape(String(id == null ? '' : id));
+        return DevicesPage._escape(P.describe(id).text);
+    },
+
+    /**
+     * The lane in household words, or '' when there is nothing honest to say.
+     *
+     * Absent and `null` both yield '' — the page shows no lane rather than guessing,
+     * and the caller appends nothing. See usage-source.js on why those two states
+     * cannot be told apart by a reader, by design.
+     */
+    _laneText(lane) {
+        const P = window.UsageProviders;
+        if (!P || typeof P.describeLane !== 'function') return '';
+        const d = P.describeLane(lane);
+        return d ? DevicesPage._escape(d.text) : '';
+    },
+
     _renderTurn(t) {
-        const units = Object.entries(t.units || {})
-            .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`).join(' · ');
+        // 🔴 This renderer had the SAME raw-field-name defect `_renderRow` had, and the
+        // first pass fixed only the aggregate: it read `Object.entries(t.units)`, so the
+        // per-turn history printed `total_tokens 1234` exactly as the aggregate did. The
+        // gate missed it too — leg 13's regex was `Object\.entries\(\s*r\.units`, which
+        // `t.units` does not match. One fix, one renderer, one gate, all narrower than the
+        // defect. Both renderers now go through the same two vocabularies.
+        const U = window.UsageUnits;
+        const units = (U ? U.describe(t.units) : [])
+            .map(x => `${DevicesPage._escape(x.text)} ${DevicesPage._escape(x.label)}`).join(' · ');
         const when = String(t.at || '').replace('T', ' ').replace(/\..*$/, '');
-        const name = t.model ? `${t.provider} · ${t.model}` : t.provider;
+        const who = UsagePage._providerText(t.provider);
+        const name = t.model ? `${who} · ${t.model}` : who;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
                 <span><span style="color: var(--text-muted);">${DevicesPage._escape(when)}</span>
-                    ${DevicesPage._escape(t.lane)} · ${DevicesPage._escape(name)}</span>
+                    ${UsagePage._laneText(t.lane) || DevicesPage._escape(t.lane)} · ${DevicesPage._escape(name)}</span>
                 <span style="color: var(--text-muted); text-align: right;">
                     ${t.success ? '' : 'failed · '}${units}${t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}
                 </span>
@@ -340,16 +401,54 @@ const UsagePage = {
     },
 
     _renderRow(r) {
-        // Units are passed through per lane rather than flattened: TTS counts
-        // characters, STT counts seconds, and one "amount" column would silently
-        // add them together.
-        const units = Object.entries(r.units || {})
-            .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`)
-            .join(' · ');
-        const name = r.model ? `${r.provider} · ${r.model}` : r.provider;
+        // 🔴 Units go through UsageUnits (2026-10-09, John approved). This block used to be,
+        // verbatim:
+        //
+        //     const units = Object.entries(r.units || {})
+        //         .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`)
+        //         .join(' · ');
+        //
+        // It was correctly ESCAPED — the defect was never injection. The defect is that `k`
+        // is the store's own field name, rendered verbatim, so a household's row read
+        // `3 calls · bytes 186240 · seconds 5.82`.
+        //
+        // ⚠️ And all SIX fields are live on 0.9.55, not the two above: the brain lane already
+        // records input_tokens/output_tokens/total_tokens unconditionally (server/brain/
+        // addon-io.js, above the `signedIn` early return), so a brain-lane household reads
+        // `total_tokens 1234 · input_tokens 980 · output_tokens 254` today. An earlier draft
+        // of this comment said the token names were "about to" appear when STT token
+        // recording lands; that was wrong — that commit is the first token recording for the
+        // STT lane, not the first overall.
+        //
+        // The original comment's point still stands and is now enforced rather than
+        // asserted: units are per-lane and must never be flattened into one "amount"
+        // column, because TTS characters and STT seconds do not add. UsageUnits keeps
+        // them separate, names each one in household words, and renders `seconds` in
+        // preference to `bytes` so the same audio is never reported twice.
+        const U = window.UsageUnits;
+        const parts = U ? U.describe(r.units) : [];
+        const units = parts.map(x => `${DevicesPage._escape(x.text)} ${DevicesPage._escape(x.label)}`).join(' · ');
+        // The server grew a unit and nothing told the view — the join this depends on.
+        // Loud once per render rather than silently dropped.
+        const unknown = U ? U.unknownKeys(r.units) : [];
+        if (unknown.length) {
+            console.warn(`DROP: usage-units-unknown ${unknown.join(', ')} — `
+                + `usage-store.js grew a unit field with no UsageUnits.FIELDS row`);
+        }
+        // The provider column held five KINDS of string (a lane name, a wire id, real
+        // providers, an operator's host). UsageProviders joins ProviderManifest first, so
+        // this is a join rather than a second spelling — see that file's header.
+        const who = UsagePage._providerText(r.provider);
+        // The lane the store could not tell us until 92aef45. Prefixed, not appended,
+        // because it is the first thing that disambiguates two rows of one provider —
+        // `gemini` now serves brain, stt and tts, and the model strings alone are what
+        // keep their store keys apart, which is not something a household should have to
+        // read. Absent/null renders nothing rather than a guess.
+        const lane = UsagePage._laneText(r.lane);
+        const name = r.model ? `${who} · ${r.model}` : who;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
-                <span>${DevicesPage._escape(name)}
+                <span>${lane ? `<span style="color: var(--text-muted);">${lane}</span> · ` : ''}${DevicesPage._escape(name)}
                     <span style="color: var(--text-muted);">(${DevicesPage._escape(r.billing)})</span></span>
                 <span style="color: var(--text-muted); text-align: right;">
                     ${r.calls} call${r.calls === 1 ? '' : 's'}${r.errors ? ` · ${r.errors} failed` : ''}${units ? ` · ${units}` : ''}

@@ -60,6 +60,13 @@ CONF_BRIDGE_PORT = "bridge_port"
 # auto-created Assist pipeline resolves entity_ids from the registry by them.
 UNIQUE_ID_CONVERSATION = f"{DOMAIN}_conversation"
 UNIQUE_ID_STT = f"{DOMAIN}_stt"
+# D5: the Gemini STT entity. It names its engine in the request
+# (ADDON_STT_GEMINI_QUERY) because HA's /api/stt carries no caller identity, so a
+# tablet's per-device engine choice can only reach the add-on as the entity it
+# targets. The Android app resolves this entity by this unique_id (a user may
+# rename the entity_id), so the string is a cross-repo contract: do not change it.
+UNIQUE_ID_STT_GEMINI = f"{DOMAIN}_stt_gemini"
+ADDON_STT_GEMINI_QUERY = "?engine=gemini"
 UNIQUE_ID_TTS = f"{DOMAIN}_tts"
 
 # Whisper-family engines are multilingual; start with the common English tags

@@ -71,6 +71,7 @@ const GATEWAY_TIMEOUT_MS = 45000;
  *  Dashie-funded tools — so failing open here risks at most one paid tool call
  *  that debitBalance floors later. */
 const FAIL_OPEN_SPEND = { spendable: true, balance: Number.POSITIVE_INFINITY, floor: 0, low: false };
+const { readCredits } = require('../credit-balance');   // the ONE balance read (three-valued)
 
 /** The Dashie Cloud connection, required LAZILY.
  *
@@ -182,17 +183,12 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                 };
             }
             const content = body?.choices?.[0]?.message?.content ?? '';
-            const u = body?.usage || {};
             return {
                 ok: true,
                 latency_ms,
                 raw: {
                     content,
-                    usage: {
-                        input_tokens: u.prompt_tokens,
-                        output_tokens: u.completion_tokens,
-                        total_tokens: u.total_tokens,
-                    },
+                    usage: usageFromChatCompletion(body?.usage),
                     model: body?.model || useModel,
                     provider: providerLabel ? providerLabel.toLowerCase() : 'local',
                     latency: latency_ms,
@@ -416,22 +412,11 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         //
         // CR1 balance read for the BYOK tool gate. get_credit_balance is the same read the
         // console uses. Fails open (see FAIL_OPEN_SPEND).
+        // The tool gate's own answer to 'unknown': ALLOW (fail open), as it always was.
         checkSpendable: async () => {
-            try {
-                const resp = await fetch(`${CLOUD.url}/functions/v1/database-operations`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        apikey: CLOUD.anonKey,
-                        Authorization: `Bearer ${accountToken}`,
-                    },
-                    body: JSON.stringify({ operation: 'get_credit_balance', data: {} }),
-                });
-                const body = await resp.json().catch(() => ({}));
-                const balance = Number(body?.data?.balance ?? body?.balance);
-                if (!resp.ok || !isFinite(balance)) return FAIL_OPEN_SPEND;
-                return { spendable: balance > 0, balance, floor: 0, low: balance > 0 && balance < 1 };
-            } catch { return FAIL_OPEN_SPEND; }
+            const c = await readCredits(accountToken);
+            if (c.state === 'unknown') return FAIL_OPEN_SPEND;
+            return { spendable: c.state === 'spendable', balance: c.balance, floor: 0, low: c.balance > 0 && c.balance < 1 };
         },
         // Account tool toggles (T3 parity with the cloud brain's ai-settings.ts): without
         // this the core resolves retrieve_pictures to FALSE and the model hallucinates
@@ -466,4 +451,32 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
     };
 }
 
-module.exports = { createAddonIO };
+/**
+ * Store-shaped usage from an OpenAI-compatible `usage` block, with output = what the
+ * provider BILLS as output.
+ *
+ * 🔴 Gemini's OpenAI-compatible endpoint leaves thinking tokens OUT of
+ * `completion_tokens` but IN `total_tokens`, and Google bills thinking as output.
+ * Measured 2026-10-09 (HV), gemini-3.5-flash, one prompt: completion_tokens 2,
+ * prompt_tokens 12, total_tokens 234; the native endpoint for the same prompt
+ * reported thoughtsTokenCount 229. Taking completion_tokens alone showed the household
+ * 2 output tokens where Google billed ~222. So output = total − prompt whenever that is
+ * larger; for OpenAI-spec providers (total = prompt + completion) it equals
+ * completion_tokens and nothing changes.
+ */
+function usageFromChatCompletion(u) {
+    const usage = u && typeof u === 'object' ? u : {};
+    const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const prompt = int(usage.prompt_tokens);
+    const completion = int(usage.completion_tokens);
+    const total = int(usage.total_tokens);
+    let output = completion;
+    if (prompt !== null && total !== null && total - prompt > (completion ?? 0)) output = total - prompt;
+    return {
+        input_tokens: prompt ?? undefined,
+        output_tokens: output ?? undefined,
+        total_tokens: total ?? undefined,
+    };
+}
+
+module.exports = { createAddonIO, usageFromChatCompletion };

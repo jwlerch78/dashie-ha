@@ -233,7 +233,7 @@ router.get('/local-status', async (req, res) => {
         if (box) { endpoint = box.url; model = box.model; }
     }
     const byokTts = require('../byok-tts');
-    const byokTtsProvider = byokTts.resolveProvider();
+    const byokTtsProvider = await byokTts.resolveProvider();
     res.json({
         ok: true,
         route: endpoint && model ? 'local' : (signedIn ? 'cloud' : 'unconfigured'),

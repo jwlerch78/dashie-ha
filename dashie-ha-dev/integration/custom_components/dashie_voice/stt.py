@@ -20,7 +20,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .addon_bridge import AddonUnavailable, call_addon_raw
-from .const import ADDON_STT_PATH, SUPPORTED_LANGUAGES, UNIQUE_ID_STT
+from .const import (
+    ADDON_STT_GEMINI_QUERY,
+    ADDON_STT_PATH,
+    SUPPORTED_LANGUAGES,
+    UNIQUE_ID_STT,
+    UNIQUE_ID_STT_GEMINI,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +49,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([DashieVoiceSttEntity()])
+    async_add_entities([DashieVoiceSttEntity(), DashieVoiceGeminiSttEntity()])
 
 
 class DashieVoiceSttEntity(stt.SpeechToTextEntity):
@@ -51,6 +57,9 @@ class DashieVoiceSttEntity(stt.SpeechToTextEntity):
 
     _attr_name = "Dashie Voice STT"
     _attr_unique_id = UNIQUE_ID_STT
+    # The add-on route this entity posts to. The default entity lets the add-on
+    # pick the engine from its own config; subclasses pin one in the request.
+    _addon_path = ADDON_STT_PATH
 
     @property
     def supported_languages(self) -> list[str]:
@@ -94,7 +103,7 @@ class DashieVoiceSttEntity(stt.SpeechToTextEntity):
         wav = _wav_header(len(pcm), int(metadata.sample_rate), int(metadata.channel), 2) + pcm
         try:
             status, body, _ctype = await call_addon_raw(
-                self.hass, ADDON_STT_PATH, wav, "audio/wav", timeout_s=60
+                self.hass, self._addon_path, wav, "audio/wav", timeout_s=60
             )
         except AddonUnavailable as err:
             _LOGGER.warning("DROP: Dashie Voice STT — add-on unavailable: %s", err)
@@ -109,3 +118,14 @@ class DashieVoiceSttEntity(stt.SpeechToTextEntity):
             _LOGGER.warning("DROP: Dashie Voice STT — unparseable add-on response: %s", err)
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
         return stt.SpeechResult(text, stt.SpeechResultState.SUCCESS)
+
+
+class DashieVoiceGeminiSttEntity(DashieVoiceSttEntity):
+    """Speech-to-text on the household's own Gemini key, whatever the add-on's
+    default engine is. The add-on refuses (503) rather than falling back when no
+    Gemini key is stored, so choosing this entity never silently uses another
+    engine."""
+
+    _attr_name = "Dashie Voice STT (Gemini)"
+    _attr_unique_id = UNIQUE_ID_STT_GEMINI
+    _addon_path = ADDON_STT_PATH + ADDON_STT_GEMINI_QUERY

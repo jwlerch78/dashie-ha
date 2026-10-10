@@ -65,6 +65,11 @@ const keyStore = require('./key-store');
 const { recordLocalUsage } = require('./usage-store');
 // B2b (row 80): the per-turn history. Gated inside turn-log — this lane just reports.
 const turnLog = require('./turn-log');
+const geminiTts = require('./gemini-tts');
+// The ONE signed-in answer — capability.js's — so lending and this lane cannot disagree.
+const { signedIn } = require('./capability');
+// The ONE balance read (shared with the brain's tool gate), three-valued.
+const { boxCredits } = require('./credit-balance');
 
 const TTS_TIMEOUT_MS = 60000;
 const MAX_CHARS = 5000;
@@ -104,7 +109,16 @@ const ADAPTERS = {
             return { resp, contentType: 'audio/mpeg' };
         },
     },
+    // Buffered shape (gemini-tts.js): the audio arrives inside JSON, not as a body.
+    gemini: {
+        defaultVoice: geminiTts.DEFAULT_VOICE,
+        defaultModel: geminiTts.DEFAULT_MODEL,
+        synth: (a) => geminiTts.adapter.synth({ ...a, fetch: fetchWithTimeout }),
+    },
 };
+
+/** Stored speech keys. Any one of them rules Gemini TTS out (see resolveProvider). */
+const SPEECH_KEYS = ['elevenlabs', 'inworld'];
 
 function fetchWithTimeout(url, init) {
     const ctl = new AbortController();
@@ -121,18 +135,42 @@ function fetchWithTimeout(url, init) {
  * One function so the picker's "this row needs a key" and this lane's "can I
  * serve" can never drift into two implementations.
  */
-function resolveProvider() {
+async function resolveProvider() {
     let status;
     try { status = keyStore.status(); } catch { return null; }
-    for (const id of Object.keys(ADAPTERS)) {
-        if (status[id] === true) return id;
-    }
-    return null;
+    if (status.elevenlabs === true) return 'elevenlabs';
+    // 🔴 John 2026-10-10: a Gemini key buys speech when no speech key is stored
+    // AND the account cannot pay — signed out, or signed in with NO spendable
+    // credits ("Even if the account is signed in Gemini key should be used when
+    // entered with no credits … fall back for sure (it'll be a primary use case at
+    // launch)"; credits are not in the MVP, so signed-in-at-zero is the main path).
+    // A signed-in box WITH credits keeps the account voice, so a Gemini key — the
+    // one key for the whole cloud pipeline, not a speech key — does not change the
+    // voice or the payer of a box that can pay. An Inworld key (no adapter yet)
+    // still rules Gemini out: the household chose a speech provider, not Gemini.
+    if (status.gemini !== true || SPEECH_KEYS.some(p => status[p] === true)) return null;
+    if (!signedIn()) { noteFallback(null); return 'gemini'; }
+    // Only a READ balance > 0 keeps the account voice. 'empty' AND 'unknown' both
+    // fall back: John ruled the key is used when there are no credits, and credits
+    // are not in the MVP — so an unreadable ledger is likely the common case, and
+    // treating it as "has credits" would be silence on the launch's main path.
+    const credits = await boxCredits();
+    if (credits.state === 'spendable') { noteFallback(null); return null; }
+    noteFallback(credits.state === 'empty' ? `no credits (balance=${credits.balance})` : 'credit balance unreadable');
+    return 'gemini';
+}
+
+// The marker fires on the SWITCH, not once per sentence (TTS is per sentence).
+let fallbackWhy = null;
+function noteFallback(why) {
+    if (why && why !== fallbackWhy) console.log(`TTS-FALLBACK: signed in, ${why} → speaking on the household's Gemini key`);
+    if (!why && fallbackWhy) console.log('TTS-FALLBACK: ended — the account can pay again');
+    fallbackWhy = why;
 }
 
 /** True when a BYOK TTS provider is both keyed and adapted on this box. */
-function available() {
-    return resolveProvider() !== null;
+async function available() {
+    return (await resolveProvider()) !== null;
 }
 
 /**
@@ -144,7 +182,7 @@ function available() {
  * result. Nothing above this function ever holds it.
  */
 async function synthesize({ text, voice, model }) {
-    const provider = resolveProvider();
+    const provider = await resolveProvider();
     if (!provider) return { ok: false, status: 503, error: 'byok_tts_unavailable' };
 
     const adapter = ADAPTERS[provider];
@@ -165,15 +203,18 @@ async function synthesize({ text, voice, model }) {
     }
 
     const t0 = Date.now();
-    let resp, contentType;
+    let out;
     try {
-        ({ resp, contentType } = await adapter.synth({ key, text: clean, voice: useVoice, model: useModel }));
+        out = await adapter.synth({ key, text: clean, voice: useVoice, model: useModel });
     } catch (e) {
         const msg = e?.name === 'AbortError' ? `timed out (${TTS_TIMEOUT_MS}ms)` : (e?.cause?.code || e?.message || 'fetch failed');
         console.warn(`DROP: byok-tts unreachable provider=${provider}: ${msg}`);
         recordLocalUsage({ lane: 'tts', provider, model: useModel, billing: 'byok', success: false, units: {} });
         return { ok: false, status: 504, error: 'tts_unreachable', message: msg };
     }
+
+    if (!out?.resp) return finishBuffered(out, { provider, useModel, chars: clean.length, t0 });
+    const { resp, contentType } = out;
 
     if (!resp.ok) {
         // The body can echo the request; take only the status into the log.
@@ -199,4 +240,28 @@ async function synthesize({ text, voice, model }) {
     return { ok: true, status: 200, audio, contentType: contentType || 'audio/mpeg', provider, model: useModel };
 }
 
-module.exports = { ADAPTERS, resolveProvider, available, synthesize, MAX_CHARS };
+/**
+ * The BUFFERED adapter shape `{ ok, status, audio, contentType, model, units, error }`
+ * (gemini-tts.js) — same metering rules as the streaming path above.
+ */
+function finishBuffered(out, { provider, useModel, chars, t0 }) {
+    const model = out?.model || useModel;
+    if (!out?.ok && !out?.units) {
+        // The provider refused (non-2xx): nothing synthesised, nothing billed.
+        console.warn(`DROP: byok-tts provider HTTP ${out?.status} (provider=${provider})`);
+        recordLocalUsage({ lane: 'tts', provider, model, billing: 'byok', success: false, units: {} });
+        return { ok: false, status: 502, error: 'tts_engine_error', message: `HTTP ${out?.status}` };
+    }
+    // A 2xx: the provider has billed (lesson 1), so it is recorded as a billed call
+    // even when its audio then proves unusable — the units are what the invoice says.
+    recordLocalUsage({ lane: 'tts', provider, model, billing: 'byok', success: true, units: out.units });
+    turnLog.recordTurnIfEnabled({ lane: 'tts', provider, model, billing: 'byok', success: true, latency_ms: null, units: out.units });
+    if (!out.ok) {
+        console.warn(`DROP: byok-tts unusable-audio provider=${provider}: ${out.error}`);
+        return { ok: false, status: 502, error: 'tts_engine_error', message: out.error };
+    }
+    console.log(`DASHIE-TTS route=byok provider=${provider} chars=${chars} bytes=${out.audio.length} latency=${Date.now() - t0}ms`);
+    return { ok: true, status: 200, audio: out.audio, contentType: out.contentType, provider, model };
+}
+
+module.exports = { ADAPTERS, SPEECH_KEYS, resolveProvider, available, synthesize, MAX_CHARS };

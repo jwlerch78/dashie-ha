@@ -51,7 +51,10 @@ const { getAccountVoiceConfig } = require('./account-config');
  *  `ai` and not `voice`, and that partial grant is a normal steady state. */
 const METERED_KEYS = {
     ai: ['openrouter', 'gemini', 'claude', 'openai', 'bedrock'],
-    voice: ['deepgram', 'elevenlabs', 'inworld'],
+    // `gemini` is in BOTH: one key buys the brain AND speech (Gemini STT on this box;
+    // Gemini TTS when no speech key and not signed in, John 2026-10-10). Absent here,
+    // a signed-out box holding only a Gemini key lent voice as free while spending it.
+    voice: ['deepgram', 'elevenlabs', 'inworld', 'gemini'],
     tools: ['tavily', 'brave', 'pexels', 'apisports'],
 };
 
@@ -227,6 +230,7 @@ async function mayTakeMeteredRoute() {
 }
 
 module.exports = {
+    signedIn,   // byok-tts.js resolves its Gemini precedence on the same answer
     LEASABLE_CAPABILITIES,
     METERED_KEYS,
     ACCOUNTLESS_SHARING_DEFAULT,
