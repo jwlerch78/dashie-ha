@@ -277,13 +277,13 @@
         },
     
         // Google Gemini batch transcription (gemini-3.5-transcribe) — D5(i), Dashie-cloud lane.
-        // Billed per TOKEN (sttTokenCost from usageMetadata), not per minute: Verified 2026-10-08 at
-        // ai.google.dev/gemini-api/docs/pricing — $2.00 / 1M audio-input tokens, $12.00 / 1M text-output
+        // Billed per TOKEN (sttTokenCost from usageMetadata), not per minute. Source: ai.google.dev/gemini-api/docs/pricing,
+        // read via a page fetch 2026-10-08 23:03 UTC (a tool-produced summary quoting the page, not a direct view) — $2.00 / 1M audio-input tokens, $12.00 / 1M text-output
         // tokens, 25 audio tokens/s. perMinute is Google's own blended estimate (~$0.005/min), kept for
         // side-by-side comparison with Deepgram only; the route never bills from it.
         // perMinuteStreaming is the LIVE model (gemini-3.5-transcribe-live, gemini-stt-stream), and that
         // route DOES bill from it: the Live socket reports no usageMetadata, so seconds are the only
-        // basis. Verified 2026-10-08 on the same page — $3.50 / 1M audio-in + $21.00 / 1M text-out,
+        // basis. Same page, read via a page fetch 2026-10-09 02:08 UTC (same caveat) — $3.50 / 1M audio-in + $21.00 / 1M text-out,
         // Google's blended estimate ~$0.009/min (about 2× batch).
         gemini: {
           perMillionInputTokens: 2.00,
