@@ -233,6 +233,29 @@ const UsagePage = {
         }
 
         const t = UsageSource.totals(this._rows);
+        // 🔴 THE DRIFT REPORT, and it is wired HERE rather than per-row on purpose: once
+        // per render over the whole set, so a household with forty rows gets one line per
+        // unrecognised id instead of forty.
+        //
+        // ⚠️ Added 2026-10-10 because it was MISSING: `unknownIds` shipped in 8ce625a with
+        // the gate as its only caller, so the reporter existed and nothing reached it —
+        // authored-but-unreached, in the same change whose registry row (201) claimed
+        // "runtime drift is ALSO loud, not only gated". That claim was false for a day.
+        // Leg 29 now asserts the PAGE calls these, not merely that they exist.
+        const P = window.UsageProviders;
+        if (P) {
+            const ids = typeof P.unknownIds === 'function' ? P.unknownIds(this._rows) : [];
+            if (ids.length) {
+                console.warn(`DROP: usage-provider-unknown ${ids.join(', ')} — the store recorded a `
+                    + `provider id no vocabulary names; usage-providers.js needs a row or the `
+                    + `manifest needs the provider`);
+            }
+            const lanes = typeof P.unknownLanes === 'function' ? P.unknownLanes(this._rows) : [];
+            if (lanes.length) {
+                console.warn(`DROP: usage-lane-unknown ${lanes.join(', ')} — usage-store.js grew a `
+                    + `lane with no LANE_LABELS row`);
+            }
+        }
         const byDay = new Map();
         for (const r of this._rows) {
             if (!byDay.has(r.day)) byDay.set(r.day, []);
@@ -309,6 +332,20 @@ const UsagePage = {
         return DevicesPage._escape(P.describe(id).text);
     },
 
+    /**
+     * The lane in household words, or '' when there is nothing honest to say.
+     *
+     * Absent and `null` both yield '' — the page shows no lane rather than guessing,
+     * and the caller appends nothing. See usage-source.js on why those two states
+     * cannot be told apart by a reader, by design.
+     */
+    _laneText(lane) {
+        const P = window.UsageProviders;
+        if (!P || typeof P.describeLane !== 'function') return '';
+        const d = P.describeLane(lane);
+        return d ? DevicesPage._escape(d.text) : '';
+    },
+
     _renderTurn(t) {
         // 🔴 This renderer had the SAME raw-field-name defect `_renderRow` had, and the
         // first pass fixed only the aggregate: it read `Object.entries(t.units)`, so the
@@ -325,7 +362,7 @@ const UsagePage = {
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
                 <span><span style="color: var(--text-muted);">${DevicesPage._escape(when)}</span>
-                    ${DevicesPage._escape(t.lane)} · ${DevicesPage._escape(name)}</span>
+                    ${UsagePage._laneText(t.lane) || DevicesPage._escape(t.lane)} · ${DevicesPage._escape(name)}</span>
                 <span style="color: var(--text-muted); text-align: right;">
                     ${t.success ? '' : 'failed · '}${units}${t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}
                 </span>
@@ -402,10 +439,16 @@ const UsagePage = {
         // providers, an operator's host). UsageProviders joins ProviderManifest first, so
         // this is a join rather than a second spelling — see that file's header.
         const who = UsagePage._providerText(r.provider);
+        // The lane the store could not tell us until 92aef45. Prefixed, not appended,
+        // because it is the first thing that disambiguates two rows of one provider —
+        // `gemini` now serves brain, stt and tts, and the model strings alone are what
+        // keep their store keys apart, which is not something a household should have to
+        // read. Absent/null renders nothing rather than a guess.
+        const lane = UsagePage._laneText(r.lane);
         const name = r.model ? `${who} · ${r.model}` : who;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
-                <span>${DevicesPage._escape(name)}
+                <span>${lane ? `<span style="color: var(--text-muted);">${lane}</span> · ` : ''}${DevicesPage._escape(name)}
                     <span style="color: var(--text-muted);">(${DevicesPage._escape(r.billing)})</span></span>
                 <span style="color: var(--text-muted); text-align: right;">
                     ${r.calls} call${r.calls === 1 ? '' : 's'}${r.errors ? ` · ${r.errors} failed` : ''}${units ? ` · ${units}` : ''}

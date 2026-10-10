@@ -528,6 +528,87 @@ if (/daysServed/.test(source) && /this\._daysServed \|\| this\._range/.test(page
             ok('27: usage-providers.js is registered, after the manifest and before the page');
         }
 
+        // 29. 🔴 THE PAGE MUST CALL THE DRIFT REPORTERS. This leg exists because it was
+        // missing: `unknownIds` shipped in 8ce625a with this gate as its ONLY caller, so a
+        // reporter existed, legs 25-26 exercised it, and the browser never ran it —
+        // authored-but-unreached, with registry row 201 asserting the opposite. A leg that
+        // tests a function in a sandbox says nothing about whether the page invokes it.
+        {
+            const pcode = pageSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+            const callsIds = /unknownIds\s*\(/.test(pcode);
+            const callsLanes = /unknownLanes\s*\(/.test(pcode);
+            if (!callsIds || !callsLanes) {
+                fail(`[29] usage.js does not call ${[!callsIds && 'unknownIds', !callsLanes && 'unknownLanes']
+                    .filter(Boolean).join(' or ')} — the reporter exists and the page never reaches it, `
+                    + `so a provider or lane the server grows is named nothing, silently, on a real box`);
+            } else {
+                ok('29: the page CALLS both drift reporters (not just the gate)');
+            }
+        }
+
+        // 30. the lane vocabulary covers every lane usage-store.js can record. Same join
+        // shape as leg 12, against LANES rather than UNIT_FIELDS.
+        {
+            // `storeSrc` belongs to the units block's scope — read the file here rather
+            // than reaching into another block's binding.
+            let laneStoreSrc = '';
+            try { laneStoreSrc = readFileSync(`${ROOT}/server/usage-store.js`, 'utf8'); } catch { /* below */ }
+            const storeLanes = laneStoreSrc.match(/const LANES = new Set\(\[([\s\S]*?)\]\)/);
+            if (!storeLanes) {
+                fail('[30] could not find LANES in usage-store.js — the lane join cannot be checked '
+                    + '(update this matcher rather than deleting the leg)');
+            } else {
+                const ids = [...storeLanes[1].matchAll(/'([a-z_]+)'/g)].map(x => x[1]);
+                const missing = ids.filter(l => !P.LANE_LABELS[l]);
+                if (ids.length < 3) {
+                    fail(`[30] CONTROL: parsed only ${ids.length} lane(s) from LANES — the matcher is `
+                        + `reading almost nothing, so "no missing labels" means nothing`);
+                } else if (missing.length) {
+                    fail(`[30] usage-store.js records lane(s) ${missing.join(', ')} with no LANE_LABELS `
+                        + `row — the household reads a store token`);
+                } else {
+                    ok(`30: every one of usage-store.js's ${ids.length} lanes has a household label`);
+                }
+            }
+        }
+
+        // 31. 🔴 absent and null BOTH render nothing. The two states usage-store.js keeps
+        // apart (not recorded yet / two lanes summed, unknowable) must never be guessed at.
+        {
+            const absent = P.describeLane(undefined);
+            const nulled = P.describeLane(null);
+            const known = P.describeLane('stt');
+            if (absent !== null || nulled !== null) {
+                fail(`[31] describeLane returned a value for absent/null (${JSON.stringify(absent)}, `
+                    + `${JSON.stringify(nulled)}) — the page would print a guess for a row whose lane `
+                    + `the server deliberately recorded as unknowable`);
+            } else if (!known || known.text === 'stt') {
+                fail(`[31] CONTROL: a KNOWN lane did not resolve to a household word `
+                    + `(${JSON.stringify(known)}) — the leg above would pass on a dead function`);
+            } else {
+                ok('31: an absent or null lane renders nothing, and a known lane renders a word');
+            }
+        }
+
+        // 32. the reader must keep `lane` OUT of units, or every render fires
+        // DROP: usage-units-unknown lane. Checked on the real flatten, not a copy.
+        {
+            const srcFile = `${ROOT}/frontend/console/js/pages/usage-source.js`;
+            let flat = '';
+            try { flat = readFileSync(srcFile, 'utf8'); } catch { /* reported below */ }
+            const code = flat.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+            if (!/const\s*\{\s*calls\s*,\s*errors\s*,\s*lane\s*,\s*\.\.\.units\s*\}/.test(code)) {
+                fail('[32] usage-source.js does not destructure `lane` out of the entry before the '
+                    + 'rest-spread. usage-store.js now writes it (92aef45), so it would land in '
+                    + '`units` and fire DROP: usage-units-unknown lane on EVERY render.');
+            } else if (!/lane:\s*\(typeof lane === 'string' && lane\)/.test(code)) {
+                fail('[32] `lane` is destructured but not carried three-valued — absent and null must '
+                    + 'both reach the page as null, never as a string the renderer prints');
+            } else {
+                ok('32: usage-source.js keeps `lane` out of units and carries it three-valued');
+            }
+        }
+
         // 28. 🔴 BOTH renderers must go through the one helper. The first pass fixed the
         // aggregate and left the per-turn renderer printing raw strings; a vocabulary used by
         // one of two renderers lets the same provider be named two ways on one screen.

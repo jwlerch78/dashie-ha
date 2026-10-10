@@ -88,9 +88,23 @@ const UsageSource = {
             for (const key of Object.keys(bucket)) {
                 const [provider, model, billing] = String(key).split('|');
                 const entry = bucket[key] || {};
-                const { calls, errors, ...units } = entry;
+                // 🔴 `lane` is pulled OUT of the rest-spread deliberately. Everything left in
+                // the entry becomes `units`, so a non-unit field riding along would reach
+                // `UsageUnits` and fire `DROP: usage-units-unknown lane` on every render —
+                // the row-200 join doing its job, but on a field that is not a unit.
+                //
+                // Three states, and the reader must not collapse them (usage-store.js:180-188):
+                //   absent  — a pre-lane row, not yet backfilled
+                //   string  — known
+                //   null    — two lanes summed into one key, so the lane is UNKNOWABLE and the
+                //             server deliberately never backfills it again
+                // Absent and null both render as unknown, which is why a test that only reads
+                // the row cannot tell a sticky null from a re-labelled one — see
+                // check-usage-lane.mjs's second-call leg.
+                const { calls, errors, lane, ...units } = entry;
                 rows.push({
                     day,
+                    lane: (typeof lane === 'string' && lane) ? lane : null,
                     provider: provider || 'unknown',
                     // '-' is the store's own "no model" sentinel, not a model named '-'.
                     model: model && model !== '-' ? model : null,

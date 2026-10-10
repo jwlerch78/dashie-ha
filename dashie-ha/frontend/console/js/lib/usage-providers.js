@@ -179,6 +179,56 @@ const UsageProviders = {
     },
 
     /**
+     * The LANE in household words.
+     *
+     * Mirrors `usage-store.js`'s `LANES` set — three declared strings, registered on
+     * `JS_KOTLIN_CONTRACTS 201` with the provider literals, because the failure is the
+     * same: a lane the server starts recording with no label here reaches the screen as
+     * a store token.
+     *
+     * 🔴 `brain` → "AI" HERE, having been REFUSED in the provider column — and that is
+     * not a contradiction. In the provider column `brain` was a lane name wearing a
+     * provider's clothes, which claimed something untrue. In the LANE column it is the
+     * lane, and "AI" is simply its household name. Same string, two positions, one
+     * honest answer each.
+     */
+    LANE_LABELS: {
+        brain: 'AI',
+        stt: 'speech to text',
+        tts: 'voice',
+    },
+
+    /**
+     * Name one lane, or `null` when there is nothing honest to say.
+     *
+     * 🔴 Returns null for BOTH absent and `null` — the two states `usage-store.js`
+     * distinguishes (not recorded yet vs. two lanes summed, unknowable). The page shows
+     * nothing in either case rather than guessing, and NEVER infers the lane from the
+     * provider or the units: inferring from units is circular, and inferring from the
+     * provider stopped being a function the moment `gemini` began serving three lanes.
+     */
+    describeLane(lane) {
+        if (typeof lane !== 'string' || !lane) return null;
+        const label = this.LANE_LABELS[lane];
+        if (label) return { kind: 'named', text: label, raw: lane };
+        // A lane the server grew and this vocabulary does not know. Show it rather than
+        // hide it, and let unknownLanes() report it.
+        return { kind: this.KIND.UNKNOWN_ID, text: lane, raw: lane };
+    },
+
+    /** Lanes in a set of rows that this vocabulary cannot name. Loud, same reason as
+     *  `unknownIds` and `UsageUnits.unknownKeys`. */
+    unknownLanes(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        const out = [];
+        for (const r of list) {
+            const d = this.describeLane(r && r.lane);
+            if (d && d.kind === this.KIND.UNKNOWN_ID && !out.includes(d.raw)) out.push(d.raw);
+        }
+        return out;
+    },
+
+    /**
      * The provider ids in a set of rows that nothing could name. Loud for the
      * same reason `UsageUnits.unknownKeys` is: a new id means the server grew a
      * provider and nothing told the view.
