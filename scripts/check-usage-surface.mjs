@@ -26,10 +26,21 @@
  *    money. `DevicesSource` established the rule (null, never faked); this
  *    enforces it for the surface where the temptation is strongest.
  *
+ * ③ **Store field names on screen (added 2026-10-09).** `_renderRow` passed the
+ *    stored unit map straight through — `Object.entries(r.units).map(([k,v]) =>
+ *    `${k} ${v}`)` — so a household's row read `3 calls · bytes 186240 · seconds
+ *    5.82`. Live on 0.9.55. Found by READING the renderer rather than assuming it
+ *    formatted; the units were never empty, so it had always been visible.
+ *    ⭐ Legs 12–20 cover the vocabulary that replaced it, and leg 12 is the one
+ *    that will rot: `usage-store.js`'s `UNIT_FIELDS` decides which keys can ever
+ *    appear, and a key added there with no `UsageUnits.FIELDS` row is a unit the
+ *    household never sees — silently, because an unknown key is simply skipped.
+ *
  * Exit 0 = green, 1 = a real failure, 2 = cannot check.
  */
 
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -248,6 +259,154 @@ if (/daysServed/.test(source) && /this\._daysServed \|\| this\._range/.test(page
         `window at the store's retention, so the two diverge the moment a range button exceeds ` +
         `it — the page then states a period it was not given data for.`
     );
+}
+
+
+// ── 12-20. the unit vocabulary (2026-10-09) ────────────────────────────────
+{
+    const unitsLib = `${ROOT}/frontend/console/js/lib/usage-units.js`;
+    const storeFile = `${ROOT}/server/usage-store.js`;
+    const pageFile = `${ROOT}/frontend/console/js/pages/usage.js`;
+    let U = null, src = '', storeSrc = '', pageSrc = '';
+    try {
+        src = readFileSync(unitsLib, 'utf8');
+        storeSrc = readFileSync(storeFile, 'utf8');
+        pageSrc = readFileSync(pageFile, 'utf8');
+        const sandbox = { console: { warn() {}, log() {} } };
+        sandbox.window = sandbox; sandbox.globalThis = sandbox;
+        vm.runInContext(src, vm.createContext(sandbox), { filename: unitsLib });
+        U = sandbox.UsageUnits;
+    } catch (e) {
+        fail(`[12] usage-units.js did not evaluate: ${e.message}`);
+    }
+
+    if (U && typeof U.describe === 'function') {
+        // 🔴 THE JOIN. usage-store.js's UNIT_FIELDS is the authority for which keys
+        // can appear; a key there with no FIELDS row is skipped silently by
+        // describe(), so the household simply never sees that quantity.
+        const m = storeSrc.match(/const UNIT_FIELDS = new Set\(\[([\s\S]*?)\]\)/);
+        if (!m) {
+            fail('[12] could not find UNIT_FIELDS in usage-store.js — the join cannot be checked '
+                + '(it may have been renamed; update this matcher rather than deleting the leg)');
+        } else {
+            const storeKeys = [...m[1].matchAll(/'([a-z_]+)'/g)].map(x => x[1]);
+            const missing = storeKeys.filter(k => !U.FIELDS[k]);
+            if (storeKeys.length < 5) {
+                fail(`[12] CONTROL: only parsed ${storeKeys.length} unit key(s) from UNIT_FIELDS — `
+                    + `the matcher is reading almost nothing, so "no missing rows" means nothing`);
+            } else if (missing.length) {
+                fail(`[12] usage-store.js can store ${missing.join(', ')} and UsageUnits.FIELDS has no `
+                    + `row for ${missing.length > 1 ? 'them' : 'it'}. describe() skips unknown keys, so `
+                    + `that quantity is invisible to the household with nothing saying so.`);
+            } else {
+                ok(`12: every one of usage-store.js's ${storeKeys.length} unit fields has a UsageUnits row`);
+            }
+        }
+
+        // 13. the page no longer passes the raw map through.
+        //
+        // ⚠️ COMMENTS ARE STRIPPED FIRST, and that is not fussiness — the first version
+        // of this leg went RED against correct code. This repo documents retired code in
+        // comments as a matter of habit, and `_renderRow`'s own comment QUOTES the
+        // passthrough it replaced (*"this line used to be Object.entries(r.units)…"*). A
+        // source-text gate cannot tell code from a comment about code, so it read the
+        // explanation of the fix as the defect. Any leg here that greps for an ABSENCE has
+        // the same exposure.
+        const code = pageSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        if (/Object\.entries\(\s*r\.units/.test(code)) {
+            fail('[13] usage.js still enumerates r.units directly — that is the passthrough that put '
+                + '`bytes 186240 · seconds 5.82` on a household’s screen');
+        } else if (!/UsageUnits/.test(code)) {
+            fail('[13] usage.js does not reference UsageUnits — the vocabulary exists and the page '
+                + 'is not asking it, which is the authored-but-unreached shape this gate is about');
+        } else {
+            ok('13: the Usage page renders units through UsageUnits, not by enumerating the store map');
+        }
+
+        // 14. no label is a raw store key
+        const rawLabels = Object.entries(U.FIELDS)
+            .filter(([k, f]) => f.label && f.label === k)
+            .map(([k]) => k);
+        if (rawLabels.length) fail(`[14] these labels are the store's own field names: ${rawLabels.join(', ')}`);
+        else ok('14: no unit label is a raw store field name');
+
+        // 15. RULE 1 — seconds wins over bytes, and bytes appears when alone
+        const withBoth = U.describe({ bytes: 186240, seconds: 5.82 }).map(x => x.key);
+        const bytesOnly = U.describe({ bytes: 186240 }).map(x => x.key);
+        if (withBoth.includes('bytes')) {
+            fail('[15] both `seconds` and `bytes` render — two measurements of the same audio, one of '
+                + 'them an implementation detail');
+        } else if (!withBoth.includes('seconds')) {
+            fail('[15] `seconds` did not render at all when present');
+        } else if (!bytesOnly.includes('bytes')) {
+            fail('[15] `bytes` did not render when it is the ONLY audio figure — the STT lane records '
+                + 'bytes always and seconds only when a WAV header parses, so this is a real row');
+        } else {
+            ok('15: `seconds` is preferred over `bytes`, and `bytes` still renders when it stands alone');
+        }
+
+        // 16. ABSENT is not zero
+        const absent = U.describe({ seconds: 5.82 });
+        if (absent.some(x => /^0\b/.test(x.text))) {
+            fail('[16] an omitted unit rendered as 0. The store OMITS a count the provider did not '
+                + 'send (stt-usage.js:111-121) precisely so this cannot happen — "0 output tokens" '
+                + 'reads to a household as "nothing was generated"');
+        } else if (absent.length !== 1) {
+            fail(`[16] expected exactly one entry for a seconds-only row, got ${absent.length}`);
+        } else {
+            ok('16: a unit the provider did not report is absent, never zero');
+        }
+
+        // 17. total_tokens declared but never shown
+        if (!('total_tokens' in U.FIELDS)) {
+            fail('[17] `total_tokens` has no FIELDS row at all — it must be DECLARED so leg 12 passes '
+                + 'and a later reader cannot read its absence as an oversight');
+        } else if (U.describe({ input_tokens: 49, output_tokens: 231, total_tokens: 280 })
+                    .some(x => x.key === 'total_tokens')) {
+            fail('[17] `total_tokens` rendered. It is the sum of the two numbers beside it (John/O '
+                + '2026-10-09: omit from display, keep in the data)');
+        } else {
+            ok('17: `total_tokens` is declared in the vocabulary and never rendered');
+        }
+
+        // 18. DECLARED order, not insertion order
+        const reversed = U.describe({ output_tokens: 2, input_tokens: 1, characters: 3, seconds: 4 })
+            .map(x => x.key);
+        const expected = U.ORDER.filter(k => reversed.includes(k));
+        if (JSON.stringify(reversed) !== JSON.stringify(expected)) {
+            fail(`[18] units rendered in insertion order (${reversed.join(',')}) rather than the `
+                + `declared ORDER (${expected.join(',')}) — so the same row reads differently on two `
+                + `days for no reason the reader can see`);
+        } else {
+            ok('18: units render in the declared ORDER regardless of how the store wrote them');
+        }
+
+        // 19. an unrecognised unit is reported, not silently dropped
+        if (typeof U.unknownKeys !== 'function' || !U.unknownKeys({ warp_cores: 3 }).includes('warp_cores')) {
+            fail('[19] an unknown unit key is not reported. It is skipped by describe() either way, so '
+                + 'without this the server can grow a unit the view never shows and never mentions');
+        } else if (U.unknownKeys({ seconds: 1 }).length) {
+            fail('[19] a KNOWN unit was reported as unknown — the check is inverted');
+        } else {
+            ok('19: an unrecognised unit key is reported loudly rather than silently skipped');
+        }
+
+        // 20. 🔴 FAULT INJECTION on the join — leg 12 must be able to fail.
+        const saved = U.FIELDS.seconds;
+        delete U.FIELDS.seconds;
+        const brokenJoin = ['seconds'].filter(k => !U.FIELDS[k]);
+        const stillRenders = U.describe({ seconds: 5.82 }).length;
+        U.FIELDS.seconds = saved;
+        if (brokenJoin.length !== 1 || stillRenders !== 0) {
+            fail(`[20] removing a FIELDS row neither breaks the join nor stops the render `
+                + `(join=${brokenJoin.length}, rendered=${stillRenders}) — leg 12 is not measuring `
+                + `the join it claims to`);
+        } else if (U.describe({ seconds: 5.82 }).length !== 1) {
+            fail('[20] the injection leaked — `seconds` no longer renders after restore');
+        } else {
+            ok('20: removing a FIELDS row DOES break the join and silence that unit (leg 12 can fail)');
+        }
+    }
 }
 
 if (errors.length) {

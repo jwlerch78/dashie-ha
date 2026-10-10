@@ -340,12 +340,29 @@ const UsagePage = {
     },
 
     _renderRow(r) {
-        // Units are passed through per lane rather than flattened: TTS counts
-        // characters, STT counts seconds, and one "amount" column would silently
-        // add them together.
-        const units = Object.entries(r.units || {})
-            .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`)
-            .join(' · ');
+        // 🔴 Units go through UsageUnits (2026-10-09, John approved). This line used to be
+        //
+        //     Object.entries(r.units).map(([k, v]) => `${k} ${v}`).join(' · ')
+        //
+        // which put STORE FIELD NAMES on screen: a household's row read
+        // `3 calls · bytes 186240 · seconds 5.82`. Live on 0.9.55, and about to get three
+        // more names when token recording lands.
+        //
+        // The original comment's point still stands and is now enforced rather than
+        // asserted: units are per-lane and must never be flattened into one "amount"
+        // column, because TTS characters and STT seconds do not add. UsageUnits keeps
+        // them separate, names each one in household words, and renders `seconds` in
+        // preference to `bytes` so the same audio is never reported twice.
+        const U = window.UsageUnits;
+        const parts = U ? U.describe(r.units) : [];
+        const units = parts.map(x => `${DevicesPage._escape(x.text)} ${DevicesPage._escape(x.label)}`).join(' · ');
+        // The server grew a unit and nothing told the view — the join this depends on.
+        // Loud once per render rather than silently dropped.
+        const unknown = U ? U.unknownKeys(r.units) : [];
+        if (unknown.length) {
+            console.warn(`DROP: usage-units-unknown ${unknown.join(', ')} — `
+                + `usage-store.js grew a unit field with no UsageUnits.FIELDS row`);
+        }
         const name = r.model ? `${r.provider} · ${r.model}` : r.provider;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">

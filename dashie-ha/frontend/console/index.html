@@ -151,7 +151,11 @@
     <script src="js/pages/account.js?v=20260824a"></script>
     <script src="js/pages/credits.js?v=20260712a"></script>
     <script src="js/pages/usage-source.js?v=20260828a"></script>
-    <script src="js/pages/usage.js?v=20260828a"></script>
+    <!-- Household wording for the quantities usage-store.js records. Must load BEFORE
+         usage.js, which asks it to describe each row's units. The ONE place the
+         server's UNIT_FIELDS vocabulary is turned into words a household reads. -->
+    <script src="js/lib/usage-units.js?v=20261009a"></script>
+    <script src="js/pages/usage.js?v=20261009a"></script>
     <script src="js/pages/api-keys.js?v=20260804a"></script>
     <script src="js/pages/local-engines.js?v=20260725b"></script>
     <!-- Video feeds. Published core since 2026-07-31 (was the closed family
