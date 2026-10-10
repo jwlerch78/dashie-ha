@@ -149,5 +149,25 @@ scenario({ keys: { openrouter: true } });   // signed OUT Dashie box holding a k
 check('signed-OUT box with a BYOK key now grants ai (was: not_signed_in)',
   (await grant(['ai'])), { granted: ['ai'], reason: 'ok' });
 
+console.log('\n── a Gemini key buys VOICE too (shipped under-report, 0.9.55) ─────');
+// Gemini STT spends the household's Gemini key (engines.js `?engine=gemini` and the
+// household STT choice), and under the ruled TTS policy (John 2026-10-10: Gemini TTS
+// only when no speech key AND not signed in) so does Gemini speech. Before this,
+// `gemini` sat under `ai` only, so a signed-out box holding only a Gemini key
+// answered voice='free' — lending told another household voice costs nothing while
+// it spent the lender's key. Signed-in boxes never reach the list (capability.js:151).
+scenario({ userSettings: { voice: { householdSharing: false } }, keys: { gemini: true } });
+check('signed-out + ONLY a Gemini key → voice state is metered', cap.capabilityState('voice'), 'metered');
+check('  …sharing OFF → voice AND ai withheld, tools kept',
+  await grant(), { granted: ['tools'], reason: 'ok' });
+check('  …and voice says why: sharing, not absence',
+  await withheld(), { voice: 'sharing_disabled', ai: 'sharing_disabled' });
+scenario({ userSettings: { voice: { householdSharing: true } }, keys: { gemini: true } });
+check('signed-out + ONLY a Gemini key + sharing ON → all three', await grant(), { granted: ['voice', 'ai', 'tools'], reason: 'ok' });
+// CONTROL — the change is about Gemini, not "any ai key": an OpenRouter key still
+// buys no speech on the box, so voice stays free (HA's own Whisper/Piper).
+scenario({ userSettings: { voice: { householdSharing: false } }, keys: { openrouter: true } });
+check('CONTROL: signed-out + only an OpenRouter key → voice stays free', cap.capabilityState('voice'), 'free');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
