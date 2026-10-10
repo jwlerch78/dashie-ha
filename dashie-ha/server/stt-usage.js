@@ -98,6 +98,32 @@ function hostOf(url) {
 }
 
 /**
+ * Google's own token counts for one Gemini call, as store units — the numbers the
+ * household's Google invoice is computed from, so the Usage view can match it.
+ *
+ * Each field is taken ONLY when Google sent it as a non-negative integer; anything
+ * else is omitted, never zeroed. Measured 2026-10-09 (HV) on gemini-3.5-transcribe:
+ * a 1.94 s clip returned promptTokenCount 49 (25/s) and NO candidatesTokenCount —
+ * a recorded 0 would claim a measurement Google never made.
+ *
+ * Output = candidates + thoughts: Google bills thinking tokens as output.
+ */
+function geminiTokenUnits(meta) {
+    const out = {};
+    if (!meta || typeof meta !== 'object') return out;
+    const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const prompt = int(meta.promptTokenCount);
+    const candidates = int(meta.candidatesTokenCount);
+    const thoughts = int(meta.thoughtsTokenCount);
+    const total = int(meta.totalTokenCount);
+    if (prompt !== null) out.input_tokens = prompt;
+    else console.warn('DROP: stt-usage gemini-no-prompt-tokens — usageMetadata present but promptTokenCount unusable');
+    if (candidates !== null || thoughts !== null) out.output_tokens = (candidates ?? 0) + (thoughts ?? 0);
+    if (total !== null) out.total_tokens = total;
+    return out;
+}
+
+/**
  * Record ONE successful STT call. Never throws.
  *
  * 🔴 SUCCESS PATH ONLY. `stt_engine_error` and `stt_unreachable` made no
@@ -108,8 +134,9 @@ function hostOf(url) {
  * @param {Buffer} audio  the exact bytes sent to the engine
  * @param {object} opts   add-on options (readOptions())
  * @param {'local'|'cloud'|'gemini'} route  which branch of handleStt ran
+ * @param {object|null} [providerUsage]  Gemini's `usageMetadata` for the 'gemini' route
  */
-function recordSttCall(audio, opts, route) {
+function recordSttCall(audio, opts, route, providerUsage = null) {
     try {
         const bytes = Buffer.isBuffer(audio) ? audio.length : 0;
         if (!bytes) return;   // nothing was sent; nothing to record
@@ -166,6 +193,7 @@ function recordSttCall(audio, opts, route) {
             // one identity, one spelling (the `dashie_cloud` lesson above). The
             // model is recorded rather than defaulted, since `stt_model` is the
             // operator's Whisper option and says nothing about this call.
+            Object.assign(units, geminiTokenUnits(providerUsage));
             recordLocalUsage({ lane: 'stt', provider: 'gemini', model: GEMINI_MODEL, billing: 'byok', success: true, units });
             turnLog.recordTurnIfEnabled({ lane: 'stt', provider: 'gemini', model: GEMINI_MODEL, billing: 'byok', success: true, latency_ms: null, units });
             return;
@@ -181,4 +209,4 @@ function recordSttCall(audio, opts, route) {
     }
 }
 
-module.exports = { recordSttCall, wavSeconds, hostOf };
+module.exports = { recordSttCall, wavSeconds, hostOf, geminiTokenUnits };

@@ -157,6 +157,12 @@ node "$ADDON_ROOT/scripts/check-api-keys-surface.mjs"
 echo "==> Checking STT usage capture (derived seconds · no zero rows · lanes apart)"
 node "$ADDON_ROOT/scripts/check-stt-usage.mjs"
 
+# Provider token counts as BILLED: Gemini STT's usageMetadata is kept (it was dropped),
+# and the brain's output includes thinking tokens (Gemini's OpenAI-compat endpoint
+# leaves them out of completion_tokens; Google bills them). Absent counts stay absent.
+echo "==> Checking provider token counts (Gemini STT tokens kept · thinking billed as output)"
+node "$ADDON_ROOT/scripts/check-usage-tokens.mjs"
+
 # D5 BYOK Gemini STT: the key reaches Google in a header and nowhere else, both
 # response shapes are read (one of them reads as silence if missed), household
 # Gemini outranks stt_url with a loud STT-OVERRIDE, and a failure never falls

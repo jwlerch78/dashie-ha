@@ -230,7 +230,7 @@ async function geminiSttBranch(req, res, sendJson) {
         return;
     }
     console.log(`DASHIE-STT route=gemini text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
-    sttUsage.recordSttCall(audio, readOptions(), 'gemini');
+    sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
     sendJson(res, 200, { text: r.text });
 }
 

@@ -182,17 +182,12 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                 };
             }
             const content = body?.choices?.[0]?.message?.content ?? '';
-            const u = body?.usage || {};
             return {
                 ok: true,
                 latency_ms,
                 raw: {
                     content,
-                    usage: {
-                        input_tokens: u.prompt_tokens,
-                        output_tokens: u.completion_tokens,
-                        total_tokens: u.total_tokens,
-                    },
+                    usage: usageFromChatCompletion(body?.usage),
                     model: body?.model || useModel,
                     provider: providerLabel ? providerLabel.toLowerCase() : 'local',
                     latency: latency_ms,
@@ -466,4 +461,32 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
     };
 }
 
-module.exports = { createAddonIO };
+/**
+ * Store-shaped usage from an OpenAI-compatible `usage` block, with output = what the
+ * provider BILLS as output.
+ *
+ * 🔴 Gemini's OpenAI-compatible endpoint leaves thinking tokens OUT of
+ * `completion_tokens` but IN `total_tokens`, and Google bills thinking as output.
+ * Measured 2026-10-09 (HV), gemini-3.5-flash, one prompt: completion_tokens 2,
+ * prompt_tokens 12, total_tokens 234; the native endpoint for the same prompt
+ * reported thoughtsTokenCount 229. Taking completion_tokens alone showed the household
+ * 2 output tokens where Google billed ~222. So output = total − prompt whenever that is
+ * larger; for OpenAI-spec providers (total = prompt + completion) it equals
+ * completion_tokens and nothing changes.
+ */
+function usageFromChatCompletion(u) {
+    const usage = u && typeof u === 'object' ? u : {};
+    const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const prompt = int(usage.prompt_tokens);
+    const completion = int(usage.completion_tokens);
+    const total = int(usage.total_tokens);
+    let output = completion;
+    if (prompt !== null && total !== null && total - prompt > (completion ?? 0)) output = total - prompt;
+    return {
+        input_tokens: prompt ?? undefined,
+        output_tokens: output ?? undefined,
+        total_tokens: total ?? undefined,
+    };
+}
+
+module.exports = { createAddonIO, usageFromChatCompletion };
