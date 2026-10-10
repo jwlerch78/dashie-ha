@@ -312,8 +312,13 @@ if (/daysServed/.test(source) && /this\._daysServed \|\| this\._range/.test(page
         // source-text gate cannot tell code from a comment about code, so it read the
         // explanation of the fix as the defect. Any leg here that greps for an ABSENCE has
         // the same exposure.
+        //
+        // ⚠️ AND IT WAS TOO NARROW: this regex read `r.units` only, so `_renderTurn`'s
+        // `Object.entries(t.units)` — the SAME defect in the per-turn renderer — passed it
+        // for a day. A gate written against the one site you just fixed measures your fix,
+        // not the defect. Both bindings are matched now.
         const code = pageSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-        if (/Object\.entries\(\s*r\.units/.test(code)) {
+        if (/Object\.entries\(\s*[rt]\.units/.test(code)) {
             fail('[13] usage.js still enumerates r.units directly — that is the passthrough that put '
                 + '`bytes 186240 · seconds 5.82` on a household’s screen');
         } else if (!/UsageUnits/.test(code)) {
@@ -405,6 +410,139 @@ if (/daysServed/.test(source) && /this\._daysServed \|\| this\._range/.test(page
             fail('[20] the injection leaked — `seconds` no longer renders after restore');
         } else {
             ok('20: removing a FIELDS row DOES break the join and silence that unit (leg 12 can fail)');
+        }
+    }
+}
+
+// ── 21-28. the provider vocabulary (2026-10-09, John's item 4) ─────────────
+{
+    const provLib = `${ROOT}/frontend/console/js/lib/usage-providers.js`;
+    const pageFile = `${ROOT}/frontend/console/js/pages/usage.js`;
+    const indexFile = `${ROOT}/frontend/console/index.html`;
+    let P = null, provSrc = '', pageSrc = '', indexSrc = '';
+
+    // The manifest stand-in carries a name NOTHING in the lib could have hardcoded, so
+    // leg 22 proves a join rather than a coincidence.
+    const SENTINEL = 'Sentinel Provider Name';
+    try {
+        provSrc = readFileSync(provLib, 'utf8');
+        pageSrc = readFileSync(pageFile, 'utf8');
+        indexSrc = readFileSync(indexFile, 'utf8');
+        const sandbox = { console: { warn() {}, log() {} } };
+        sandbox.window = sandbox; sandbox.globalThis = sandbox;
+        sandbox.ProviderManifest = { byId: (id) => (id === 'gemini' ? { name: SENTINEL } : null) };
+        vm.runInContext(provSrc, vm.createContext(sandbox), { filename: provLib });
+        P = sandbox.UsageProviders;
+    } catch (e) {
+        fail(`[21] usage-providers.js did not evaluate: ${e.message}`);
+    }
+
+    if (P && typeof P.describe === 'function') {
+        ok('21: usage-providers.js evaluates and exposes describe()');
+
+        // 22. 🔴 THE JOIN. The name must come FROM ProviderManifest, not from a copy of it
+        // in this lib. The sentinel cannot be guessed, so a pass here is a real join.
+        const joined = P.describe('gemini');
+        if (joined.text !== SENTINEL || joined.kind !== P.KIND.NAMED) {
+            fail(`[22] describe('gemini') returned ${JSON.stringify(joined.text)} (kind=${joined.kind}) `
+                + `rather than the manifest's name. The whole reason this file needs no `
+                + `JS_KOTLIN_CONTRACTS row is that it JOINS provider-manifest.js; if it answers `
+                + `from its own table it is a second spelling of provider identity and it will drift.`);
+        } else {
+            ok('22: a provider name is JOINED from ProviderManifest, not copied into this lib');
+        }
+
+        // 23. 🔴 `brain` must NOT be dressed up as a provider. It is a LANE name in the
+        // provider column; "AI" would be a lane label wearing a provider's clothes, which
+        // reads as a decision and is actually a gap.
+        const brain = P.describe('brain');
+        if (brain.kind !== P.KIND.UNRECORDED) {
+            fail(`[23] describe('brain') reports kind=${brain.kind}; it must be UNRECORDED. The server `
+                + `never records WHICH AI provider ran (brain/addon-io.js records the literal `
+                + `'brain'), so there is no name to show.`);
+        } else if (/\bAI\b|brain/i.test(brain.text)) {
+            fail(`[23] describe('brain').text is ${JSON.stringify(brain.text)} — it names the LANE. `
+                + `A lane label in the provider column is the defect this item fixes, not the fix.`);
+        } else {
+            ok('23: `brain` reports as unrecorded and is never renamed into a pseudo-provider');
+        }
+
+        // 24. 🔴 ANTI-MIRROR. No manifest provider name may be hardcoded in this lib — that
+        // is the failure mode leg 22 would still pass if the lib ALSO carried a table.
+        //
+        // ⚠️ COMMENTS STRIPPED FIRST — and I wrote this leg one screen after documenting that
+        // exposure on leg 13, then walked into it: the lib's header CITES "Google Gemini" and
+        // "ElevenLabs" as examples of what the join returns, so the leg read the explanation
+        // of the fix as the defect. Stripping keeps the discrimination that matters: a real
+        // table (`DECLARED: { gemini: 'Google Gemini' }`) is code and is still caught.
+        const provCode = provSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        const mirrored = ['Google Gemini', 'ElevenLabs', 'OpenAI', 'Anthropic Claude', 'OpenRouter', 'Kokoro']
+            .filter(n => provCode.includes(`'${n}'`) || provCode.includes(`"${n}"`));
+        if (mirrored.length) {
+            fail(`[24] usage-providers.js hardcodes manifest name(s): ${mirrored.join(', ')}. Those belong `
+                + `to provider-manifest.js; a copy here drifts the first time one is renamed.`);
+        } else {
+            ok('24: no ProviderManifest name is hardcoded in usage-providers.js');
+        }
+
+        // 25. an operator's engine host passes through, and is NOT drift.
+        const host = P.describe('api.openai.com');
+        const hostIsDrift = P.unknownIds([{ provider: 'api.openai.com' }]).length > 0;
+        if (host.text !== 'api.openai.com' || host.kind !== P.KIND.SELF_HOSTED) {
+            fail(`[25] a host rendered as ${JSON.stringify(host.text)} (kind=${host.kind}); hostOf() `
+                + `returns whatever the operator typed and that set is unbounded, so it must pass through.`);
+        } else if (hostIsDrift) {
+            fail('[25] a self-hosted host is reported as an unknown id. Self-hosted engines are '
+                + 'unbounded BY DESIGN, so every household running Whisper on a NAS would warn for '
+                + 'working correctly — and a warning that fires on normal use is one nobody reads.');
+        } else {
+            ok('25: a self-hosted engine host passes through unchanged and is not reported as drift');
+        }
+
+        // 26. drift IS reported, with a control that can fail.
+        const drift = P.unknownIds([{ provider: 'a_brand_new_provider' }, { provider: 'gemini' }]);
+        if (!drift.includes('a_brand_new_provider')) {
+            fail('[26] an unrecognised provider id is NOT reported — the server could grow a provider '
+                + 'and the column would name it nothing, silently');
+        } else if (drift.includes('gemini')) {
+            fail('[26] CONTROL: a JOINED id was also reported as drift — the check is inverted');
+        } else {
+            ok('26: an unrecognised provider id is reported, and a joined one is not');
+        }
+
+        // 27. 🔴 REGISTRATION — authored-but-unreached is this repo's recurring defect. A lib
+        // that no page loads is dead code with a gate's blessing.
+        const iProv = indexSrc.indexOf('js/lib/usage-providers.js');
+        const iPage = indexSrc.indexOf('js/pages/usage.js');
+        const iMan = indexSrc.indexOf('js/lib/provider-manifest.js');
+        if (iProv < 0) {
+            fail('[27] usage-providers.js is not in index.html — the page can never reach it, so every '
+                + 'leg above is measuring a file the browser does not run');
+        } else if (iPage < 0 || iProv > iPage) {
+            fail('[27] usage-providers.js loads AFTER pages/usage.js — the page reads window.UsageProviders '
+                + 'at render time, but ordering it last means a reload race nobody will reproduce');
+        } else if (iMan < 0 || iMan > iProv) {
+            fail('[27] provider-manifest.js does not load before usage-providers.js — the join would '
+                + 'silently degrade to raw ids');
+        } else {
+            ok('27: usage-providers.js is registered, after the manifest and before the page');
+        }
+
+        // 28. 🔴 BOTH renderers must go through the one helper. The first pass fixed the
+        // aggregate and left the per-turn renderer printing raw strings; a vocabulary used by
+        // one of two renderers lets the same provider be named two ways on one screen.
+        const code = pageSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        const rawProv = code.match(/\$\{\s*[rt]\.provider\s*\}/g) || [];
+        const viaHelper = (code.match(/_providerText\(/g) || []).length;
+        if (rawProv.length) {
+            fail(`[28] usage.js still interpolates a raw provider id ${rawProv.length} time(s) `
+                + `(${rawProv.join(', ')}) — that is the five-kinds-of-name column this item fixes`);
+        } else if (viaHelper < 3) {
+            fail(`[28] only ${viaHelper} reference(s) to _providerText — expected the helper plus BOTH `
+                + `renderers (aggregate and per-turn). A vocabulary wired into one of two renderers `
+                + `names the same provider two ways on one screen.`);
+        } else {
+            ok('28: both renderers name providers through the one _providerText helper');
         }
     }
 }

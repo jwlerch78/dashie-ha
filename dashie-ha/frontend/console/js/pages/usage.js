@@ -293,11 +293,35 @@ const UsagePage = {
             </div></div>`;
     },
 
+    /**
+     * The household-facing name for one recorded provider id, escaped.
+     *
+     * Both renderers go through this one method so the aggregate row and the
+     * per-turn row can never name the same provider two different ways — the
+     * defect that made this page's column incoherent in the first place.
+     *
+     * A missing `UsageProviders` degrades to the escaped raw id rather than
+     * throwing: a Usage label is not worth a blank page.
+     */
+    _providerText(id) {
+        const P = window.UsageProviders;
+        if (!P) return DevicesPage._escape(String(id == null ? '' : id));
+        return DevicesPage._escape(P.describe(id).text);
+    },
+
     _renderTurn(t) {
-        const units = Object.entries(t.units || {})
-            .map(([k, v]) => `${DevicesPage._escape(k)} ${DevicesPage._escape(String(v))}`).join(' · ');
+        // 🔴 This renderer had the SAME raw-field-name defect `_renderRow` had, and the
+        // first pass fixed only the aggregate: it read `Object.entries(t.units)`, so the
+        // per-turn history printed `total_tokens 1234` exactly as the aggregate did. The
+        // gate missed it too — leg 13's regex was `Object\.entries\(\s*r\.units`, which
+        // `t.units` does not match. One fix, one renderer, one gate, all narrower than the
+        // defect. Both renderers now go through the same two vocabularies.
+        const U = window.UsageUnits;
+        const units = (U ? U.describe(t.units) : [])
+            .map(x => `${DevicesPage._escape(x.text)} ${DevicesPage._escape(x.label)}`).join(' · ');
         const when = String(t.at || '').replace('T', ' ').replace(/\..*$/, '');
-        const name = t.model ? `${t.provider} · ${t.model}` : t.provider;
+        const who = UsagePage._providerText(t.provider);
+        const name = t.model ? `${who} · ${t.model}` : who;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
                 <span><span style="color: var(--text-muted);">${DevicesPage._escape(when)}</span>
@@ -374,7 +398,11 @@ const UsagePage = {
             console.warn(`DROP: usage-units-unknown ${unknown.join(', ')} — `
                 + `usage-store.js grew a unit field with no UsageUnits.FIELDS row`);
         }
-        const name = r.model ? `${r.provider} · ${r.model}` : r.provider;
+        // The provider column held five KINDS of string (a lane name, a wire id, real
+        // providers, an operator's host). UsageProviders joins ProviderManifest first, so
+        // this is a join rather than a second spelling — see that file's header.
+        const who = UsagePage._providerText(r.provider);
+        const name = r.model ? `${who} · ${r.model}` : who;
         return `
             <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: var(--font-size-sm);">
                 <span>${DevicesPage._escape(name)}
