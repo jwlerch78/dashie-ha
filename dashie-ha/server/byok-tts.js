@@ -68,6 +68,8 @@ const turnLog = require('./turn-log');
 const geminiTts = require('./gemini-tts');
 // The ONE signed-in answer — capability.js's — so lending and this lane cannot disagree.
 const { signedIn } = require('./capability');
+// The ONE balance read (shared with the brain's tool gate), three-valued.
+const { boxCredits } = require('./credit-balance');
 
 const TTS_TIMEOUT_MS = 60000;
 const MAX_CHARS = 5000;
@@ -133,24 +135,42 @@ function fetchWithTimeout(url, init) {
  * One function so the picker's "this row needs a key" and this lane's "can I
  * serve" can never drift into two implementations.
  */
-function resolveProvider() {
+async function resolveProvider() {
     let status;
     try { status = keyStore.status(); } catch { return null; }
     if (status.elevenlabs === true) return 'elevenlabs';
-    // 🔴 John 2026-10-10: a Gemini key buys speech ONLY when no speech key is
-    // stored AND the box is not signed in. A Gemini key is the one key for the
-    // whole cloud pipeline, not a speech key, so without both conditions it would
-    // change the voice — and the payer — of every box that holds one, breaking
-    // engines.js's promise that no install changes unless it holds a speech key.
-    // An Inworld key (no adapter yet) still rules Gemini out: it says the
-    // household chose a speech provider, and it was not Gemini.
-    if (status.gemini === true && !SPEECH_KEYS.some(p => status[p] === true) && !signedIn()) return 'gemini';
-    return null;
+    // 🔴 John 2026-10-10: a Gemini key buys speech when no speech key is stored
+    // AND the account cannot pay — signed out, or signed in with NO spendable
+    // credits ("Even if the account is signed in Gemini key should be used when
+    // entered with no credits … fall back for sure (it'll be a primary use case at
+    // launch)"; credits are not in the MVP, so signed-in-at-zero is the main path).
+    // A signed-in box WITH credits keeps the account voice, so a Gemini key — the
+    // one key for the whole cloud pipeline, not a speech key — does not change the
+    // voice or the payer of a box that can pay. An Inworld key (no adapter yet)
+    // still rules Gemini out: the household chose a speech provider, not Gemini.
+    if (status.gemini !== true || SPEECH_KEYS.some(p => status[p] === true)) return null;
+    if (!signedIn()) { noteFallback(null); return 'gemini'; }
+    // Only a READ balance > 0 keeps the account voice. 'empty' AND 'unknown' both
+    // fall back: John ruled the key is used when there are no credits, and credits
+    // are not in the MVP — so an unreadable ledger is likely the common case, and
+    // treating it as "has credits" would be silence on the launch's main path.
+    const credits = await boxCredits();
+    if (credits.state === 'spendable') { noteFallback(null); return null; }
+    noteFallback(credits.state === 'empty' ? `no credits (balance=${credits.balance})` : 'credit balance unreadable');
+    return 'gemini';
+}
+
+// The marker fires on the SWITCH, not once per sentence (TTS is per sentence).
+let fallbackWhy = null;
+function noteFallback(why) {
+    if (why && why !== fallbackWhy) console.log(`TTS-FALLBACK: signed in, ${why} → speaking on the household's Gemini key`);
+    if (!why && fallbackWhy) console.log('TTS-FALLBACK: ended — the account can pay again');
+    fallbackWhy = why;
 }
 
 /** True when a BYOK TTS provider is both keyed and adapted on this box. */
-function available() {
-    return resolveProvider() !== null;
+async function available() {
+    return (await resolveProvider()) !== null;
 }
 
 /**
@@ -162,7 +182,7 @@ function available() {
  * result. Nothing above this function ever holds it.
  */
 async function synthesize({ text, voice, model }) {
-    const provider = resolveProvider();
+    const provider = await resolveProvider();
     if (!provider) return { ok: false, status: 503, error: 'byok_tts_unavailable' };
 
     const adapter = ADAPTERS[provider];

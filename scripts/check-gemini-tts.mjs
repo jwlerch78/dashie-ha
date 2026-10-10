@@ -26,13 +26,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SERVER = join(HERE, '..', 'dashie-ha', 'server');
 const require_ = createRequire(import.meta.url);
 
-let config, byok, usageStore, sttUsage, engines;
+let config, byok, usageStore, sttUsage, engines, creditBalance;
 try {
     config = require_(join(SERVER, 'config.js'));
     usageStore = require_(join(SERVER, 'usage-store.js'));
     sttUsage = require_(join(SERVER, 'stt-usage.js'));
     byok = require_(join(SERVER, 'byok-tts.js'));
     engines = require_(join(SERVER, 'engines.js'));
+    creditBalance = require_(join(SERVER, 'credit-balance.js'));
 } catch (e) {
     console.error(`check-gemini-tts: cannot check — module did not load: ${e.message}`);
     process.exit(2);
@@ -70,7 +71,7 @@ async function capture(fn, fetchImpl) {
 const GKEY = 'AIzaControl_do_not_use_0000DEADBEEF';
 const setKeys = (o) => writeFileSync(KEYS_FILE, JSON.stringify(o, null, 2));
 const signIn = (on) => on
-    ? writeFileSync(config.JWT_FILE, JSON.stringify({ jwt: 'control.jwt', expiry: Date.now() + 3600_000 }))
+    ? writeFileSync(config.JWT_FILE, JSON.stringify({ jwt: 'control.jwt', expiry: Date.now() + 30 * 86400_000 }))
     : rmSync(config.JWT_FILE, { force: true });
 const clearUsage = () => rmSync(usageStore.USAGE_FILE, { force: true });
 const usageLines = (lines) => lines.filter(l => l.startsWith('USAGE:'));
@@ -95,19 +96,55 @@ const jsonFetch = (mime, bytes) => async () => new Response(geminiBody(mime, byt
 const TEXT = 'The kitchen timer is done.';
 
 // ── 1. precedence ─────────────────────────────────────────────────────────────
+// John 2026-10-10: Gemini speaks when no speech key is stored AND the account cannot
+// pay — signed out, or signed in WITHOUT a read balance > 0. The read is
+// credit-balance.js (shared with the brain's tool gate) and THREE-VALUED: each caller
+// decides what 'unknown' means. Speech: unknown → the Gemini key (legs 1f/1g, which
+// were 'null' — silence — under the inherited fail-open).
+const resolve = async (balanceResp) => {
+    creditBalance.__resetCacheForTest();
+    return capture(() => byok.resolveProvider(), async (url) => {
+        if (!String(url).includes('database-operations')) throw new Error(`unexpected fetch ${url}`);
+        return balanceResp();
+    });
+};
+const bal = (n) => () => new Response(JSON.stringify({ data: { balance: n } }), { status: 200 });
+const noNet = () => { throw new Error('no network expected on this leg'); };
 signIn(false);
 setKeys({ gemini: { key: GKEY } });
-check('1a — signed-out + ONLY a Gemini key → gemini serves speech', byok.resolveProvider() === 'gemini', `got ${byok.resolveProvider()}`);
+let p = await resolve(noNet);
+check('1a — signed-out + ONLY a Gemini key → gemini, and no balance read', p.value === 'gemini' && p.calls.length === 0, `got ${p.value} calls=${p.calls.length}`);
 setKeys({ gemini: { key: GKEY }, elevenlabs: { key: 'el_control' } });
-check('1b — Gemini + ElevenLabs → ElevenLabs (stated, not object order)', byok.resolveProvider() === 'elevenlabs', `got ${byok.resolveProvider()}`);
+check('1b — Gemini + ElevenLabs → ElevenLabs (stated, not object order)', (await resolve(noNet)).value === 'elevenlabs', '');
 setKeys({ gemini: { key: GKEY }, inworld: { key: 'iw_control' } });
-check('1c — Gemini + an Inworld key (no adapter) → nothing: a speech key was chosen, and not Gemini', byok.resolveProvider() === null, `got ${byok.resolveProvider()}`);
+check('1c — Gemini + an Inworld key (no adapter) → nothing: a speech key was chosen, and not Gemini', (await resolve(noNet)).value === null, '');
 setKeys({ gemini: { key: GKEY } });
 signIn(true);
-check('1d — SIGNED IN + only a Gemini key → nothing (the account voice is kept)', byok.resolveProvider() === null, `got ${byok.resolveProvider()}`);
-signIn(false);
+p = await resolve(bal(4.2));
+check('1d — SIGNED IN with spendable credits → nothing (the account voice is kept)', p.value === null && p.calls.length === 1, `got ${p.value} calls=${p.calls.length}`);
+p = await resolve(bal(0));
+check('1e — SIGNED IN with ZERO credits → gemini, with a TTS-FALLBACK marker (John: "fall back for sure")',
+    p.value === 'gemini' && p.lines.some(l => l.startsWith('TTS-FALLBACK: signed in, no credits')), `got ${p.value} lines=${p.lines.join(' | ')}`);
+const again = await capture(() => byok.resolveProvider(), async () => bal(0)());   // cached 'empty', same state
+check('1e2 — the marker fires on the SWITCH, not once per sentence', again.value === 'gemini' && !again.lines.some(l => l.startsWith('TTS-FALLBACK')), again.lines.join(' | '));
+p = await resolve(() => new Response('oops', { status: 500 }));
+check('1f — SIGNED IN, balance UNREADABLE (non-2xx) → gemini: unknown is NOT "has credits" (MVP has no credits)',
+    p.value === 'gemini' && p.lines.some(l => l.includes('credit balance unreadable')), `got ${p.value} lines=${p.lines.join(' | ')}`);
+p = await resolve(() => new Response(JSON.stringify({ data: {} }), { status: 200 }));
+check('1f2 — SIGNED IN, 200 with NO balance in the body → gemini', p.value === 'gemini', `got ${p.value}`);
+p = await resolve(() => { throw new Error('ECONNREFUSED'); });
+check('1g — SIGNED IN, cloud UNREACHABLE → gemini', p.value === 'gemini', `got ${p.value}`);
+let n = 0;
+creditBalance.__resetCacheForTest();
+await capture(() => creditBalance.boxCredits(), async () => { n++; throw new Error('down'); });
+await capture(() => creditBalance.boxCredits(), async () => { n++; return bal(3)(); });
+check('1g2 — an UNKNOWN is never cached: the next turn reads the ledger again', n === 2, `reads=${n}`);
+p = await resolve(bal(4.2));
+check('1g3 — credits back → the account voice again, with an "ended" marker', p.value === null && p.lines.some(l => l.startsWith('TTS-FALLBACK: ended')), `got ${p.value} lines=${p.lines.join(' | ')}`);
 setKeys({ openrouter: { key: 'or_control' } });
-check('1e — CONTROL: a non-Gemini brain key buys no speech', byok.resolveProvider() === null, `got ${byok.resolveProvider()}`);
+p = await resolve(bal(0));
+check('1h — CONTROL: signed in at zero with NO Gemini key → nothing, and no balance read', p.value === null && p.calls.length === 0, `got ${p.value} calls=${p.calls.length}`);
+signIn(false);
 
 // ── 2. WAV passthrough (the 3.8 models' shape, incl. a trailing C2PA chunk) ──
 setKeys({ gemini: { key: GKEY } });
@@ -192,6 +229,35 @@ clearUsage();
     check('7 — handleTts, signed out, only a Gemini key → 200 audio/wav the parser reads (0.5 s)',
         out.head?.status === 200 && out.head.headers['Content-Type'] === 'audio/wav' && sttUsage.wavSeconds(out.body) === 0.5 && out.json === null,
         `head=${JSON.stringify(out.head)} json=${JSON.stringify(out.json)}`);
+}
+
+// ── 8. the OTHER caller keeps ITS meaning of unknown: the brain tool gate allows ──
+{
+    const { createAddonIO } = require_(join(SERVER, 'brain', 'addon-io.js'));
+    const io = createAddonIO({ endpoint: 'http://localhost:11434', model: 'qwen3', accountToken: 'jwt.for.tests', log: () => {} });
+    const unk = await capture(() => io.checkSpendable(), async () => new Response('oops', { status: 500 }));
+    check('8a — brain gate, balance unreadable → spendable:true (fail OPEN, unchanged)', unk.value.spendable === true && unk.value.balance === Number.POSITIVE_INFINITY, JSON.stringify(unk.value));
+    const zero = await capture(() => io.checkSpendable(), async () => bal(0)());
+    check('8b — brain gate, zero balance → spendable:false', zero.value.spendable === false && zero.value.balance === 0, JSON.stringify(zero.value));
+    const some = await capture(() => io.checkSpendable(), async () => bal(0.5)());
+    check('8c — brain gate, 0.5 → spendable, low', some.value.spendable === true && some.value.low === true, JSON.stringify(some.value));
+}
+
+// ── 7b. DRIVEN: signed in at ZERO credits — the launch's main path ───────────
+{
+    signIn(true);
+    creditBalance.__resetCacheForTest();
+    const out = { head: null, body: null, json: null };
+    const fakeReq = { on(ev, cb) { if (ev === 'data') cb(Buffer.from(JSON.stringify({ text: TEXT }))); if (ev === 'end') cb(); return this; } };
+    const fakeRes = { writeHead(status, headers) { out.head = { status, headers }; }, end(b) { out.body = b; } };
+    const wav = handWav(24000, 24000);
+    const r = await capture(() => engines.handleTts(fakeReq, fakeRes, (_r, status, body) => { out.json = { status, body }; }),
+        async (url) => String(url).includes('database-operations') ? bal(0)() : jsonFetch('audio/wav', wav)());
+    check('7b — handleTts, SIGNED IN at zero credits, only a Gemini key → 200 audio/wav from Gemini (not the cloud, not silence)',
+        out.head?.status === 200 && out.head.headers['Content-Type'] === 'audio/wav' && sttUsage.wavSeconds(out.body) === 0.5
+        && r.calls.some(c => c.url.includes('generativelanguage')) && !r.calls.some(c => /elevenlabs-tts|inworld-tts/.test(c.url)),
+        `head=${JSON.stringify(out.head)} json=${JSON.stringify(out.json)} calls=${r.calls.map(c => c.url).join(' ')}`);
+    signIn(false);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -71,6 +71,7 @@ const GATEWAY_TIMEOUT_MS = 45000;
  *  Dashie-funded tools — so failing open here risks at most one paid tool call
  *  that debitBalance floors later. */
 const FAIL_OPEN_SPEND = { spendable: true, balance: Number.POSITIVE_INFINITY, floor: 0, low: false };
+const { readCredits } = require('../credit-balance');   // the ONE balance read (three-valued)
 
 /** The Dashie Cloud connection, required LAZILY.
  *
@@ -411,22 +412,11 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         //
         // CR1 balance read for the BYOK tool gate. get_credit_balance is the same read the
         // console uses. Fails open (see FAIL_OPEN_SPEND).
+        // The tool gate's own answer to 'unknown': ALLOW (fail open), as it always was.
         checkSpendable: async () => {
-            try {
-                const resp = await fetch(`${CLOUD.url}/functions/v1/database-operations`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        apikey: CLOUD.anonKey,
-                        Authorization: `Bearer ${accountToken}`,
-                    },
-                    body: JSON.stringify({ operation: 'get_credit_balance', data: {} }),
-                });
-                const body = await resp.json().catch(() => ({}));
-                const balance = Number(body?.data?.balance ?? body?.balance);
-                if (!resp.ok || !isFinite(balance)) return FAIL_OPEN_SPEND;
-                return { spendable: balance > 0, balance, floor: 0, low: balance > 0 && balance < 1 };
-            } catch { return FAIL_OPEN_SPEND; }
+            const c = await readCredits(accountToken);
+            if (c.state === 'unknown') return FAIL_OPEN_SPEND;
+            return { spendable: c.state === 'spendable', balance: c.balance, floor: 0, low: c.balance > 0 && c.balance < 1 };
         },
         // Account tool toggles (T3 parity with the cloud brain's ai-settings.ts): without
         // this the core resolves retrieve_pictures to FALSE and the model hallucinates

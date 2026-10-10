@@ -143,22 +143,22 @@ const errFetch = (status) => async () => new Response('nope', { status });
 clearStore();
 setKeys({});
 check('leg 1a — no keys ⇒ available() false',
-    byok.available() === false,
-    `available()=${byok.available()} with an empty key store`,
+    (await byok.available()) === false,
+    `available()=${(await byok.available())} with an empty key store`,
     'a lane that thinks it can serve with no key returns 503s that look like a provider outage');
 
 setKeys({ deepgram: { key: FAKE_KEY }, inworld: { key: FAKE_KEY } });
 check('leg 1b — a STORABLE speech key with NO adapter ⇒ still unavailable',
-    byok.available() === false && byok.resolveProvider() === null,
-    `resolveProvider()=${byok.resolveProvider()} with deepgram+inworld stored`,
+    (await byok.available()) === false && (await byok.resolveProvider()) === null,
+    `resolveProvider()=${(await byok.resolveProvider())} with deepgram+inworld stored`,
     'deepgram and inworld are storable today and have no on-box adapter; routing to them ' +
     'would fail in a way indistinguishable from the provider being down, and would also ' +
     "make the console's adapter:'pending' a lie");
 
 setKeys({ elevenlabs: { key: FAKE_KEY } });
 check('leg 1c — POSITIVE CONTROL: a keyed AND adapted provider resolves',
-    byok.resolveProvider() === 'elevenlabs',
-    `resolveProvider()=${byok.resolveProvider()} with an elevenlabs key stored`,
+    (await byok.resolveProvider()) === 'elevenlabs',
+    `resolveProvider()=${(await byok.resolveProvider())} with an elevenlabs key stored`,
     'without this, legs 1a/1b would pass on a function that always answers no');
 
 // ── LEG 2 — one turn ⇒ exactly one USAGE: line, with the right fields ─────────

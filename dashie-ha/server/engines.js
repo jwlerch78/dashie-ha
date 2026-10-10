@@ -324,8 +324,10 @@ async function handleTts(req, res, sendJson) {
         // BYOK: the household's own speech key, spent ON THE BOX (byok-tts.js
         // carries the precedence rationale). Ahead of the account path — a
         // stored key has one meaning — and behind `tts_url`, so no existing
-        // install changes behaviour unless it holds a speech key.
-        if (byokTts.available()) {
+        // install changes behaviour unless it holds a speech key, OR holds a
+        // Gemini key while its account cannot pay (signed out, or no spendable
+        // credits — John 2026-10-10; byok-tts.js resolveProvider has the rule).
+        if (await byokTts.available()) {
             const r = await byokTts.synthesize({ text, voice, model: payload.model });
             if (r.ok) {
                 res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
