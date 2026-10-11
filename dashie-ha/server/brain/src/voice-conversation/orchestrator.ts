@@ -83,6 +83,7 @@ import type { WeatherLocation, WeatherResult } from './weather.ts';
 import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest, WebGuidanceMode } from './types.ts';
 import { timed, mark, newPrepSink, sealPrep, PREP_TOTAL, type PrepSink } from './prep-timing.ts';
 import { dispatchMultiTurn, recoverHaAction } from './multi-dispatch.ts';
+import { EARLY_PENDING_META, earlyFinalMeta, isEarlyAnswerEligible, PICTURE_FETCH_VERBS, PICTURE_NOUN, PICTURE_SHOW_VERBS } from './early-answer.ts';
 
 export interface OrchestrationDeps {
   req: VoiceRequest;
@@ -92,6 +93,9 @@ export interface OrchestrationDeps {
   // Live progress sink (streaming callers only). Fires at each stage boundary
   // with brain-owned status copy + elapsed_ms. Undefined for non-streaming callers.
   onStage?: (e: StageEvent) => void;
+  // Speak-first sink (streaming callers only, and only acted on when req.early_answer is set):
+  // receives a SUPPLEMENTAL image turn's answer before its picture resolves. See early-answer.ts.
+  onEarlyTurn?: (turn: Turn) => void;
 }
 
 // DLG-2: does the user want a game SUMMARY/recap/analysis (→ the rich LLM synthesis with
@@ -461,7 +465,18 @@ const DEFAULT_VOICE_KEY = 'ASHLEY';
  */
 export async function runOrchestration(deps: OrchestrationDeps, io: OrchestratorIO): Promise<Turn> {
   const voiceCtx: OrchestrateCtx = { voiceId: null, voiceProvider: null };
-  const turn = await orchestrate(deps, io, voiceCtx);
+  // Speak first (early-answer.ts): the early turn gets the SAME post-stamps as the final one
+  // (voice_id, miss/end, credit, bench echo) through stampTurn, so the tablet's credit/miss/dialog
+  // policy sees one turn shape whichever line it acts on. Absent unless the caller opted in.
+  if (deps.onEarlyTurn && deps.req.early_answer === true) {
+    const sink = deps.onEarlyTurn;
+    voiceCtx.emitEarly = (t) => sink(stampTurn(t, deps, voiceCtx));
+  }
+  return stampTurn(await orchestrate(deps, io, voiceCtx), deps, voiceCtx);
+}
+
+/** The one post-orchestration stamp site, shared by the final turn and the speak-first early turn. */
+function stampTurn(turn: Turn, deps: OrchestrationDeps, voiceCtx: OrchestrateCtx): Turn {
   if (turn.voice_id === undefined && voiceCtx.voiceId) turn.voice_id = voiceCtx.voiceId;
   // voice_provider follows the resolved voice's catalog provider so native routes to the
   // right vendor. Additive/nullable (§13.16) — absent → client falls back to its default.
@@ -509,6 +524,8 @@ interface OrchestrateCtx {
    *  turn that short-circuited before a prompt was built (credits, noise, rate limit) — there is
    *  no applied mode on a turn that never assembled a prompt, and saying 'auto' would be a claim. */
   webGuidance?: WebGuidanceMode;
+  /** Set only when the caller opted in to speak-first: emits a stamped early turn. */
+  emitEarly?: (turn: Turn) => void;
 }
 
 async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx: OrchestrateCtx): Promise<Turn> {
@@ -1057,11 +1074,30 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       : null;
     const effImageHint = imageHint?.searchTerms ? imageHint : (salvagedTerms ? { searchTerms: salvagedTerms } : undefined);
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field → searching "${salvagedTerms}"`);
-    const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn) : undefined;
+    // SPEAK FIRST (early-answer.ts, John 10-11): a SUPPLEMENTAL picture lets the answer go out now and
+    // the card follow in the final line. An explicit picture request keeps the wait + walk-back below.
+    const earlySent = !!voiceCtx.emitEarly && !!effImageHint?.searchTerms && isEarlyAnswerEligible({
+      optedIn: true, responseType: p1Parsed?.type, hasImageHint: true, sportsOwnsCard: !!sportsCard,
+      calendarProvided: !!providedCalendar, userText: req.text,
+    });
+    if (earlySent) {
+      voiceCtx.emitEarly!(finalize({
+        t0, parsed: p1Parsed, raw: pass1.raw, stages: [p1Stage], usage: pass1.raw.usage,
+        latency: pass1.latency_ms, retain, sessionId, route: 'image', metadata: { ...EARLY_PENDING_META },
+      }));
+    }
+    if (effImageHint?.searchTerms && req.options?.force_image_fail === true) {
+      console.warn(`DROP: image search SKIPPED by options.force_image_fail (debug) for "${effImageHint.searchTerms}"`);
+    }
+    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn) : undefined;
     // The resolver returned nothing but the spoken line already promised a picture → walk the
     // promise back BEFORE logPass, so the persisted transcript matches what the user hears.
     let imagePromiseAmended = false;
-    if (effImageHint?.searchTerms && !imageCard) {
+    if (earlySent && !imageCard) {
+      // The line is already being spoken; it can no longer be walked back. The final carries
+      // image_promise_broken and the tablet shows the on-screen fallback (never silent, rule 2).
+      console.warn(`DROP: image-resolve returned no card for "${effImageHint!.searchTerms}" AFTER the early answer was sent — tablet shows the fallback`);
+    } else if (effImageHint?.searchTerms && !imageCard) {
       const amended = amendUnkeptPicturePromise(p1Parsed?.voice as string | null | undefined);
       if (amended) {
         console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture — amending the spoken line`);
@@ -1083,7 +1119,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
           tool_trace: { route: 'sports', tool: 'get_sports_scores', args: providedSports?.query ?? null, caps } }
       : effImageHint?.searchTerms
         ? { tool_used: 'show_image', response_type: p1Parsed?.type ?? null,
-            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: effImageHint.searchTerms, criteria: (effImageHint as { criteria?: string }).criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended }, caps } }
+            tool_trace: { route: 'image', tool: 'show_image', args: { searchTerms: effImageHint.searchTerms, criteria: (effImageHint as { criteria?: string }).criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended, early_answer: earlySent }, caps } }
         : calendarUsed
           ? { tool_used: 'calendar_context', response_type: p1Parsed?.type ?? null,
               tool_trace: { route: 'calendar', tool: 'calendar_context', args: { time_range: providedCalendar.time_range ?? null }, caps } }
@@ -1097,7 +1133,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       structured_data: card ?? undefined,
       // The device attached the window and holds the matching card — this flag tells it
       // the direct path was taken (render the held card). Absent on the tool-fallback path.
-      metadata: calendarUsed ? { calendar_context_used: true } : undefined,
+      metadata: earlySent ? earlyFinalMeta(!!imageCard) : (calendarUsed ? { calendar_context_used: true } : undefined),
     });
   }
 
@@ -1967,6 +2003,13 @@ export function amendUnkeptPicturePromise(voice: string | null | undefined): str
  *
  * Exported for unit tests.
  */
+// The user-side picture lead-ins are ONE list shared with early-answer.ts's explicit-request test
+// (John 10-11: explicit picture requests wait; supplemental ones speak first), so "what counts as
+// asking for a picture" cannot drift between the two.
+const USER_PICTURE_LEADIN_RE = new RegExp(
+  `^(?:hey dashie[,\\s]*)?(?:can you |could you |please |will you )?(?:${[...PICTURE_SHOW_VERBS, ...PICTURE_FETCH_VERBS].join('|')})\\s+`, 'i');
+const USER_PICTURE_NOUN_OF_RE = new RegExp(`\\b(?:a |an |the )?${PICTURE_NOUN}\\s+of\\s+(?:a |an |the )?`, 'i');
+
 export function promisedPictureQuery(voice: string | null | undefined, userText: string | null | undefined): string | null {
   const v = String(voice || '');
   if (!voicePromisesPicture(v)) return null;
@@ -1976,8 +2019,8 @@ export function promisedPictureQuery(voice: string | null | undefined, userText:
   if (!subject) {
     // Fall back to the user's request with the "show me a picture of" lead-in stripped.
     subject = String(userText || '')
-      .replace(/^(?:hey dashie[,\s]*)?(?:can you |could you |please |will you )?(?:show me|show us|pull up|find|display|get me|let me see|i want to see|can i see)\s+/i, '')
-      .replace(/\b(?:a |an |the )?(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?/i, '')
+      .replace(USER_PICTURE_LEADIN_RE, '')
+      .replace(USER_PICTURE_NOUN_OF_RE, '')
       .replace(/[?.!]+$/, '')
       .trim();
   }

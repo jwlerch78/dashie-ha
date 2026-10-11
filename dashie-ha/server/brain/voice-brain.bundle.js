@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 3017e4ab820d38843e7ceceb4616f12e9e48dab1
+   Source git SHA: 54914f5fbdb277863a4d59bc1fa5cece697384d5
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -4994,6 +4994,25 @@ async function dispatchMultiTurn(steps, deps) {
   return { steps: out, stages, usage, latencyMs };
 }
 
+// supabase/functions/voice-conversation/early-answer.ts
+var PICTURE_SHOW_VERBS = ["show me", "show us", "pull up", "display", "let me see", "i want to see", "can i see"];
+var PICTURE_FETCH_VERBS = ["find", "get me"];
+var PICTURE_NOUN = "(?:picture|photo|image|pic)s?";
+var SHOW_RE = new RegExp(`\\b(?:${PICTURE_SHOW_VERBS.join("|")})\\b`, "i");
+var NOUN_OF_RE = new RegExp(`\\b${PICTURE_NOUN}\\s+of\\b`, "i");
+var LOOKS_LIKE_RE = /\bwhat\s+(?:does|do|did)\s+.+\s+look\s+like\b/i;
+function isExplicitPictureRequest(userText) {
+  const t = String(userText || "");
+  return SHOW_RE.test(t) || NOUN_OF_RE.test(t) || LOOKS_LIKE_RE.test(t);
+}
+function isEarlyAnswerEligible(o) {
+  return o.optedIn && o.responseType === "response" && o.hasImageHint && !o.sportsOwnsCard && !o.calendarProvided && !isExplicitPictureRequest(o.userText);
+}
+var EARLY_PENDING_META = { image_pending: true };
+function earlyFinalMeta(cardResolved) {
+  return cardResolved ? { early_answer_sent: true } : { early_answer_sent: true, image_promise_broken: true };
+}
+
 // supabase/functions/voice-conversation/orchestrator.ts
 var SCHEDULE_UNSUPPORTED_REPLY = "I can't set up a scheduled check from this screen yet.";
 var KNOWN_DEVICE_TOOL_DECLINES = {
@@ -5105,7 +5124,13 @@ var REQUEST_TYPE = "voice_conversation";
 var DEFAULT_VOICE_KEY = "ASHLEY";
 async function runOrchestration(deps, io) {
   const voiceCtx = { voiceId: null, voiceProvider: null };
-  const turn = await orchestrate(deps, io, voiceCtx);
+  if (deps.onEarlyTurn && deps.req.early_answer === true) {
+    const sink = deps.onEarlyTurn;
+    voiceCtx.emitEarly = (t) => sink(stampTurn(t, deps, voiceCtx));
+  }
+  return stampTurn(await orchestrate(deps, io, voiceCtx), deps, voiceCtx);
+}
+function stampTurn(turn, deps, voiceCtx) {
   if (turn.voice_id === void 0 && voiceCtx.voiceId) turn.voice_id = voiceCtx.voiceId;
   if (turn.voice_provider === void 0 && voiceCtx.voiceProvider) turn.voice_provider = voiceCtx.voiceProvider;
   if (classifyMiss(turn.route, turn.voice).miss) {
@@ -5373,9 +5398,36 @@ ${p1PromptBase}` : p1PromptBase;
     const salvagedTerms = !imageHint?.searchTerms && !sportsCard && retrievePictures && p1Parsed?.type === "response" ? promisedPictureQuery(p1Parsed?.voice, req.text) : null;
     const effImageHint = imageHint?.searchTerms ? imageHint : salvagedTerms ? { searchTerms: salvagedTerms } : void 0;
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field \u2192 searching "${salvagedTerms}"`);
-    const imageCard = effImageHint?.searchTerms ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn) : void 0;
+    const earlySent = !!voiceCtx.emitEarly && !!effImageHint?.searchTerms && isEarlyAnswerEligible({
+      optedIn: true,
+      responseType: p1Parsed?.type,
+      hasImageHint: true,
+      sportsOwnsCard: !!sportsCard,
+      calendarProvided: !!providedCalendar,
+      userText: req.text
+    });
+    if (earlySent) {
+      voiceCtx.emitEarly(finalize({
+        t0,
+        parsed: p1Parsed,
+        raw: pass1.raw,
+        stages: [p1Stage],
+        usage: pass1.raw.usage,
+        latency: pass1.latency_ms,
+        retain,
+        sessionId,
+        route: "image",
+        metadata: { ...EARLY_PENDING_META }
+      }));
+    }
+    if (effImageHint?.searchTerms && req.options?.force_image_fail === true) {
+      console.warn(`DROP: image search SKIPPED by options.force_image_fail (debug) for "${effImageHint.searchTerms}"`);
+    }
+    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn) : void 0;
     let imagePromiseAmended = false;
-    if (effImageHint?.searchTerms && !imageCard) {
+    if (earlySent && !imageCard) {
+      console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" AFTER the early answer was sent \u2014 tablet shows the fallback`);
+    } else if (effImageHint?.searchTerms && !imageCard) {
       const amended = amendUnkeptPicturePromise(p1Parsed?.voice);
       if (amended) {
         console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture \u2014 amending the spoken line`);
@@ -5392,7 +5444,7 @@ ${p1PromptBase}` : p1PromptBase;
     } : effImageHint?.searchTerms ? {
       tool_used: "show_image",
       response_type: p1Parsed?.type ?? null,
-      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: effImageHint.searchTerms, criteria: effImageHint.criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended }, caps }
+      tool_trace: { route: "image", tool: "show_image", args: { searchTerms: effImageHint.searchTerms, criteria: effImageHint.criteria ?? null, resolved: !!imageCard, salvaged: !!salvagedTerms, promise_amended: imagePromiseAmended, early_answer: earlySent }, caps }
     } : calendarUsed ? {
       tool_used: "calendar_context",
       response_type: p1Parsed?.type ?? null,
@@ -5423,7 +5475,7 @@ ${p1PromptBase}` : p1PromptBase;
       structured_data: card2 ?? void 0,
       // The device attached the window and holds the matching card — this flag tells it
       // the direct path was taken (render the held card). Absent on the tool-fallback path.
-      metadata: calendarUsed ? { calendar_context_used: true } : void 0
+      metadata: earlySent ? earlyFinalMeta(!!imageCard) : calendarUsed ? { calendar_context_used: true } : void 0
     });
   }
   if (p1Parsed.type === "info_request" && p1Parsed.tool === "web_search") {
@@ -6156,13 +6208,18 @@ function amendUnkeptPicturePromise(voice) {
   const sep = /[.!?]$/.test(v) ? " " : ". ";
   return `${v}${sep}Actually, I wasn't able to pull up an image just now \u2014 sorry about that.`;
 }
+var USER_PICTURE_LEADIN_RE = new RegExp(
+  `^(?:hey dashie[,\\s]*)?(?:can you |could you |please |will you )?(?:${[...PICTURE_SHOW_VERBS, ...PICTURE_FETCH_VERBS].join("|")})\\s+`,
+  "i"
+);
+var USER_PICTURE_NOUN_OF_RE = new RegExp(`\\b(?:a |an |the )?${PICTURE_NOUN}\\s+of\\s+(?:a |an |the )?`, "i");
 function promisedPictureQuery(voice, userText) {
   const v = String(voice || "");
   if (!voicePromisesPicture(v)) return null;
   const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
   let subject = m?.[1]?.trim();
   if (!subject) {
-    subject = String(userText || "").replace(/^(?:hey dashie[,\s]*)?(?:can you |could you |please |will you )?(?:show me|show us|pull up|find|display|get me|let me see|i want to see|can i see)\s+/i, "").replace(/\b(?:a |an |the )?(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?/i, "").replace(/[?.!]+$/, "").trim();
+    subject = String(userText || "").replace(USER_PICTURE_LEADIN_RE, "").replace(USER_PICTURE_NOUN_OF_RE, "").replace(/[?.!]+$/, "").trim();
   }
   subject = subject.replace(/\b(?:please|for me|right now)\b/gi, "").replace(/\s+/g, " ").trim();
   return subject && subject.length >= 2 ? subject : null;
@@ -6446,4 +6503,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "3017e4ab820d38843e7ceceb4616f12e9e48dab1";
+module.exports.BRAIN_SOURCE_SHA = "54914f5fbdb277863a4d59bc1fa5cece697384d5";
