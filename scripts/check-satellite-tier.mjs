@@ -77,10 +77,22 @@ if (!/https?:\/\//.test(T.replace(/SERVER_REACHABLE[\s\S]*?\}\);/, '')) || true)
 
 // Leg 5: every lane entry point goes through the tier — a missed one is a lane that
 // silently keeps the old option-only behaviour, which looks exactly like "not configured".
+// Amended 2026-10-11 (HV, deliberately, not re-pinned): handleTts/handleStt now route
+// on voice-routes.js ttsRoute()/sttRoute() — the ONE answer /api/voice/lanes also
+// reports (check-voice-lanes.mjs). A handler passes by calling the tier directly OR by
+// calling the route function for its lane, and the latter counts ONLY if that function
+// itself calls resolveSatelliteBase for the same lane — so the tier is still reached.
 {
+    const VR = code(read('dashie-ha/server/voice-routes.js'));   // read() exits 2 if absent — loud, not vacuous
+    const viaRoute = (lane) => {
+        const fnBody = VR.match(new RegExp(`async function ${lane}Route\\([\\s\\S]*?\\n\\}`))?.[0] || '';
+        return new RegExp(`resolveSatelliteBase\\(\\s*'${lane}'\\s*\\)`).test(fnBody);
+    };
     const missed = ['handleStt', 'handleTts', 'handleVoices'].filter((fn) => {
         const body = E.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n\\}`))?.[0] || '';
-        return !/resolveSatelliteBase\(/.test(body);
+        if (/resolveSatelliteBase\(/.test(body)) return false;
+        const lane = fn === 'handleStt' ? 'stt' : 'tts';
+        return !(new RegExp(`voiceRoutes\\.${lane}Route\\(`).test(body) && viaRoute(lane));
     });
     if (missed.length === 0) ok('5: all three lane entry points resolve through the tier');
     else fail(`[5] These lane handlers still read the add-on option directly: ${missed.join(', ')}. A missed one keeps the old behaviour and is indistinguishable from "not configured".`);

@@ -150,6 +150,11 @@ node "$ADDON_ROOT/scripts/check-gemini-tts.mjs"
 # The lane on each usage row: backfilled when absent, null (sticky) when two lanes share a key.
 echo "==> Checking the usage-row lane (sticky null after a mismatch, asserted on the raw file)"
 node "$ADDON_ROOT/scripts/check-usage-lane.mjs"
+# /api/voice/lanes and the voice lanes it describes give ONE answer: drives the real
+# endpoint and the real handleTts/handleStt across box states, with a planted stale
+# endpoint that must go red. The console's picker consumes /lanes (B, 2026-10-11).
+echo "==> Checking /api/voice/lanes agrees with the lanes (one predicate, two readers)"
+node "$ADDON_ROOT/scripts/check-voice-lanes.mjs"
 
 # The other end of the same lane: a household can ENTER a speech key, the brain
 # routability filter does not eat it, and one with no adapter yet says so in the

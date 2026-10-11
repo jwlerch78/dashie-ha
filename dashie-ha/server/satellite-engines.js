@@ -136,4 +136,5 @@ async function householdSttProvider() {
     return String(voice?.sttProvider || '');
 }
 
-module.exports = { resolveSatelliteBase, householdSttProvider, SERVER_REACHABLE };
+// householdVoice: voice-routes.js reads the same household answer (one reader, not a copy).
+module.exports = { resolveSatelliteBase, householdSttProvider, householdVoice: _householdVoice, SERVER_REACHABLE };

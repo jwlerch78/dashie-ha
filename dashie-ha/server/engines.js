@@ -56,8 +56,10 @@ const sttUsage = require('./stt-usage');
 // (2026-08-23), scheduled by John 2026-08-28. Additive: it answers only when the
 // add-on option is unset AND the household's chosen engine is one a satellite can
 // actually reach, so every box that works today is untouched.
-const { resolveSatelliteBase, householdSttProvider } = require('./satellite-engines');
+const { resolveSatelliteBase } = require('./satellite-engines');
 const geminiStt = require('./gemini-stt');
+// The ONE routing answer per lane — handleTts/handleStt route on it, /api/voice/lanes reports it.
+const voiceRoutes = require('./voice-routes');
 
 /** The STT wire id for BYOK Gemini. Kotlin `VoiceAiOptions` is the naming source;
  *  the console row and this check mirror it (JS_KOTLIN_CONTRACTS row, D5). */
@@ -129,7 +131,9 @@ async function handleStt(req, res, sendJson) {
     // (O's ruling, decision 1): a picker that says "Gemini" while the operator's
     // Whisper runs is the dishonest-label failure B rejected. The override is
     // never silent; it has its own marker, distinct from the failure markers.
-    if (await householdSttProvider() === STT_GEMINI) {
+    // Routed on voice-routes.sttRoute() — the answer /api/voice/lanes reports.
+    const route = await voiceRoutes.sttRoute();
+    if (route.serves === STT_GEMINI) {
         if (String(opts.stt_url || '').trim()) {
             console.warn(`STT-OVERRIDE: household chose ${STT_GEMINI}; the stt_url add-on option (${sttUsage.hostOf(opts.stt_url) || 'unparseable'}) is ignored while it is chosen`);
         }
@@ -140,9 +144,8 @@ async function handleStt(req, res, sendJson) {
     // operator's direct statement about THIS lane), then the household choice but
     // ONLY when that engine is server-reachable. An on-device household pick
     // resolves to null here, which is the state this function already handles.
-    const resolved = await resolveSatelliteBase('stt');
-    const base = resolved?.base || '';
-    if (resolved?.source === 'household') console.log('[engines] stt base resolved from the household config (no stt_url set)');
+    const base = route.base;
+    if (route.source === 'household') console.log('[engines] stt base resolved from the household config (no stt_url set)');
     let audio;
     try {
         audio = await readRawBody(req);
@@ -305,11 +308,12 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
-    // Same tier as handleStt — see satellite-engines.js for the class rule and why
-    // it tests the chosen ENGINE rather than the presence of a URL.
-    const resolved = await resolveSatelliteBase('tts');
-    const base = resolved?.base || '';
-    if (resolved?.source === 'household') console.log('[engines] tts base resolved from the household config (no tts_url set)');
+    // Routed on voice-routes.ttsRoute() — the same answer GET /api/voice/lanes reports,
+    // so the console's picker and this lane cannot drift (check-voice-lanes.mjs).
+    // The base-URL tier is satellite-engines.js's class rule (tests the chosen ENGINE).
+    const route = await voiceRoutes.ttsRoute();
+    const base = route.base;
+    if (route.source === 'household') console.log('[engines] tts base resolved from the household config (no tts_url set)');
     let payload;
     try {
         payload = JSON.parse((await readRawBody(req, 1024 * 1024)).toString('utf8') || '{}');
@@ -327,7 +331,7 @@ async function handleTts(req, res, sendJson) {
         // install changes behaviour unless it holds a speech key, OR holds a
         // Gemini key while its account cannot pay (signed out, or no spendable
         // credits — John 2026-10-10; byok-tts.js resolveProvider has the rule).
-        if (await byokTts.available()) {
+        if (route.serves === 'elevenlabs' || route.serves === 'gemini') {
             const r = await byokTts.synthesize({ text, voice, model: payload.model });
             if (r.ok) {
                 res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
