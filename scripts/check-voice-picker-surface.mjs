@@ -391,9 +391,74 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'without the guard, editing ANY saved engine would overwrite the flat keys and silently switch the household onto an engine nobody selected — which is worse than the bug this fixes, and would make 11a pass trivially');
 }
 
+// ── LEG 12 — EVERY DEFINED ROW IS ASSEMBLED, OR DECLARED UNASSEMBLED ────────
+//
+// 🔴 WHY THIS LEG EXISTS, and it is not hypothetical: `STT`/`TTS` are the row
+// DEFINITIONS; `sttOptions()`/`ttsOptions()` are hand-written assemblies that list
+// which of them to show. A row added to the definition and not to the assembly is
+// authored-but-unreached — it reviews, diffs, lints and SHIPS, and nothing is
+// offered. Found 2026-10-11: `gemini` ("Gemini (your key)", D5, added in 446feec
+// "mirroring the Kotlin naming source") is defined and absent from the assembly in
+// THREE shipped dev releases up to 0.9.56, while its consumer
+// (`engines.js:114-140`, routing on `householdSttProvider() === 'gemini'`) works
+// and its own server gate `check-gemini-stt.mjs` passes ~18 legs. The engine was
+// gated; the front door was never hung. No gate was looking at the seam between a
+// definition and its assembly.
+//
+// ⚖️ It is a DECLARED list, not an auto-pass: an unassembled row must be named here
+// WITH a reason, so "not offered" is always a decision somebody wrote down rather
+// than an omission nobody noticed. Removing a row from the assembly without adding
+// it here fails this leg. Shrinking this list (wiring a row, or deleting it) is
+// always safe; adding to it needs a reason that names who decided.
+{
+    const UNASSEMBLED = {
+        // John has not ruled on "ship Gemini STT in the console now, tablet half next
+        // release?" (asked 2026-10-08, still open 10-11). Wiring it would answer his
+        // question for him; leaving it undeclared would read as an oversight. So it is
+        // declared, and this entry is deleted the moment he says yes.
+        gemini: 'awaiting John: console-now vs tablet-next-release (asked 2026-10-08)',
+    };
+
+    setLocalMode(false);
+    // Every row this household could possibly be shown, across both stages, every
+    // preset and both stored-provider states — the union, so a row that only appears
+    // as a residual still counts as assembled.
+    const seen = new Set();
+    for (const stored of ['android_voice', 'dashie_cloud', 'sherpa_moonshine_tiny', '']) {
+        for (const id of ids(O.ttsOptions(null, stored))) seen.add(id);
+        for (const id of ids(O.sttOptions(null, stored))) seen.add(id);
+    }
+    const defined = [...O.STT, ...O.TTS].map(o => o.id);
+    const missing = [...new Set(defined.filter(id => !seen.has(id)))];
+    const undeclared = missing.filter(id => !(id in UNASSEMBLED));
+    const staleDeclared = Object.keys(UNASSEMBLED).filter(id => seen.has(id));
+
+    check('leg 12a — every row defined in STT/TTS is assembled into its options list, or declared unassembled with a reason',
+        undeclared.length === 0,
+        `defined=${defined.length} reachable=${seen.size}\n     unassembled=${JSON.stringify(missing)}\n     UNDECLARED=${JSON.stringify(undeclared)}`,
+        'a row in the definition but not in the assembly is authored-but-unreached: it ships and is never offered. `gemini` did exactly that for three dev releases while its server gate stayed green — the engine was gated, the front door was not');
+
+    check('leg 12b — ⚖️ and a declared row that IS now assembled must be removed from the list',
+        staleDeclared.length === 0,
+        `stale declarations=${JSON.stringify(staleDeclared)}`,
+        'a declaration that outlives its reason turns this leg into an auto-pass for that id — the baseline would then hide the next omission of the same row, which is the failure mode of every allowlist nobody shrinks');
+
+    check('leg 12c — ⚖️ POSITIVE CONTROL: the assembly really is observed, not assumed',
+        seen.has('dashie_cloud') && seen.has('android_voice') && seen.size >= 5,
+        `reachable=${JSON.stringify([...seen].sort())}`,
+        'if the union came back empty or tiny, 12a would pass vacuously by having nothing to compare — this is the leg that can fail when the probe itself stops working');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);
     process.exit(1);
 }
 console.log('✅ all legs pass — the managed row is not offered without an account, a box that holds it is still told the truth, and the id remains valid');
+// ── WHAT A GREEN HERE DOES NOT PROVE ────────────────────────────────────────
+console.log('ℹ️  floor: green means the OPTION LISTS are right. It does NOT prove (a) that an');
+console.log('    account-bearing household can actually PAY for the managed row — leg 1 asserts the');
+console.log('    row is offered whenever there is an account, and credits are `alpha-only`, so a');
+console.log('    standard HA household is offered a priced row it has no way to fund; (b) that the');
+console.log('    rendered page shows these rows (the cards apply their own preset/HA filters); (c)');
+console.log('    anything about whether a selected engine can serve a turn — that is the server gates.');
