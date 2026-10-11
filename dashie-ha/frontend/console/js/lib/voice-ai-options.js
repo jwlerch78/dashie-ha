@@ -513,6 +513,108 @@ const VoiceAiOptions = {
     },
 
     /**
+     * WHO SERVES A LANE, in household words — the console half of `/api/voice/lanes`.
+     *
+     * 🔴 TWO QUESTIONS, TWO ANSWERS, NEITHER INFERRED FROM THE OTHER. The server answers
+     * `can_serve` = "would a spend on this row succeed NOW, on facts the server holds".
+     * The console answers OFFERING = "may this household be shown this row at all" — the
+     * cohort gate, since credits are `alpha-only`. `voice-routes.js`'s header says it
+     * outright: wiring offer-iff-can_serve is the `hasManagedCloud()` defect inverted. So
+     * nothing here removes a row. It only corrects what a row CLAIMS.
+     *
+     * 📌 Why it is needed, measured 2026-10-11, and note that `hasManagedCloud()` above is
+     * NOT a bug being worked around — its comment records the 2026-08-04 ruling faithfully
+     * ("a Dashie-for-HA box that signs in gets it back the moment it does"), which was
+     * right while signing in meant credits. **D1 alpha-gated credits and that premise
+     * changed underneath it.** A signed-in household with a Gemini key and no credits has
+     * `voice.ttsProvider = 'dashie_cloud'` stored, so the card renders
+     * `… TTS · $0.09–0.33/1k chars` — while the server reports
+     * `rows.dashie_cloud.can_serve: false` and `serves: 'gemini'`. Their voice WORKS, on
+     * their own key, free to us, and we quote a per-character price they are never
+     * charged. A household could decline a feature that costs them nothing.
+     *
+     * ⚠️ `can_serve: null` IS LEFT ALONE — "configured but not probed" (a household box
+     * URL). The console's own probe path answers reachability; restating it here would be
+     * us asserting a measurement the server deliberately declined to make. A row the
+     * server does not mention is also left alone: **absent is not a negative.**
+     */
+    LANE_WHY_COPY: {
+        no_credits:             'No credits on this account.',
+        credits_unreadable:     'Credit balance unavailable.',
+        signed_out:             'Needs a signed-in account.',
+        no_key:                 'Needs a key in API Keys.',
+        speech_key_present:     'A speech provider key is set, so that one is used.',
+        account_pays:           'Your account credits pay for this while they last.',
+        operator_url_overrides: "The add-on configuration points this lane at its own engine.",
+        not_configured:         'No address set yet.',
+    },
+
+    /** The household name for whatever actually serves a lane, for the disclosure line.
+     *  `null` = no disclosure needed (the selected row already says it). */
+    SERVES_LABELS: {
+        gemini:        'your Gemini key',
+        elevenlabs:    'your ElevenLabs key',
+        dashie_cloud:  null,
+        operator_url:  "this add-on's configured engine",
+        local_url:     'your own voice box',
+        local_stt_url: 'your own speech box',
+    },
+
+    /**
+     * Correct what each row CLAIMS, from the server's answer. PURE: returns new rows,
+     * mutates nothing, drops nothing.
+     *
+     * @param {string} stage 'tts' | 'stt'
+     * @param {Array} rows the assembled option rows
+     * @param {object|null} lanes the `/api/voice/lanes` payload, or null when we could not
+     *   read it — then this is a NO-OP. Never flash-disable on an answer we do not have
+     *   yet; that is the standing picker rule, and it is the same shape as `can_serve:
+     *   null` one layer out.
+     */
+    applyLanes(stage, rows, lanes) {
+        const list = Array.isArray(rows) ? rows : [];
+        const answer = lanes && lanes[stage] && lanes[stage].rows ? lanes[stage].rows : null;
+        if (!answer) return list;
+        return list.map((row) => {
+            const said = row && answer[row.id];
+            // Not mentioned (device-side), or `null` (configured, unprobed): leave the row
+            // exactly as it is. Only an explicit `false` is a negative.
+            if (!said || said.can_serve !== false) return row;
+            const why = this.LANE_WHY_COPY[said.why];
+            // An unknown `why` is the server growing a reason this copy map has not learned.
+            // Still strip the price — the price is the false claim — but say nothing we
+            // cannot say honestly, and make the gap loud rather than inventing a sentence.
+            if (!why) console.warn(`DROP: voice-lanes-why-unknown ${stage}/${row.id} why=${said.why}`);
+            return {
+                ...row,
+                cost: '',
+                description: why
+                    ? `${why} ${String(row.description || '')}`.trim()
+                    : String(row.description || ''),
+            };
+        });
+    },
+
+    /**
+     * The disclosure: what is ACTUALLY speaking, when it is not what is selected.
+     *
+     * 🔴 The condition is `serves` ≠ the SELECTED ROW ID — not `serves` ≠ `dashie_cloud`.
+     * Keying it to one provider would build a one-case fix wearing a general shape, and it
+     * would stay silent for the next stored provider that cannot serve.
+     *
+     * @returns {string|null} a sentence, or null when there is nothing to disclose.
+     */
+    servesDisclosure(stage, selectedId, lanes) {
+        const lane = lanes && lanes[stage] ? lanes[stage] : null;
+        if (!lane) return null;
+        const serves = lane.serves;
+        if (!serves || String(serves) === String(selectedId || '')) return null;
+        const label = this.SERVES_LABELS[serves];
+        if (!label) return null;
+        return `Running on ${label} right now.`;
+    },
+
+    /**
      * The managed cloud row, or its RESIDUAL, or nothing.
      *
      * 🔴 The residual is the load-bearing half, and dropping the row without it

@@ -449,6 +449,116 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'if the union came back empty or tiny, 12a would pass vacuously by having nothing to compare — this is the leg that can fail when the probe itself stops working');
 }
 
+// ── LEG 13 — A ROW MUST NOT QUOTE A PRICE FOR A LANE THAT CANNOT SERVE ──────
+//
+// 🔴 The defect, measured 2026-10-11 on the shipped tree: a signed-in household with a
+// Gemini key and no credits stores `dashie_cloud` (seeded by _seedFreshAccountDefaults),
+// so the card renders "$0.09–0.33/1k chars" — while `/api/voice/lanes` reports
+// rows.dashie_cloud.can_serve:false and serves:'gemini'. Their voice WORKS, on their own
+// key, free to us, and we quote a price they are never charged.
+//
+// ⚖️ This leg is about what a row CLAIMS, never about whether it is offered. Offering is
+// the cohort gate (feature-gate.js: credits alpha-only) and stays in the console;
+// voice-routes.js's header names wiring offer-iff-can_serve as the hasManagedCloud()
+// defect inverted. So nothing here asserts a row is absent.
+{
+    setLocalMode(false);
+    const base = () => ids(O.ttsOptions(null, 'dashie_cloud'));
+    const rows = (stored) => O.ttsOptions(null, stored);
+    const rowOf = (list, id) => list.find(o => o.id === id) || null;
+
+    // The server's answer for the household in question.
+    const KEYED_NO_CREDITS = {
+        tts: { serves: 'gemini', rows: {
+            dashie_cloud: { can_serve: false, why: 'no_credits' },
+            gemini:       { can_serve: true,  why: 'ok' },
+            local_url:    { can_serve: null,  why: 'configured_unprobed', url_host: 'box.lan:8880' },
+        } },
+    };
+
+    const applied = O.applyLanes('tts', rows('dashie_cloud'), KEYED_NO_CREDITS);
+    const cloud = rowOf(applied, 'dashie_cloud');
+
+    check('leg 13a — a row the server says CANNOT serve carries no cost string',
+        !!cloud && !String(cloud.cost || '').trim(),
+        `dashie_cloud.cost=${JSON.stringify(cloud && cloud.cost)}`,
+        'this is the live defect: the household is quoted $0.09–0.33/1k chars for a lane the server reports can_serve:false, while their voice actually runs on their own Gemini key for free. A price nobody is charged can make a household decline a feature that costs them nothing');
+
+    check('leg 13b — and it says WHY, from the console copy map (the server ships no copy)',
+        !!cloud && String(cloud.description || '').includes(O.LANE_WHY_COPY.no_credits),
+        `dashie_cloud.description=${JSON.stringify(cloud && cloud.description)}`,
+        'a row stripped of its price with no explanation reads as broken; the reason is the server`s machine `why`, rendered here because voice-routes.js deliberately holds no household copy');
+
+    check('leg 13c — ⚖️ CONTROL: can_serve null (configured, unprobed) is left UNCHANGED',
+        JSON.stringify(rowOf(applied, 'local_url')) === JSON.stringify(rowOf(rows('dashie_cloud'), 'local_url')),
+        `local_url after=${JSON.stringify(rowOf(applied, 'local_url'))}`,
+        'null means the server declined to measure reachability — the console probe path owns it. Rendering it as unavailable would restate a measurement nobody took, and a sleeping box would read as broken');
+
+    check('leg 13d — ⚖️ CONTROL: a row the server does not mention is left UNCHANGED (absent is not a negative)',
+        JSON.stringify(rowOf(applied, 'android_voice')) === JSON.stringify(rowOf(rows('dashie_cloud'), 'android_voice')),
+        `android_voice after=${JSON.stringify(rowOf(applied, 'android_voice'))}`,
+        'device-side engines are not this server`s question; treating silence as "cannot serve" would grey out the one lane that always works');
+
+    check('leg 13e — ⚖️ CONTROL: a null lanes answer is a NO-OP (never flash-disable)',
+        JSON.stringify(O.applyLanes('tts', rows('dashie_cloud'), null)) === JSON.stringify(rows('dashie_cloud')),
+        'applyLanes(…, null) differs from the input',
+        'the standing picker rule: an answer we do not have yet is not a negative answer. A slow or failed fetch must not strip prices or disable rows');
+
+    check('leg 13f — the disclosure names what is ACTUALLY serving when it is not what is selected',
+        O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS) === 'Running on your Gemini key right now.',
+        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS))}`,
+        'without it the household reads a priced row as their voice while something else speaks — the card is the only place that disagreement is visible');
+
+    check('leg 13g — ⚖️ NEGATIVE CONTROL: no disclosure when serves IS the selected row',
+        O.servesDisclosure('tts', 'gemini', KEYED_NO_CREDITS) === null,
+        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'gemini', KEYED_NO_CREDITS))}`,
+        'a line that always fires is noise, and would claim a disagreement that does not exist');
+
+    check('leg 13h — ⚖️ and the condition is the SELECTED ROW ID, not a hard-coded dashie_cloud',
+        O.servesDisclosure('tts', 'local_url', KEYED_NO_CREDITS) === 'Running on your Gemini key right now.',
+        `disclosure for selected=local_url → ${JSON.stringify(O.servesDisclosure('tts', 'local_url', KEYED_NO_CREDITS))}`,
+        'keying it to one provider builds a one-case fix wearing a general shape: it would stay silent for the next stored provider that cannot serve');
+}
+
+// ── LEG 14 — THE PAGE ACTUALLY REACHES IT ───────────────────────────────────
+//
+// 🔴 Leg 13 proves the FUNCTION is right. This leg proves the page CALLS it, at every
+// site that renders a stage card. Written because of this morning: D5's `gemini` STT row
+// was defined, correct, reviewed and shipped in three releases while `sttOptions()` never
+// assembled it — and `check-gemini-stt.mjs` stayed green through all three, because it
+// gated the engine and nothing gated the front door. A decorator nobody calls is the same
+// defect with a different noun.
+{
+    const page = readFileSync(FILES.page, 'utf8');
+
+    check('leg 14a — the page FETCHES /api/voice/lanes',
+        /_fetchLanes\s*\(\)\s*\{[\s\S]{0,400}?\/api\/voice\/lanes/.test(page) && /this\._fetchLanes\(\)/.test(page),
+        `_fetchLanes defined=${/_fetchLanes\s*\(\)\s*\{/.test(page)} called=${/this\._fetchLanes\(\)/.test(page)}`,
+        'the decorator is a no-op without the answer, so an unfetched lanes payload silently restores the priced row — green legs, defect shipped');
+
+    check('leg 14b — a failed read sets _lanes = null (never flash-disable)',
+        /catch[\s\S]{0,220}?this\._lanes\s*=\s*null/.test(page),
+        'no catch-sets-null found in _fetchLanes',
+        'an answer we do not have yet is not a negative answer: on a failed fetch every row must render exactly as authored, prices included');
+
+    // Every stage-card option chain must pass through applyLanes. Matching the CHAINS, not
+    // one site: leg 13 of check-usage-surface passed for a day because it was written
+    // against the single site just fixed and missed the second renderer.
+    const chains = [...page.matchAll(/this\._applyProbed\(\s*(filtered\('tts'|filtered\('stt'|isLive \? this\._haFilter\(O\.sttOptions)/g)];
+    const unwrapped = chains.filter((m) => !/applyLanes\(\s*'(tts|stt)'\s*,\s*$/.test(page.slice(Math.max(0, m.index - 40), m.index)));
+
+    check('leg 14c — EVERY stage-card option chain goes through O.applyLanes (not just the one I fixed)',
+        chains.length >= 3 && unwrapped.length === 0,
+        `chains found=${chains.length} unwrapped=${unwrapped.length}` +
+        (unwrapped.length ? `\n     first unwrapped at ...${page.slice(Math.max(0, unwrapped[0].index - 60), unwrapped[0].index + 40).replace(/\n/g, ' ')}...` : ''),
+        'a card rendered without the decorator keeps quoting a price for a lane the server says cannot serve — and it is invisible, because the other cards are correct');
+
+    check('leg 14d — the card helper renders the serves DISCLOSURE',
+        /withServesNote\s*=\s*\([\s\S]{0,300}?servesDisclosure\(/.test(page) && /const card = [\s\S]{0,80}?withServesNote\(/.test(page),
+        `helper defined=${/withServesNote\s*=/.test(page)} card wraps it=${/const card = [\s\S]{0,80}?withServesNote\(/.test(page)}`,
+        'without it a household reads a priced row as their voice while something else speaks; the card is the only surface where that disagreement is visible');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);
