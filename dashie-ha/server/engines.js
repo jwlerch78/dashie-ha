@@ -156,7 +156,8 @@ async function handleStt(req, res, sendJson) {
         return;
     }
     if (!base) {
-        // Hosted fallback: Dashie Cloud Whisper under the account (metered).
+        // Hosted fallback: whisper-stt under the account. ⚠️ NOT metered (10-12): whisper-stt checks no
+        // credits and records no usage; OpenAI on Dashie's key. See cloudStt.
         const jwt = await cloudJwt();
         if (!jwt) {
             console.warn('DROP: stt requested but no stt_url and not signed in');
@@ -212,9 +213,12 @@ async function handleStt(req, res, sendJson) {
  * D5 Gemini branch. Never falls through to a LOCAL engine the household did not choose.
  * 🔴 REVERSED 2026-10-12, the same rule as handleTts (John 10-11: "broken key goes to credits with small
  * error message"): when Google was called and failed, the failure is reported to the account (the
- * "Voice key error" pill, key-health.js, awaited) and a signed-in household's turn is transcribed on its
- * CREDITS (cloudStt). Signed out → no credits: the provider error, loudly, as before. No key stored and
- * bad audio are not key failures and are unchanged. Each outcome has its own marker.
+ * "Voice key error" pill, key-health.js, awaited) and a signed-in household's turn goes to cloudStt.
+ * ⚠️ CORRECTED 10-12: cloudStt is NOT credits. whisper-stt has no checkSpendable and no recordSttUsage, so
+ * the turn is transcribed by OpenAI on DASHIE's key, unbilled (the STT-FALLBACK marker's "account credits"
+ * is false for the same reason). Closing that is the lane change cloudStt → gemini-stt (HV's alignment
+ * plan, awaiting John), not this comment. Signed out → the provider error, loudly, as before. No key
+ * stored and bad audio are not key failures and are unchanged. Each outcome has its own marker.
  */
 async function geminiSttBranch(req, res, sendJson) {
     let audio;
@@ -249,7 +253,11 @@ async function geminiSttBranch(req, res, sendJson) {
     sendJson(res, 200, { text: r.text });
 }
 
-/** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}). */
+/** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}).
+ *  ⚠️ (10-12, measured) whisper-stt authenticates (bearerGate) but has NO checkSpendable and NO
+ *  recordSttUsage (gemini-stt has both): every call is OpenAI on Dashie's key, unbilled and unmetered at
+ *  the edge. The local usage row below says billing 'metered'; that is what it was meant to be, not what
+ *  the edge does. Fix = point this at gemini-stt (HV's alignment plan, awaiting John). */
 async function cloudStt(audio, jwt, res, sendJson) {
     const boundary = '----dashieha' + Date.now().toString(16);
     const head = Buffer.from(
