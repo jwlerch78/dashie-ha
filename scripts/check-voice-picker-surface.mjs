@@ -37,6 +37,7 @@ const FILES = {
     app: join(CONSOLE, 'js', 'app.js'),
     // HV's, read never written — leg 15 needs the MOUNT, which lives only here.
     serverIndex: join(HERE, '..', 'dashie-ha', 'server', 'index.js'),
+    voiceRoutes: join(HERE, '..', 'dashie-ha', 'server', 'voice-routes.js'),
     voiceConsole: join(HERE, '..', 'dashie-ha', 'server', 'api', 'voice-console.js'),
 };
 for (const [name, f] of Object.entries(FILES)) {
@@ -686,6 +687,84 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         distinct && keyAndCredits && vals.length > 0,
         `no_credits=${JSON.stringify(why.no_credits)}\n     no_key=${JSON.stringify(why.no_key)}\n     all distinct=${distinct}`,
         'they are different instructions to the household — add credits, or add a key. A merged "unavailable" is what makes a row\'s state unexplainable, which is the whole reason offer-on-cohort/disclose-on-lane beats withdrawing the row');
+}
+
+// ── LEG 18 — NO RENDERED VENDOR NAME COMES FROM A STORED ID ALONE ───────────
+//
+// 🔴 O's general leg, 2026-10-12, worth more than three specific ones. The lying-card
+// class appeared THREE times in one night, each from a different direction:
+//   · a row DEFINED and never assembled (S0 / leg 16)
+//   · a row WITHDRAWN by an offering rule (the D2 objection — John: "always show, explain")
+//   · a row kept on its OLD precedence (O's catch: stored `dashie_cloud` with an operator
+//     `stt_url` is served by the OPERATOR, while D6's copy would say "Audio goes to Google")
+// The invariant under all three: **the stored id says what the household CHOSE; the lane
+// says what actually HAPPENS; and any vendor claim on screen must come from the lane.**
+// A display-normalise that maps a stored id to a vendor name is making a factual claim
+// about where a household's audio goes, and it cannot make that claim from the id alone.
+{
+    // ── 18a: a FLOOR ON THIS LEG'S OWN EXTRACTOR ───────────────────────────
+    // 🔴 Written because the obvious extraction was wrong and nearly shipped. Grepping
+    // `serves = '<literal>'` finds only `gemini` and `dashie_cloud`: the server assigns
+    // `operator_url` / `local_stt_url` through a TERNARY, so a leg built on that grep
+    // would have asserted a 2-value namespace against a 5-value one and passed. An
+    // extractor that under-reports makes every assertion below vacuous, so it is
+    // checked against values known to exist before anything is derived from it.
+    const routes = readFileSync(FILES.voiceRoutes, 'utf8');
+    const servesBlocks = [...routes.matchAll(/serves\s*=\s*([^;]+);/g)].map(m => m[1]);
+    const served = new Set(servesBlocks.flatMap(b => [...b.matchAll(/'([a-z_]+)'/g)].map(m => m[1])));
+    const KNOWN_PRESENT = ['gemini', 'operator_url', 'local_stt_url', 'local_url', 'dashie_cloud'];
+    const missed = KNOWN_PRESENT.filter(v => !served.has(v));
+    check('leg 18a — FLOOR: the extractor finds every `serves` value known to exist (incl. ternary arms)',
+        missed.length === 0,
+        `extracted=${JSON.stringify([...served])}\n     known-present but NOT extracted=${JSON.stringify(missed)}`,
+        'a `serves` extractor that under-reports makes 18b/18c vacuous. The naive grep found 2 of 5 because two arms are in a ternary — this leg exists so that failure is loud instead of a green');
+
+    // ── 18b: every value is LABELLED or DECLARED label-free, with a reason ──
+    const labels = O.SERVES_LABELS || {};
+    const declaredNone = O.SERVES_LABEL_NONE || {};
+    const unexplained = [...served].filter(v => !labels[v] && !declaredNone[v]);
+    check('leg 18b — every `serves` value is either LABELLED or DECLARED label-free with a reason',
+        unexplained.length === 0,
+        `unexplained=${JSON.stringify(unexplained)}\n     labelled=${JSON.stringify(Object.keys(labels).filter(k => labels[k]))}` +
+        `\n     declared label-free=${JSON.stringify(Object.keys(declaredNone))}`,
+        'a serves value with no label makes servesDisclosure return null, which suppresses the sentence SILENTLY — the card then leaves the row\'s own vendor claim standing unchallenged. "No label" and "nobody got round to it" must not look the same');
+
+    // ── 18c: wherever lane ≠ stored, a sentence naming the ACTUAL engine fires ──
+    // 🔴 Iterates EVERY served value, not just the labelled ones — and the first spelling
+    // of this leg filtered to `labels[v]`, which made it SELF-WEAKENING: deleting a label
+    // deleted that value's own test, so the arm that removed `operator_url`'s label left
+    // 18c green while 18b and 18e went red. A leg whose coverage shrinks silently when the
+    // subject regresses is the shape this whole entry is about. Measured by injection,
+    // 2026-10-12. An unlabelled value is now only acceptable if DECLARED label-free.
+    const pairs = [];
+    for (const serves of [...served]) {
+        for (const selected of ['gemini', 'dashie_cloud', 'va_default', 'local_stt_url']) {
+            if (serves === selected) continue;
+            const note = O.servesDisclosure('stt', selected, { stt: { serves, rows: {} } });
+            const ok = labels[serves]
+                ? (!!note && note.includes(labels[serves]))     // labelled ⇒ must name it
+                : (declaredNone[serves] ? note === null : false); // unlabelled ⇒ must be DECLARED
+            pairs.push({ serves, selected, ok, labelled: !!labels[serves] });
+        }
+    }
+    const broken = pairs.filter(p => !p.ok);
+    const labelledTested = new Set(pairs.filter(p => p.labelled).map(p => p.serves)).size;
+    check('leg 18c — for EVERY lane≠stored pair, a disclosure fires naming what actually serves',
+        pairs.length > 0 && broken.length === 0 && labelledTested >= 3,
+        `${pairs.length} pair(s); labelled values tested=${labelledTested} (floor 3); failing=${JSON.stringify(broken.slice(0, 4))}`,
+        'this is the invariant the whole class reduces to: a household must never read a vendor name the lane contradicts, whichever of the three routes produced the mismatch. The floor of 3 is here because the leg used to test only labelled values, so stripping labels quietly shrank it to nothing');
+
+    check('leg 18d — ⚖️ CONTROL: when the lane AGREES with the stored id, no sentence is produced',
+        [...served].filter(v => labels[v]).every(v => O.servesDisclosure('stt', v, { stt: { serves: v, rows: {} } }) === null),
+        `agreeing pairs that still disclosed: ${JSON.stringify([...served].filter(v => labels[v] && O.servesDisclosure('stt', v, { stt: { serves: v, rows: {} } }) !== null))}`,
+        'without this, 18c is satisfiable by a function that returns a sentence unconditionally — which would put a contradiction notice under every correctly-rendered row');
+
+    // ── 18e: O's EXACT case, as a named regression ─────────────────────────
+    const operatorNote = O.servesDisclosure('stt', 'dashie_cloud', { stt: { serves: 'operator_url', rows: {} } });
+    check('leg 18e — stored retired `dashie_cloud` + operator stt_url: the card names the OPERATOR, never Google',
+        !!operatorNote && operatorNote.includes(labels.operator_url) && !/Google|Gemini/i.test(operatorNote),
+        `note=${JSON.stringify(operatorNote)}`,
+        'HV keeps the retired id on its OLD precedence on purpose, so an operator Whisper box is not silently moved to Gemini — which means D6\'s "Audio goes to Google" would be SPECIFIC AND FALSE for that household. A vague wrong label is a nuisance; a false privacy claim is not');
 }
 
 console.log('');

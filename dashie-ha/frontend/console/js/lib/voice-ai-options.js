@@ -560,6 +560,16 @@ const VoiceAiOptions = {
         local_stt_url: 'your own speech box',
     },
 
+    // 🔴 A `serves` value with NO label suppresses the disclosure SILENTLY, so every
+    // null above must be declared here with the reason it needs none. Leg 18 fails on a
+    // null that is not declared — the same discipline as leg 12's UNASSEMBLED map,
+    // because "no label" and "nobody got round to it" are indistinguishable otherwise.
+    SERVES_LABEL_NONE: {
+        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: the selected row IS '
+            + 'dashie_cloud, so serves === selectedId and no disclosure is wanted. Revisit if a TTS '
+            + 'gemini row lands — then dashie_cloud serving a gemini selection NEEDS a sentence.',
+    },
+
     /**
      * Correct what each row CLAIMS, from the server's answer. PURE: returns new rows,
      * mutates nothing, drops nothing.
