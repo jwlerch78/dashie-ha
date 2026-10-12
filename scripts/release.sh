@@ -430,6 +430,12 @@ node "$ADDON_ROOT/scripts/check-console-endpoints.mjs"
 # is why no other gate here can see it — this one asserts the OUTCOME.
 echo "==> Checking brain route tiers (which endpoint actually receives the turn)"
 node "$ADDON_ROOT/scripts/check-brain-route-tiers.mjs"
+# Key-first brain (John 10-12, "LLM should be the same as TTS and STT"): a household key the provider
+# REFUSES at pass 1 re-asks Dashie Cloud on credits, the key-health row written first; an outage, a
+# pass-2 refusal, no credits and signed-out keep the turn. Two mutants (no pass-1 guard, row after the
+# cloud call) turn it red.
+echo "==> Checking the brain's broken-key fallback to credits (key faults only, pass 1 only, report first)"
+node "$ADDON_ROOT/scripts/check-brain-key-fallback.mjs"
 
 # The dev channel's options/schema must equal canonical + the declared dev overlay.
 # Checked here as well as composed above, so a hand-edit between cuts is caught

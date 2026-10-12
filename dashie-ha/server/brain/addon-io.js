@@ -174,6 +174,12 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                     ok: false,
                     error: providerLabel ? `${providerLabel}: ${msg}` : msg,
                     latency_ms,
+                    // The provider's own answer, for brain-key-fallback.js: it classifies with the
+                    // SHARED key-health vocabulary (400 API_KEY_INVALID and 429 count too, which
+                    // `key_rejected` below does not), so the brain falls back on exactly the faults
+                    // the TTS and STT lanes do. The core ignores both fields.
+                    http_status: resp.status,
+                    error_body: msg,
                     ...(modelUnavailable
                         ? { model_unavailable: true, provider_label: providerLabel, model_id: useModel }
                         : {}),
