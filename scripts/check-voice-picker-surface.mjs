@@ -566,9 +566,22 @@ if (failed) {
 }
 console.log('✅ all legs pass — the managed row is not offered without an account, a box that holds it is still told the truth, and the id remains valid');
 // ── WHAT A GREEN HERE DOES NOT PROVE ────────────────────────────────────────
-console.log('ℹ️  floor: green means the OPTION LISTS are right. It does NOT prove (a) that an');
-console.log('    account-bearing household can actually PAY for the managed row — leg 1 asserts the');
-console.log('    row is offered whenever there is an account, and credits are `alpha-only`, so a');
-console.log('    standard HA household is offered a priced row it has no way to fund; (b) that the');
-console.log('    rendered page shows these rows (the cards apply their own preset/HA filters); (c)');
-console.log('    anything about whether a selected engine can serve a turn — that is the server gates.');
+console.log('ℹ️  floor: green means the BASE OPTION LISTS are right. It does NOT prove:');
+console.log('    (a) that the row the household actually SEES is priced honestly. Leg 1 asserts the');
+console.log('        row is OFFERED whenever there is an account, and that is deliberate — offering');
+console.log('        and can_serve are two questions (server/voice-routes.js header). The price is');
+console.log('        stripped later, by applyLanes() against GET /api/voice/lanes; legs 13–14 are');
+console.log('        what cover that, NOT this leg. Leg 1 reads the list BEFORE any lane is applied,');
+console.log('        so its rows are still priced by construction and a green here says nothing');
+console.log('        about the rendered price.');
+console.log('    (b) 🔴 that the lane answer ever ARRIVES. applyLanes(…, null) is a deliberate no-op');
+console.log('        (never flash-disable a row on a failed fetch), and _fetchLanes() sets null on a');
+console.log('        throw, a non-ok response AND whenever !DashieAuth.isAddonMode. So on any box');
+console.log('        where /api/voice/lanes does not answer, the household sees the PRICED row —');
+console.log('        the pre-fix behavior — and every leg in this file is still green. That is the');
+console.log('        fix failing open, which is the right default and an invisible one.');
+console.log('    (c) that the rendered page shows these rows at all (the cards apply their own');
+console.log('        preset/HA filters, and feature-gate decides the cohort).');
+console.log('    (d) anything about whether a selected engine can SERVE a turn — that is the server');
+console.log('        gates (check-voice-lanes.mjs), and on a tablet it is TtsRoutePlan.kt, a third');
+console.log('        authority this file cannot see.');
