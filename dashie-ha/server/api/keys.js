@@ -31,6 +31,8 @@ const express = require('express');
 const keyStore = require('../key-store');
 const providers = require('../brain/providers');
 const { mintEphemeralToken } = require('../live-token');
+const keyHealth = require('../key-health');
+const { classifyKeyFailure } = require('../generated/key-health-vocab');
 
 const router = express.Router();
 
@@ -177,11 +179,17 @@ router.post('/live-token', express.json(), async (req, res) => {
         // connect — the constrained-setup protocol needs more work (Phase-0/1 finding). The
         // token is still Live-only + short-lived, which is the security that matters here.
         const out = await mintEphemeralToken(key);
+        keyHealth.reportOk('gemini');   // the key works: ends any open "Voice key error" episode
         res.json(out); // token only — the raw key never leaves the box
     } catch (e) {
         // e.message / e.detail never contain the key (see live-token.js).
         console.error(`[keys] live-token mint failed: ${e.message}${e.status ? ' status=' + e.status : ''}`);
-        res.status(e.message === 'no_gemini_key' ? 503 : 502).json({ error: 'mint_failed', status: e.status || null });
+        // A revoked/bad key fails HERE, at the mint, before any Live session exists: report it to the
+        // account BEFORE answering (the tablet then serves on credits and its balance read shows the pill).
+        // An unreachable Google (no status) is 'timeout' and raises no pill.
+        const keyStatus = classifyKeyFailure(Number(e.status) || null, e.detail || '');
+        if (e.message !== 'no_gemini_key') await keyHealth.reportFailure('gemini', keyStatus);
+        res.status(e.message === 'no_gemini_key' ? 503 : 502).json({ error: 'mint_failed', status: e.status || null, key_status: keyStatus });
     }
 });
 

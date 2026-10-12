@@ -303,6 +303,39 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
     check('V6 — Gemini-only: an ElevenLabs turn is NOT sent the household\'s Gemini voice name', !!el && !el.includes('Puck'), `url=${el}`);
 }
 
+// ── M. a revoked key fails at the Live-token MINT (BYOK streaming STT), not in a session ──
+{
+    const router = require_(join(SERVER, 'api', 'keys.js'));
+    const layer = router.stack.find(l => l.route?.path === '/live-token' && l.route.methods.post);
+    const handler = layer?.route?.stack?.at(-1)?.handle;
+    const callMint = (events) => new Promise((resolve) => {
+        const out = { status: 200, body: null };
+        const res = {
+            status(c) { out.status = c; return this; },
+            json(b) { out.body = b; events.push(`respond:${out.status}`); resolve(out); },
+        };
+        handler({ body: {} }, res);
+    });
+    if (typeof handler !== 'function') check('M0 — the /live-token route handler is reachable', false, 'route not found in api/keys.js router', '');
+    else {
+        reset(); signIn(true); setKeys({ gemini: { key: GKEY } });
+        let r = await drive((ev) => callMint(ev), (u) => u.includes('authTokens') || u.includes('auth_tokens') || u.includes('generativelanguage')
+            ? new Response(JSON.stringify({ error: { code: 400, details: [{ reason: 'API_KEY_INVALID' }] } }), { status: 400 }) : ok200());
+        const wi = r.events.indexOf('fetch:report_key_failure'), ri = r.events.findIndex(e => e.startsWith('respond:'));
+        check('M1 — a bad key at the Live-token mint → 502 key_status invalid_key, the account row written BEFORE the answer',
+            r.value.status === 502 && r.value.body?.key_status === 'invalid_key' && wi !== -1 && ri !== -1 && wi < ri,
+            `out=${JSON.stringify(r.value)} events=${r.events.join(' → ')}`);
+        check('M2 — the key never appears in a log line or the answer', !r.lines.some(l => l.includes(GKEY)) && !JSON.stringify(r.value).includes(GKEY), '');
+        reset();
+        r = await drive((ev) => callMint(ev), (u) => u.includes('database-operations') ? ok200() : new Response(JSON.stringify({ name: 'auth_tokens/control' }), { status: 200 }));
+        await new Promise((res) => setTimeout(res, 20));   // reportOk is fire-and-forget
+        check('M3 — a mint that WORKS reports ok (a fixed key clears the pill on its next Live session)',
+            r.value.status === 200 && r.value.body?.token === 'auth_tokens/control' && ops(r.calls).includes('report_key_ok'),
+            `out=${JSON.stringify(r.value)} ops=${ops(r.calls)}`);
+        signIn(false);
+    }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log('   (green does NOT prove HA, the K view or a tablet carries this; fixtures are hand-built; the signed-in account read is driven against a STUBBED user_settings, not a real account)');
 if (!failed) console.log('check-key-first-tts: ALL PASS');
