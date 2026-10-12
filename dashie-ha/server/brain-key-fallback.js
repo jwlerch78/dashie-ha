@@ -28,7 +28,7 @@
 
 'use strict';
 
-const { PILL_STATUSES, classifyKeyFailure } = require('./generated/key-health-vocab');
+const { classifyKeyFailure } = require('./generated/key-health-vocab');
 
 /** Wrap the brain's io so the turn's model calls can be read afterwards. Returns the wrapped io and
  *  a reader: how many calls ran, and the first call the PROVIDER refused (its answer and which call it
@@ -64,7 +64,7 @@ async function afterByokTurn({ provider, turn, seen, jwt, askCloud, keyHealth })
     if (!seen.calls) return null;
     const refused = seen.refused;
     const status = refused ? classifyKeyFailure(refused.http_status, String(refused.error_body || '')) : null;
-    if (!refused || !PILL_STATUSES.has(status)) {
+    if (!refused || !keyHealth.isKeyFault(status)) {
         // No key fault this turn (an outage or our own request is not one): if the provider answered
         // at all, the key was accepted, so a stale pill is cleared. The turn stands either way.
         if (!refused || seen.refusedAt > 1) keyHealth.reportOk(provider);

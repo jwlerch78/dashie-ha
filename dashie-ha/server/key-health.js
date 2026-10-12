@@ -84,9 +84,16 @@ function reportOk(provider) {
     });
 }
 
+/** Is `status` (vocabulary) the KEY's fault? The ONE answer to "may a failed household-key call be paid
+ *  with credits instead?" (John 10-12, "Yes - A": key first, then credits; an outage is not a key result).
+ *  The same set raises the pill, so the money path and the pill can never disagree. Used by every lane:
+ *  STT and HA-speaker TTS (engines.js), the tablet's TTS stream (gemini-tts-lane.js), the brain
+ *  (brain-key-fallback.js). */
+function isKeyFault(status) { return PILL_STATUSES.has(status); }
+
 /** Test seam. */
 function __resetForTest() { lastReported.clear(); }
 /** Test seam: make the last report for `provider` look `ms` older. */
 function __ageForTest(provider, ms) { const l = lastReported.get(provider); if (l) l.at -= ms; }
 
-module.exports = { reportFailure, reportOk, WRITE_TIMEOUT_MS, REASSERT_MS, __resetForTest, __ageForTest };
+module.exports = { reportFailure, reportOk, isKeyFault, WRITE_TIMEOUT_MS, REASSERT_MS, __resetForTest, __ageForTest };

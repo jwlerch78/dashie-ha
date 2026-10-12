@@ -192,8 +192,9 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
 
     reset();
     t = await tts({ text: TEXT, stream: true }, (u) => isGoogle(u) ? new Response('down', { status: 503 }) : ok200());
-    check('S8 — a Google OUTAGE → 409 key_failed/upstream_error for routing, but NO row (not the key\'s fault)',
-        t.head?.status === 409 && t.json?.status === 'upstream_error' && !ops(t.calls).includes('report_key_failure'),
+    // John 10-12, "Yes - A": an outage is not a key result, so it must NOT be a 409 (the tablet pays on 409).
+    check('S8 — a Google OUTAGE → 502 provider_failed/upstream_error (NOT 409: nobody pays), and NO row',
+        t.head?.status === 502 && t.json?.reason === 'provider_failed' && t.json?.status === 'upstream_error' && !ops(t.calls).includes('report_key_failure'),
         `json=${JSON.stringify(t.json)} ops=${ops(t.calls)}`);
 
     reset();
@@ -241,6 +242,19 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
     t = await tts({ text: TEXT }, (u) => isGoogle(u) ? new Response('', { status: 401 }) : noNet());
     check('H7 — signed OUT, key 401 → no credits to fall back to: the provider error, loudly (no account call at all)',
         t.head?.status === 502 && !t.calls.some(c => c.url.includes('supabase') || c.url.includes('functions/v1')) && t.lines.some(l => l.includes('DROP: tts byok')),
+        `head=${JSON.stringify(t.head)} calls=${t.calls.map(c => c.url).join(' ')}`);
+
+    // John 10-12, "Yes - A": an OUTAGE is not the key's fault, so the HA speaker does NOT spend credits on it.
+    // Signed in, so the fallback WAS available: these legs fail if anything pays.
+    reset(); signIn(true); choose('gemini'); setKeys({ gemini: { key: GKEY } });
+    t = await tts({ text: TEXT, voice: 'Aoede' }, (u) => isGoogle(u) ? new Response('down', { status: 503 }) : u.includes('gemini-tts') ? wav24(u) : ok200());
+    check('H8 — HA speaker, Gemini OUTAGE (503), signed in → the error stands: no edge gemini-tts, no row',
+        t.head?.status !== 200 && !t.calls.some(c => /\/functions\/v1\/gemini-tts$/.test(c.url)) && !ops(t.calls).includes('report_key_failure'),
+        `head=${JSON.stringify(t.head)} calls=${t.calls.map(c => c.url).join(' ')}`);
+    reset(); signIn(true); choose(''); setKeys({ elevenlabs: { key: 'el_control' } });
+    t = await tts({ text: TEXT }, (u) => u.includes('elevenlabs.io') ? new Response('', { status: 503 }) : u.includes('inworld-tts') ? new Response(Buffer.from('ID3mp3'), { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }) : ok200());
+    check('H9 — ElevenLabs OUTAGE (503), signed in → no cloud voice on credits, no row',
+        t.head?.status !== 200 && !t.calls.some(c => c.url.includes('inworld-tts')) && !ops(t.calls).includes('report_key_failure'),
         `head=${JSON.stringify(t.head)} calls=${t.calls.map(c => c.url).join(' ')}`);
 }
 
@@ -411,8 +425,10 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
         cc && String(cc.headers?.Authorization || '').startsWith('Bearer ') && cc.headers?.['Content-Type'] === 'audio/wav', JSON.stringify(cc?.headers || {}));
     reset();
     t = await stt(route(() => new Response('{"error":{"code":503}}', { status: 503 })));
-    check('T4 — a Google OUTAGE still falls back to credits but writes NO row (not the key\'s fault)',
-        t.out?.status === 200 && !ops(t.calls).includes('report_key_failure'), `out=${JSON.stringify(t.out)} ops=${ops(t.calls)}`);
+    // John 10-12, "Yes - A": an outage is not a key result, so credits are NOT spent on it (was: fell back).
+    check('T4 — a Google OUTAGE, signed in → the error stands: NO credits call, NO row',
+        t.out?.status === 502 && !t.calls.some(c => credits(c.url)) && !ops(t.calls).includes('report_key_failure'),
+        `out=${JSON.stringify(t.out)} ops=${ops(t.calls)} calls=${t.calls.map(c => c.url).join(' ')}`);
     reset();
     t = await stt(route(() => ok200({ candidates: [{ content: { parts: [{ text: 'hello' }] } }] })));
     check('T5 — a working key: 200 from Gemini, ok reported, credits never called',

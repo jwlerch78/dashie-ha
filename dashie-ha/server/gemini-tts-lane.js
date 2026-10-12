@@ -8,8 +8,12 @@
 //                     credits ITSELF (it calls the edge gemini-tts directly; nothing here spends credits
 //                     for a tablet):
 //                       409 {reason:'no_key'}                          no Gemini key on this box
-//                       409 {reason:'key_failed', provider, status}    the key failed BEFORE any audio;
-//                                                                      status = generated/key-health-vocab
+//                       409 {reason:'key_failed', provider, status}    the KEY failed before any audio
+//                                                                      (status ∈ PILL_STATUSES): credits pay
+//                       502 {reason:'provider_failed', provider, status}  Google failed but NOT the key
+//                                                                      (an outage, a timeout): nobody pays,
+//                                                                      the tablet does not use credits (John
+//                                                                      10-12, "Yes - A"). status = the vocab.
 //                     🔴 On key_failed the account row is written BEFORE the 409 goes out
 //                     (key-health.reportFailure is awaited): the tablet force-refreshes its balance read
 //                     on that 409, and the pill must already be there when it does.
@@ -107,10 +111,16 @@ async function streamWithKey(res, { text, voice }) {
     pcm.pipe(res);
 }
 
-/** The key failed before any audio: write the row FIRST, then answer 409. */
+/** The call failed before any audio. The KEY's fault: write the row FIRST, then 409 (credits pay).
+ *  Anything else (an outage, a timeout): 502 provider_failed, no row, and nobody pays for it. */
 async function keyFailed(res, model, status, why) {
-    console.warn(`DROP: gemini-tts-stream key-failed status=${status} (${why}) → 409, the tablet pays with credits`);
     recordLocalUsage({ lane: 'tts', provider: 'gemini', model, billing: 'byok', success: false, units: {} });
+    if (!keyHealth.isKeyFault(status)) {
+        console.warn(`DROP: gemini-tts-stream provider-failed status=${status} (${why}) → 502, not the key's fault: no credits`);
+        sendJson(res, 502, { reason: 'provider_failed', provider: 'gemini', status });
+        return;
+    }
+    console.warn(`DROP: gemini-tts-stream key-failed status=${status} (${why}) → 409, the tablet pays with credits`);
     await keyHealth.reportFailure('gemini', status);
     sendJson(res, 409, { reason: 'key_failed', provider: 'gemini', status });
 }
