@@ -226,6 +226,9 @@ for (const row of rows) {
 }
 
 console.log(`
+🔴 A green here proves the ADD-ON's four lanes agree. It does NOT prove the overspend is closed: the tablet
+   (CloudTtsRouter.kt) is the component that SPENDS on tts-tablet, and as of 2026-10-12 it pays on ANY decline,
+   so a new box + an old tablet still pays for an outage. Check the tablet's own JVM test before calling (A) done.
 What a green does NOT prove:
   - that a real provider answers with these shapes today (fixtures follow the shared vocabulary, not a live call)
   - that the TABLET obeys the add-on: tts-tablet "credits" = the add-on answered 409 key_failed; CloudTtsRouter.kt decides
@@ -239,4 +242,4 @@ if (knownRed) {
     for (const [lane, d] of Object.entries(KNOWN_DEFECTS)) console.log(`  ${lane}: ${d.cases.join(', ')}\n     why: ${d.why}\n     owner: ${d.owner}`);
     process.exit(4);
 }
-console.log('\nALL PASS');
+console.log('\nALL PASS (add-on lanes only — not the tablet payer; see the 🔴 line above)');
