@@ -51,6 +51,8 @@ const auth = require('./auth');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const byokTts = require('./byok-tts');
+const geminiLane = require('./gemini-tts-lane');
+const keyHealth = require('./key-health');
 const sttUsage = require('./stt-usage');
 // The per-consumer-CLASS tier this file's header called an open design question
 // (2026-08-23), scheduled by John 2026-08-28. Additive: it answers only when the
@@ -305,6 +307,17 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
     }
 }
 
+/** Credits-paid Gemini voice for an HA speaker, as WAV (gemini-tts-lane.js creditsBuffered). */
+async function sendCreditsGemini(text, voice, jwt, res, sendJson) {
+    const r = await geminiLane.creditsBuffered({ text, voice, jwt });
+    if (r.ok) {
+        res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
+        res.end(r.audio);
+        return;
+    }
+    sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+}
+
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
@@ -323,6 +336,13 @@ async function handleTts(req, res, sendJson) {
     }
     const text = String(payload.text || '').trim();
     if (!text) { sendJson(res, 400, { error: 'bad_request', message: 'text is required' }); return; }
+    // A TABLET asking for the Gemini voice as it is generated (dashie_voice's streaming view, path K).
+    // Key or 409; never credits from here (gemini-tts-lane.js). Ahead of tts_url: the tablet asked
+    // for Gemini by name, and an operator's engine URL is not that.
+    if (payload.stream === true) {
+        await geminiLane.streamWithKey(res, { text, voice: payload.voice });
+        return;
+    }
     const voice = String(payload.voice || opts.tts_voice || '');
     if (!base) {
         // BYOK: the household's own speech key, spent ON THE BOX (byok-tts.js
@@ -334,14 +354,27 @@ async function handleTts(req, res, sendJson) {
         if (route.serves === 'elevenlabs' || route.serves === 'gemini') {
             const r = await byokTts.synthesize({ text, voice, model: payload.model });
             if (r.ok) {
+                keyHealth.reportOk(route.serves);
                 res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
                 res.end(r.audio);
                 return;
             }
-            // Deliberately no silent fall-through to the cloud. The household
-            // asked for its own key; billing it to the account instead because
-            // ElevenLabs 401'd would spend somebody's money to hide a fault.
-            sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+            // 🔴 REVERSED 2026-10-11 (John: "broken key goes to credits with small error message"):
+            // a failed key now falls back to the account's credits, and the failure is NOT hidden.
+            // It is written to the account (key-health.js) so every tablet shows "Voice key error".
+            // The usage row names the payer that SERVED the turn (credits), never the key that failed.
+            if (r.keyFailure) await keyHealth.reportFailure(r.keyFailure.provider, r.keyFailure.status);
+            const jwtFb = await cloudJwt();
+            if (!jwtFb) {
+                // Signed out: no credits to fall back to. HA's own engines / on-device (John's Q4) is
+                // not wired here yet, so this is still the provider's error, loudly.
+                console.warn(`DROP: tts byok ${route.serves} failed (${r.keyFailure?.status || r.error}) and not signed in: no credits fallback`);
+                sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+                return;
+            }
+            console.warn(`TTS-FALLBACK: byok ${route.serves} failed (${r.keyFailure?.status || r.error}) → account credits`);
+            if (route.serves === 'gemini') { await sendCreditsGemini(text, voice, jwtFb, res, sendJson); return; }
+            await cloudTts(text, voice, jwtFb, res, sendJson);
             return;
         }
         // Hosted fallback: Dashie Cloud voice under the account (metered).
@@ -351,6 +384,9 @@ async function handleTts(req, res, sendJson) {
             sendJson(res, 503, { error: 'tts_unconfigured', message: 'Sign in, add a speech provider key in API Keys, or set tts_url in the add-on configuration.' });
             return;
         }
+        // The household chose the Gemini voice and has no Gemini key: credits pay for the SAME voice
+        // (A2, byok-tts.js resolveProvider), not the account's default cloud voice.
+        if (await byokTts.choseGeminiVoice()) { await sendCreditsGemini(text, voice, jwt, res, sendJson); return; }
         await cloudTts(text, voice, jwt, res, sendJson);
         return;
     }
