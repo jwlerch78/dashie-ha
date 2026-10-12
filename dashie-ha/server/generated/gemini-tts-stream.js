@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // ⛔ GENERATED, DO NOT EDIT. Source: dashieapp_staging supabase/functions/_shared/gemini-tts-stream.ts
-// source sha256/16: bfdc443a96f75e62. Regenerate: node scripts/gen-addon-gemini-tts-stream.mjs (in dashieapp_staging).
-// The edge gemini-tts function streams with the SAME code, so tablet audio is converted identically
-// whether the household key (this add-on) or Dashie credits (the edge) pays.
+// source sha256/16: bfdc443a96f75e62. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
+// The edge gemini-tts function streams with the SAME code, so tablet audio is converted identically whether the household key (this add-on) or Dashie credits (the edge) pays.
 'use strict';
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
