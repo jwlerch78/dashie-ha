@@ -161,7 +161,7 @@ clearUsage();
         /\/models\/gemini-3\.8-flash-tts:generateContent$/.test(r.calls[0]?.url) && !r.calls[0].url.includes(GKEY)
         && r.calls[0].init.headers['x-goog-api-key'] === GKEY
         && req.generationConfig?.responseModalities?.[0] === 'AUDIO'
-        && req.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName === 'Kore',
+        && req.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName === 'Aoede',   // John 10-11: one default, Aoede (was Kore; amended deliberately, HV 10-12)
         `url=${r.calls[0]?.url} body=${r.calls[0]?.init?.body}`);
     const u = usageLines(r.lines);
     check('2d — exactly one USAGE: line, provider=gemini, characters billed', u.length === 1 && u[0] === `USAGE: lane=tts provider=gemini units=chars n=${TEXT.length} billing=byok ok=1`, JSON.stringify(u));
@@ -208,8 +208,8 @@ clearUsage();
 {
     const r = await capture(() => byok.synthesize({ text: TEXT, voice: '21m00Tcm4TlvDq8ikWAM', model: 'eleven_flash_v2_5' }), jsonFetch('audio/wav', handWav(4800, 24000)));
     const req = JSON.parse(r.calls[0]?.init?.body || '{}');
-    check('6 — an ElevenLabs voice id + model → Kore on the default model, two DROP markers',
-        r.value.ok === true && req.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName === 'Kore'
+    check('6 — an ElevenLabs voice id + model → Aoede (John 10-11 default; was Kore) on the default model, two DROP markers',
+        r.value.ok === true && req.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName === 'Aoede'
         && /gemini-3\.8-flash-tts:generateContent$/.test(r.calls[0].url)
         && r.lines.some(l => l.startsWith('DROP: byok-tts gemini-voice-not-gemini')) && r.lines.some(l => l.startsWith('DROP: byok-tts gemini-model-not-tts')),
         r.lines.join(' | '));

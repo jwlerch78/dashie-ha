@@ -307,6 +307,14 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
     }
 }
 
+/** The household's picked Gemini voice name, or '' (never throws). */
+async function householdGeminiVoice() {
+    try {
+        const v = await require('./satellite-engines').householdVoice();
+        return String(v?.liveVoiceName || '').trim();
+    } catch { return ''; }
+}
+
 /** Credits-paid Gemini voice for an HA speaker, as WAV (gemini-tts-lane.js creditsBuffered). */
 async function sendCreditsGemini(text, voice, jwt, res, sendJson) {
     const r = await geminiLane.creditsBuffered({ text, voice, jwt });
@@ -339,11 +347,17 @@ async function handleTts(req, res, sendJson) {
     // A TABLET asking for the Gemini voice as it is generated (dashie_voice's streaming view, path K).
     // Key or 409; never credits from here (gemini-tts-lane.js). Ahead of tts_url: the tablet asked
     // for Gemini by name, and an operator's engine URL is not that.
+    // The household's ONE Gemini voice (voice.liveVoiceName; John 2026-10-11 via B: the household's
+    // pick WINS over the operator's tts_voice, which is only the fallback for a box that never picked).
+    // Gemini-only by ruling (other engines' voice ids are a different namespace), so it applies only
+    // when Gemini will speak this turn.
+    const householdVoiceName = await householdGeminiVoice();
     if (payload.stream === true) {
-        await geminiLane.streamWithKey(res, { text, voice: payload.voice });
+        await geminiLane.streamWithKey(res, { text, voice: payload.voice || householdVoiceName });
         return;
     }
-    const voice = String(payload.voice || opts.tts_voice || '');
+    const geminiSpeaks = route.serves === 'gemini' || (!base && await byokTts.choseGeminiVoice());
+    const voice = String(payload.voice || (geminiSpeaks ? householdVoiceName : '') || opts.tts_voice || '');
     if (!base) {
         // BYOK: the household's own speech key, spent ON THE BOX (byok-tts.js
         // carries the precedence rationale). Ahead of the account path — a

@@ -54,7 +54,16 @@ try {
     globalThis.__setKeys = (s) => { STORE = s; };
     acctCfg = require_(join(SERVER, 'account-config.js'));
     let VOICE = {};
-    acctCfg.getAccountVoiceConfig = async () => VOICE;   // satellite-engines requires it lazily
+    // 🔴 Amended 2026-10-12 (HV, deliberately, not re-pinned). This stub returned the voice fields
+    // FLAT, which is the shape satellite-engines' old reader expected and NOT the shape
+    // getAccountVoiceConfig returns (they nest under `pipeline`), so the stub agreed with the bug and
+    // hid it: on a real signed-in box the household's choice was never read. This gate runs SIGNED
+    // OUT, and a signed-out box's household choice lives in the panel blob, so __setVoice feeds THAT
+    // store; the account stub keeps the REAL shape in case a leg signs in.
+    // (check-key-first-tts C1-C3 drive the signed-in account read.)
+    acctCfg.getAccountVoiceConfig = async () => ({ pipeline: VOICE });
+    const settingsStore = require_(join(SERVER, 'settings-store.js'));
+    settingsStore.readUserSettings = () => ({ voice: VOICE });   // satellite-engines requires it lazily
     globalThis.__setVoice = (v) => { VOICE = v; };
     usageStore = require_(join(SERVER, 'usage-store.js'));
     G = require_(join(SERVER, 'gemini-stt.js'));

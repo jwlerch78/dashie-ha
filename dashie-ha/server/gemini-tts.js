@@ -23,12 +23,18 @@ const { geminiTokenUnits } = require('./stt-usage');
 
 const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.8-flash-tts';
-const DEFAULT_VOICE = 'Kore';
+// John 2026-10-11 (via B): ONE default everywhere, Aoede (Live, the tablet, the edge gemini-tts).
+// Was 'Kore' in 0.9.56: a household that never picked a voice hears Aoede from the next release.
+const DEFAULT_VOICE = 'Aoede';
 
 // The household's tts_voice / a request's model may name ANOTHER engine's voice or
 // model (an ElevenLabs voice id, a Kokoro voice). Gemini 400s/404s on those, so a
-// value that cannot be a Gemini one is replaced, with a marker, not sent.
-const GEMINI_VOICE = /^[A-Z][a-z]{1,20}$/;
+// value that is not a Gemini one is replaced, with a marker, not sent.
+// MEMBERSHIP in the 30 prebuilt voices (generated from the canonical list), not a shape rule:
+// a shape rule also admitted 'Ashley' (Inworld) and misspellings like 'Korre', which Google then
+// 400s instead of us falling back cleanly (John 10-11: one validator).
+const { GEMINI_VOICES } = require('./generated/gemini-voices');
+const GEMINI_VOICE_SET = new Set(GEMINI_VOICES);
 const GEMINI_TTS_MODEL = /^gemini-[a-z0-9.-]*tts[a-z0-9.-]*$/;
 
 /** Decode one generateContent body into WAV bytes, or a reason it cannot be. */
@@ -54,7 +60,7 @@ function audioFromResponse(json) {
 function geminiVoiceOrDefault(voice, label = 'gemini-voice-not-gemini') {
     const v = String(voice || '').trim();
     if (!v) return DEFAULT_VOICE;
-    if (GEMINI_VOICE.test(v)) return v;
+    if (GEMINI_VOICE_SET.has(v)) return v;
     console.warn(`DROP: byok-tts ${label} — "${v.slice(0, 40)}" is not a Gemini voice; using ${DEFAULT_VOICE}`);
     return DEFAULT_VOICE;
 }
@@ -97,4 +103,4 @@ const adapter = {
     },
 };
 
-module.exports = { adapter, audioFromResponse, geminiVoiceOrDefault, DEFAULT_MODEL, DEFAULT_VOICE };
+module.exports = { adapter, audioFromResponse, geminiVoiceOrDefault, DEFAULT_MODEL, DEFAULT_VOICE, GEMINI_VOICES };

@@ -15,8 +15,7 @@
  *
  * ⚠️ What a green does NOT prove: that HA, the integration's streaming view (K) or a tablet carries
  *    any of this; that Google returns these shapes today (fixtures are hand-built from the measured
- *    10-10/10-11 calls); or the signed-in ACCOUNT read of the chosen voice (these legs choose via the
- *    panel blob, the same `ttsProvider` key read through the same householdVoice()).
+ *    10-10/10-11 calls); or a REAL account (the C legs stub user_settings).
  * Run: node scripts/check-key-first-tts.mjs   Exit 0 = ALL PASS, 1 = a failure, 2 = cannot check.
  */
 import { createRequire } from 'node:module';
@@ -243,7 +242,68 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
         `head=${JSON.stringify(t.head)} calls=${t.calls.map(c => c.url).join(' ')}`);
 }
 
+// ── C. the SIGNED-IN account is the household's store (FIXED 10-12) ───────────
+// satellite-engines.householdVoice() read acct.ttsProvider at the TOP LEVEL while account-config nests
+// the voice fields under `pipeline`, so for every signed-in box the account's choice was never read
+// (driven 10-12: account says gemini → choseGeminiVoice false, sttRoute dashie_cloud).
+{
+    const UID = '00000000-0000-0000-0000-0000000000c1';
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const realJwt = `${b64({ alg: 'HS256' })}.${b64({ sub: UID, exp: Math.floor(Date.now() / 1000) + 40 * 86400 })}.sig`;
+    const accountSays = (voice) => (u) => u.includes('/rest/v1/user_settings')
+        ? new Response(JSON.stringify([{ settings: { voice }, retain_transcripts: false }]), { status: 200 })
+        : u.includes('database-operations') ? bal(5) : noNet();
+    const acctCfg = require_(join(SERVER, 'account-config.js'));
+    writeFileSync(config.JWT_FILE, JSON.stringify({ jwt: realJwt, userId: UID, expiry: Date.now() + 40 * 86400_000 }));
+    choose('');                       // the panel blob says NOTHING: only the account can answer
+    rmSync(ACCOUNT_CACHE, { force: true });
+    setKeys({ gemini: { key: GKEY } });
+
+    reset(); acctCfg.invalidate();
+    let r = await drive(() => byok.resolveProvider(), accountSays({ ttsProvider: 'gemini' }));
+    check('C1 — SIGNED IN, the ACCOUNT chose the Gemini voice (blob empty) → gemini on the key',
+        r.value === 'gemini', `got ${r.value} calls=${r.calls.map(c => c.url.split('?')[0]).join(' ')}`);
+    reset(); acctCfg.invalidate();
+    r = await drive(async () => (await require_(join(SERVER, 'voice-routes.js')).sttRoute()).serves, accountSays({ sttProvider: 'gemini' }));
+    check('C2 — SIGNED IN, the ACCOUNT chose Gemini STT → sttRoute serves gemini (was dashie_cloud)',
+        r.value === 'gemini', `got ${r.value}`);
+    reset(); acctCfg.invalidate();
+    const t = await tts({ text: TEXT }, (u) => isGoogle(u) ? new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.alloc(480).toString('base64') } }] } }], usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 10 } }), { status: 200 }) : accountSays({ ttsProvider: 'gemini', liveVoiceName: 'Puck' })(u));
+    const sent = t.calls.find(c => isGoogle(c.url))?.body?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName;
+    check('C3 — SIGNED IN, the ACCOUNT\'s voice.liveVoiceName (Puck) is the voice an HA speaker hears',
+        t.head?.status === 200 && sent === 'Puck', `head=${JSON.stringify(t.head)} voice=${sent}`);
+    acctCfg.invalidate();
+    signIn(false);
+}
+
+// ── V. one Gemini voice: household pick > operator option; Aoede default; membership ──
+{
+    const googleVoice = (t) => t.calls.find(c => isGoogle(c.url))?.body?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName;
+    const gOk = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.alloc(480).toString('base64') } }] } }], usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 10 } }), { status: 200 });
+    const blob = (voice) => {
+        writeFileSync(SETTINGS_FILE, JSON.stringify({ userSettings: { voice } }));
+        try { require_(join(SERVER, 'account-config.js')).invalidate(); } catch { /* */ }
+    };
+    reset(); signIn(false); setKeys({ gemini: { key: GKEY } });
+    blob({ ttsProvider: 'gemini', liveVoiceName: 'Puck' });
+    let t = await tts({ text: TEXT }, (u) => isGoogle(u) ? gOk() : noNet());
+    check('V1 — the household\'s picked Gemini voice is what an HA speaker hears', googleVoice(t) === 'Puck', `voice=${googleVoice(t)}`);
+    t = await tts({ text: TEXT, stream: true }, (u) => isGoogle(u) ? sseOk() : ok200());
+    check('V2 — a tablet stream that sends no voice gets the household\'s pick too', googleVoice(t) === 'Puck', `voice=${googleVoice(t)}`);
+    blob({ ttsProvider: 'gemini' });
+    t = await tts({ text: TEXT }, (u) => isGoogle(u) ? gOk() : noNet());
+    check('V3 — nobody picked → Aoede (John 10-11: one default everywhere; was Kore)', googleVoice(t) === 'Aoede', `voice=${googleVoice(t)}`);
+    t = await tts({ text: TEXT, voice: 'Ashley' }, (u) => isGoogle(u) ? gOk() : noNet());
+    check('V4 — a foreign voice the old SHAPE rule admitted (Inworld\'s Ashley) → the default, not a Google 400', googleVoice(t) === 'Aoede', `voice=${googleVoice(t)}`);
+    t = await tts({ text: TEXT, voice: 'Korre' }, (u) => isGoogle(u) ? gOk() : noNet());
+    check('V5 — a misspelled Gemini voice → the default (membership, not shape)', googleVoice(t) === 'Aoede', `voice=${googleVoice(t)}`);
+    blob({ liveVoiceName: 'Puck' }); setKeys({ elevenlabs: { key: 'el_control' } });
+    t = await tts({ text: TEXT }, (u) => u.includes('elevenlabs.io') ? new Response(Buffer.from('ID3'), { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }) : noNet());
+    const el = t.calls.find(c => c.url.includes('elevenlabs.io'))?.url || '';
+    check('V6 — Gemini-only: an ElevenLabs turn is NOT sent the household\'s Gemini voice name', !!el && !el.includes('Puck'), `url=${el}`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
-console.log('   (green does NOT prove HA, the K view or a tablet carries this; fixtures are hand-built; the signed-in ACCOUNT read of the choice is not driven here)');
+console.log('   (green does NOT prove HA, the K view or a tablet carries this; fixtures are hand-built; the signed-in account read is driven against a STUBBED user_settings, not a real account)');
 if (!failed) console.log('check-key-first-tts: ALL PASS');
 process.exit(failed ? 1 : 0);

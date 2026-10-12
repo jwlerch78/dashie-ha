@@ -74,13 +74,23 @@ const SERVER_REACHABLE = Object.freeze({
  *  Never throws: any failure resolves to "no household answer", which falls
  *  through to engines.js's existing behaviour. */
 async function _householdVoice() {
-    try {
-        const acct = await require('./account-config').getAccountVoiceConfig();
-        // getAccountVoiceConfig returns SAFE_DEFAULT (all-empty) when there is no
-        // account, so an empty provider here is the signal to try the panel blob
-        // rather than evidence that the household chose nothing.
-        if (acct && (acct.sttProvider || acct.ttsProvider)) return acct;
-    } catch { /* fall through to the panel blob */ }
+    // 🔴 FIXED 2026-10-12 (HV, driven): this read `acct.sttProvider || acct.ttsProvider` at the
+    // TOP LEVEL, but getAccountVoiceConfig nests the voice fields under `pipeline` (account-config.js
+    // "Kiosk voice-config mirror"). So for every SIGNED-IN box the account branch never answered and
+    // the panel blob (which a signed-in console does not write) was read instead: the household's
+    // Gemini STT choice, its own-box URLs and its voice never reached this box. Driven proof and the
+    // regression leg: check-key-first-tts.mjs A6/A7 (a signed-in account choice must be read).
+    // Signed in → the ACCOUNT is the household's store, even when every field is blank (blank = it
+    // chose nothing). Signed out → the panel blob. A signed-out box's cached account config is NOT
+    // used here: it is a past account's choice, not this box's.
+    let signedIn = false;
+    try { signedIn = !!require('./auth').readStoredJwt(); } catch { signedIn = false; }
+    if (signedIn) {
+        try {
+            const acct = await require('./account-config').getAccountVoiceConfig();
+            if (acct?.pipeline) return acct.pipeline;
+        } catch { /* fall through to the panel blob */ }
+    }
     try {
         const local = require('./settings-store').readUserSettings();
         return local?.voice || null;

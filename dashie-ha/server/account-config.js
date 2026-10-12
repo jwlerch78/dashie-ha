@@ -226,6 +226,9 @@ async function getAccountVoiceConfig() {
             // "conversation mode" trigger could never fire (conversationModeEnabled was
             // false because conversationModel was blank). Audit 2026-07-13, #3.
             conversationModel: str(settings?.voice?.conversationModel),
+            // The household's ONE Gemini voice (Live AND Gemini TTS; John 2026-10-11: the picked
+            // voice wins over the operator's tts_voice). Wire key unchanged: voice.liveVoiceName.
+            liveVoiceName: str(settings?.voice?.liveVoiceName),
             conversationAlways: settings?.voice?.conversationAlways === true,
             customizePipeline: settings?.voice?.customizePipeline === true,
             // DLG-6 "keep dialog open" (user_settings.voice.alwaysOpenDialog) — rides the
