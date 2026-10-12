@@ -155,6 +155,10 @@ node "$ADDON_ROOT/scripts/check-usage-lane.mjs"
 # endpoint that must go red. The console's picker consumes /lanes (B, 2026-10-11).
 echo "==> Checking /api/voice/lanes agrees with the lanes (one predicate, two readers)"
 node "$ADDON_ROOT/scripts/check-voice-lanes.mjs"
+# Key-first Gemini voice (John 10-11): the chosen voice decides the voice, the key decides who pays;
+# a failed key falls back to credits with the failure reported to the account BEFORE the tablet's 409.
+echo "==> Checking key-first Gemini TTS + broken-key fallback (resolveProvider, tablet stream, HA speakers)"
+node "$ADDON_ROOT/scripts/check-key-first-tts.mjs"
 
 # The other end of the same lane: a household can ENTER a speech key, the brain
 # routability filter does not eat it, and one with no adapter yet says so in the
