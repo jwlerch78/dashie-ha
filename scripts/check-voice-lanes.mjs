@@ -177,9 +177,12 @@ async function agreementRound(label) {
         const L = await lanes();
         setBox(box);   // fresh cache: the lane reads the same ledger answer the endpoint read
         const actual = await drive(kind);
-        const said = L.body?.[kind]?.serves ?? null;
-        if (label) check(`AGREE ${name}: /lanes says ${said}, the lane reached ${actual}`, said === actual, `said=${said} actual=${actual}`);
-        if (said !== actual) mismatches++;
+        // A /lanes that never answered would "say" null and agree with every null-lane
+        // state for free — so an agreement counts only on a real 200 with this lane.
+        const answered = L.status === 200 && L.body?.ok === true && L.body?.[kind] && 'serves' in L.body[kind];
+        const said = answered ? L.body[kind].serves : '(no answer)';
+        if (label) check(`AGREE ${name}: /lanes says ${said}, the lane reached ${actual}`, answered && said === actual, `status=${L.status} said=${said} actual=${actual}`);
+        if (!answered || said !== actual) mismatches++;
     }
     return mismatches;
 }
@@ -202,25 +205,45 @@ console.log('── PLANT: /lanes reads a STALE routing function (pre-38e2801: s
 }
 
 console.log('── rows ─────────────────────────────────────────────────────────');
+// A missing answer must FAIL each row leg, not crash the run before the later legs report.
+const answer = (x) => (x.body ? x : { ...x, body: { ok: false, credits: {}, tts: { rows: {} }, stt: { rows: {} } } });
 setBox({ signedIn: true, keys: { gemini: 1 }, balance: 0, voice: { localTtsUrl: 'http://household.box:8880/?t=' + SECRET } });
-let r = await lanes();
-check('rows: device-side engines are ABSENT, not false', ['va_default', 'android_voice', 'sherpa_moonshine_base'].every(k => !(k in r.body.tts.rows) && !(k in r.body.stt.rows)), JSON.stringify(r.body?.tts?.rows));
-check('rows: a configured household box is can_serve:null (unprobed), host only', r.body.tts.rows.local_url.can_serve === null && r.body.tts.rows.local_url.why === 'configured_unprobed' && r.body.tts.rows.local_url.url_host === 'household.box:8880', JSON.stringify(r.body.tts.rows.local_url));
-check('rows: an unconfigured box is false/not_configured', r.body.stt.rows.local_stt_url.can_serve === false && r.body.stt.rows.local_stt_url.why === 'not_configured', JSON.stringify(r.body.stt.rows.local_stt_url));
-check('rows: signed in at ZERO → cloud false/no_credits; credits.state empty', r.body.tts.rows.dashie_cloud.why === 'no_credits' && r.body.credits.state === 'empty', JSON.stringify(r.body.credits));
+let r = answer(await lanes());
+check('rows: device-side engines are ABSENT, not false', r.body.ok === true && ['va_default', 'android_voice', 'sherpa_moonshine_base'].every(k => !(k in r.body.tts.rows) && !(k in r.body.stt.rows)), JSON.stringify(r.body?.tts?.rows));
+check('rows: a configured household box is can_serve:null (unprobed), host only', r.body.tts.rows.local_url?.can_serve === null && r.body.tts.rows.local_url?.why === 'configured_unprobed' && r.body.tts.rows.local_url?.url_host === 'household.box:8880', JSON.stringify(r.body.tts.rows.local_url));
+check('rows: an unconfigured box is false/not_configured', r.body.stt.rows.local_stt_url?.can_serve === false && r.body.stt.rows.local_stt_url?.why === 'not_configured', JSON.stringify(r.body.stt.rows.local_stt_url));
+check('rows: signed in at ZERO → cloud false/no_credits; credits.state empty', r.body.tts.rows.dashie_cloud?.why === 'no_credits' && r.body.credits.state === 'empty', JSON.stringify(r.body.credits));
 setBox({ signedIn: true, keys: { gemini: 1 }, balance: 'unknown' });
-r = await lanes();
-check('rows: UNREADABLE credits → cloud false/credits_unreadable (never true)', r.body.tts.rows.dashie_cloud.can_serve === false && r.body.tts.rows.dashie_cloud.why === 'credits_unreadable', JSON.stringify(r.body.tts.rows.dashie_cloud));
+r = answer(await lanes());
+check('rows: UNREADABLE credits → cloud false/credits_unreadable (never true)', r.body.tts.rows.dashie_cloud?.can_serve === false && r.body.tts.rows.dashie_cloud?.why === 'credits_unreadable', JSON.stringify(r.body.tts.rows.dashie_cloud));
 setBox({ signedIn: true, keys: { gemini: 1 }, balance: 5 });
-r = await lanes();
-check('rows: spendable → cloud true; Gemini TTS false/account_pays (the 10-10 rule, key-first not built)', r.body.tts.rows.dashie_cloud.can_serve === true && r.body.tts.rows.gemini.why === 'account_pays', JSON.stringify(r.body.tts.rows));
+r = answer(await lanes());
+check('rows: spendable → cloud true; Gemini TTS false/account_pays (the 10-10 rule, key-first not built)', r.body.tts.rows.dashie_cloud?.can_serve === true && r.body.tts.rows.gemini?.why === 'account_pays', JSON.stringify(r.body.tts.rows));
 setBox({ keys: { gemini: 1 }, options: { tts_url: `http://operator.box:8880/?k=${SECRET}` } });
-r = await lanes();
-check('operator engine: its own field, HOST only — the secret-bearing URL is never echoed', r.body.tts.operator_engine?.url_host === 'operator.box:8880' && !JSON.stringify(r.body).includes(SECRET), JSON.stringify(r.body.tts.operator_engine));
+r = answer(await lanes());
+check('operator engine: its own field, HOST only — the secret-bearing URL is never echoed', r.body.tts?.operator_engine?.url_host === 'operator.box:8880' && !JSON.stringify(r.body).includes(SECRET), JSON.stringify(r.body.tts.operator_engine));
+
+console.log('── mount: where the server SERVES it (the router alone cannot say) ──');
+// The legs above find /lanes on the ROUTER object, so a changed app.use() mount would
+// leave them green while every household's console 404s into its fail-open (O/B,
+// 10-11). This pins the served path from index.js itself. B's console leg 15a reads
+// BOTH sides of the join (page fetch string × this mount); this one pins the server half.
+{
+    const idx = readFileSync(join(SERVER, 'index.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+    const mounts = [...idx.matchAll(/app\.use\(\s*'([^']+)'\s*,\s*voiceConsoleRouter\s*\)/g)].map(m => m[1]);
+    const hasRoute = voiceConsole.stack.some(L => L.route?.path === '/lanes' && L.route.methods.get);
+    const served = hasRoute ? mounts.map(m => m + '/lanes') : [];
+    check(`mount: GET /api/voice/lanes is what the server serves (served: ${JSON.stringify(served)})`,
+        served.length === 1 && served[0] === '/api/voice/lanes', `voiceConsoleRouter mounts=${JSON.stringify(mounts)} hasRoute=${hasRoute}`);
+    // Control that CAN fail independently of the subject: the same parse must find a
+    // DIFFERENT, unrelated mount — so a regex that matches nothing fails here, not silently above.
+    check('mount parse control: the same parse finds the unrelated /api/keys mount', /app\.use\(\s*'\/api\/keys'\s*,\s*keysRouter\s*\)/.test(idx), 'parse found no /api/keys mount — the reader is broken, not the subject');
+}
 
 console.log('── auth ─────────────────────────────────────────────────────────');
 r = await lanes({});
-check('no ingress user → refused (not 200, no body with a balance)', r.status !== 200 && !(r.body && r.body.credits), `status=${r.status} body=${JSON.stringify(r.body)}`);
+// status 0 = the route was not found at all; that must NOT read as "refused".
+check('no ingress user → refused 401/403 by the guard (not a missing route), no balance', (r.status === 401 || r.status === 403) && !(r.body && r.body.credits), `status=${r.status} body=${JSON.stringify(r.body)}`);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log('   (a green does NOT prove a household box is reachable — /lanes never probes it — nor anything about the console\'s OFFERING)');
