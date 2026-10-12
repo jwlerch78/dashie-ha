@@ -35,6 +35,9 @@ const FILES = {
     gate: join(CONSOLE, 'js', 'lib', 'feature-gate.js'),
     index: join(CONSOLE, 'index.html'),
     app: join(CONSOLE, 'js', 'app.js'),
+    // HV's, read never written — leg 15 needs the MOUNT, which lives only here.
+    serverIndex: join(HERE, '..', 'dashie-ha', 'server', 'index.js'),
+    voiceConsole: join(HERE, '..', 'dashie-ha', 'server', 'api', 'voice-console.js'),
 };
 for (const [name, f] of Object.entries(FILES)) {
     if (!existsSync(f)) {
@@ -557,6 +560,64 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         /withServesNote\s*=\s*\([\s\S]{0,300}?servesDisclosure\(/.test(page) && /const card = [\s\S]{0,80}?withServesNote\(/.test(page),
         `helper defined=${/withServesNote\s*=/.test(page)} card wraps it=${/const card = [\s\S]{0,80}?withServesNote\(/.test(page)}`,
         'without it a household reads a priced row as their voice while something else speaks; the card is the only surface where that disagreement is visible');
+}
+
+// ── LEG 15 — THE MOUNT: the path the page fetches is a path the server SERVES ─
+//
+// 🔴 THE SEAM BOTH GATES STRADDLE WITHOUT COVERING, and it fails open.
+// check-voice-lanes.mjs (HV's) proves the handler is right — but it finds `/lanes` on the
+// ROUTER OBJECT (`voiceConsole.stack.find(L => L.route?.path === '/lanes')`), so it never
+// reads where that router is mounted. Leg 14a proves the page fetches the literal
+// '/api/voice/lanes' — but a string in a fetch call is not a route. So change
+// `app.use('/api/voice', voiceConsoleRouter)` in server/index.js and BOTH gates stay green
+// on both sides of the join, while every household silently gets the priced row again:
+// _fetchLanes() reads a 404, sets _lanes = null, and applyLanes(…, null) is a deliberate
+// no-op. Nothing logs a defect, because nothing IS a defect anywhere except in the join.
+{
+    const serverIndex = readFileSync(FILES.serverIndex, 'utf8');
+    const voiceConsole = readFileSync(FILES.voiceConsole, 'utf8');
+    const page = readFileSync(FILES.page, 'utf8');
+
+    // Derived, never hard-coded: the whole point is to read the mount rather than assume it.
+    const mountOf = (src, routerVar) =>
+        (src.match(new RegExp(`app\\.use\\(\\s*'([^']+)'\\s*,\\s*${routerVar}\\s*\\)`)) || [])[1] || null;
+    const getPathsOf = (src) => [...src.matchAll(/router\.get\(\s*'([^']+)'/g)].map((m) => m[1]);
+    const servedSet = (idxSrc, routerSrc, routerVar) => {
+        const mount = mountOf(idxSrc, routerVar);
+        if (!mount) return null;
+        return new Set(getPathsOf(routerSrc).map((p) => `${mount}${p}`.replace(/\/{2,}/g, '/')));
+    };
+
+    const fetched = (page.match(/_fetchLanes\s*\(\)\s*\{[\s\S]{0,400}?_addonUrl\(\s*'([^']+)'/) || [])[1] || null;
+    const served = servedSet(serverIndex, voiceConsole, 'voiceConsoleRouter');
+
+    check('leg 15a — the path _fetchLanes() calls is MOUNT + a registered route, read from the server',
+        !!fetched && !!served && served.has(fetched),
+        `page fetches=${JSON.stringify(fetched)}\n     mount=${JSON.stringify(mountOf(serverIndex, 'voiceConsoleRouter'))}` +
+        `\n     served=${served ? JSON.stringify([...served]) : 'COULD NOT PARSE'}`,
+        'the fix is conditional on the endpoint answering and fails OPEN by design, so a broken mount is invisible: the console restores the priced row with every leg in every gate still green');
+
+    // ⚖️ The control that makes 15a worth anything: prove the extractor READS the mount
+    // instead of hard-coding it. Same idiom as leg 13h.
+    //
+    // 🔴 The anchor is DERIVED, and the first spelling of this leg was wrong in exactly the
+    // way it exists to catch. It rewrote the literal '/api/voice' — hard-coding the constant
+    // whose absence it was asserting — so once the mount actually moved, the rewrite matched
+    // nothing and the CONTROL went red alongside 15a: two failures for one fault, with the
+    // control blaming the subject instead of testing the instrument. Measured by injecting a
+    // renamed mount into a scratch copy of the tree; caught because the arms were diffed leg
+    // by leg rather than by exit code. Rewriting whatever mount is THERE keeps this a control
+    // in both arms.
+    const liveMount = mountOf(serverIndex, 'voiceConsoleRouter');
+    const movedMount = liveMount
+        ? serverIndex.replace(`'${liveMount}', voiceConsoleRouter`, "'/api/zz-moved', voiceConsoleRouter")
+        : serverIndex;
+    const movedServed = servedSet(movedMount, voiceConsole, 'voiceConsoleRouter');
+    check('leg 15b — ⚖️ CONTROL: moving whatever mount is THERE makes 15a fail (the leg reads index.js, not a constant)',
+        !!liveMount && movedMount !== serverIndex && !!movedServed && !movedServed.has(fetched),
+        `live mount=${JSON.stringify(liveMount)} rewrite applied=${movedMount !== serverIndex}` +
+        `\n     moved served=${movedServed ? JSON.stringify([...movedServed]) : 'null'}`,
+        'a seam check that cannot fail when the seam moves is a decoration; this is the leg that proves 15a is measuring server/index.js. It must stay green when 15a goes red — a control that fails with its subject has stopped being a control');
 }
 
 console.log('');
