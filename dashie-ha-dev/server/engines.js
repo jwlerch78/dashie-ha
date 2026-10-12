@@ -51,13 +51,17 @@ const auth = require('./auth');
 const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const byokTts = require('./byok-tts');
+const geminiLane = require('./gemini-tts-lane');
+const keyHealth = require('./key-health');
 const sttUsage = require('./stt-usage');
 // The per-consumer-CLASS tier this file's header called an open design question
 // (2026-08-23), scheduled by John 2026-08-28. Additive: it answers only when the
 // add-on option is unset AND the household's chosen engine is one a satellite can
 // actually reach, so every box that works today is untouched.
-const { resolveSatelliteBase, householdSttProvider } = require('./satellite-engines');
+const { resolveSatelliteBase } = require('./satellite-engines');
 const geminiStt = require('./gemini-stt');
+// The ONE routing answer per lane — handleTts/handleStt route on it, /api/voice/lanes reports it.
+const voiceRoutes = require('./voice-routes');
 
 /** The STT wire id for BYOK Gemini. Kotlin `VoiceAiOptions` is the naming source;
  *  the console row and this check mirror it (JS_KOTLIN_CONTRACTS row, D5). */
@@ -129,7 +133,9 @@ async function handleStt(req, res, sendJson) {
     // (O's ruling, decision 1): a picker that says "Gemini" while the operator's
     // Whisper runs is the dishonest-label failure B rejected. The override is
     // never silent; it has its own marker, distinct from the failure markers.
-    if (await householdSttProvider() === STT_GEMINI) {
+    // Routed on voice-routes.sttRoute() — the answer /api/voice/lanes reports.
+    const route = await voiceRoutes.sttRoute();
+    if (route.serves === STT_GEMINI) {
         if (String(opts.stt_url || '').trim()) {
             console.warn(`STT-OVERRIDE: household chose ${STT_GEMINI}; the stt_url add-on option (${sttUsage.hostOf(opts.stt_url) || 'unparseable'}) is ignored while it is chosen`);
         }
@@ -140,9 +146,8 @@ async function handleStt(req, res, sendJson) {
     // operator's direct statement about THIS lane), then the household choice but
     // ONLY when that engine is server-reachable. An on-device household pick
     // resolves to null here, which is the state this function already handles.
-    const resolved = await resolveSatelliteBase('stt');
-    const base = resolved?.base || '';
-    if (resolved?.source === 'household') console.log('[engines] stt base resolved from the household config (no stt_url set)');
+    const base = route.base;
+    if (route.source === 'household') console.log('[engines] stt base resolved from the household config (no stt_url set)');
     let audio;
     try {
         audio = await readRawBody(req);
@@ -151,14 +156,10 @@ async function handleStt(req, res, sendJson) {
         return;
     }
     if (!base) {
-        // Hosted fallback: Dashie Cloud Whisper under the account (metered).
-        const jwt = await cloudJwt();
-        if (!jwt) {
-            console.warn('DROP: stt requested but no stt_url and not signed in');
-            sendJson(res, 503, { error: 'stt_unconfigured', message: 'Sign in, or set stt_url in the add-on configuration.' });
-            return;
-        }
-        await cloudStt(audio, jwt, res, sendJson);
+        // Nobody can pay for Gemini (no key stored, not signed in) and no box engine is set: sttRoute
+        // returned null. A signed-in box or a stored key never lands here; it routes to Gemini above.
+        console.warn('DROP: stt requested but no engine can serve: no Gemini key, not signed in, no stt_url');
+        sendJson(res, 503, { error: 'stt_unconfigured', message: 'Add a Gemini key in API Keys, sign in to use your Dashie credits, or set stt_url in the add-on configuration.' });
         return;
     }
     const url = /\/audio\/transcriptions$/.test(base) ? base : base + '/v1/audio/transcriptions';
@@ -204,10 +205,17 @@ async function handleStt(req, res, sendJson) {
 }
 
 /**
- * D5 Gemini branch. 🔴 No fall-through on failure, to cloud OR to a local
- * engine: the household chose its own key, and routing the audio somewhere it
- * did not choose (or billing it to the account) to hide a fault is the rule the
- * BYOK TTS branch states at handleTts. Each failure has its own marker.
+ * The Gemini STT lane. 🔴 John 2026-10-12 (to HV, verbatim): "voice input is one Gemini option for the engine
+ * and key first then credits". So the ENGINE is always Gemini and never a local one the household did not
+ * choose; the PAYER is the household's key when stored, else the account's credits via the gemini-stt edge
+ * (billed + credit-enforced there: checkSpendable → 402, recordSttUsage).
+ *   key stored, works      → transcribed on the key (`byok` usage row), key health reported ok.
+ *   key stored, Google failed → the failure is reported to the account FIRST (the "Voice key error" pill,
+ *                            key-health.js, awaited; John 10-11), then credits if signed in.
+ *   no key, signed in      → credits.
+ *   no key, signed out     → 503: nobody can pay. Signed out after a key failure → the provider error.
+ * Each outcome has its own marker. (Before 10-12 the credits leg called whisper-stt, which is not deployed:
+ * every such turn ended 502. fb4939c's "credits" claim was false until this.)
  */
 async function geminiSttBranch(req, res, sendJson) {
     let audio;
@@ -217,57 +225,66 @@ async function geminiSttBranch(req, res, sendJson) {
         sendJson(res, 400, { error: 'bad_audio', message: e.message });
         return;
     }
-    if (!geminiStt.available()) {
-        console.warn('DROP: stt-gemini-no-key — household chose gemini but no Gemini key is stored');
-        sendJson(res, 503, { error: 'gemini_stt_no_key', message: 'Add a Gemini key in API Keys, or choose another speech-to-text engine.' });
+    let failed = null;
+    if (geminiStt.available()) {
+        const t0 = Date.now();
+        const r = await geminiStt.transcribe(audio);
+        if (r.ok) {
+            keyHealth.reportOk('gemini');
+            console.log(`DASHIE-STT route=gemini payer=key text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+            sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
+            sendJson(res, 200, { text: r.text });
+            return;
+        }
+        if (r.keyFailure) await keyHealth.reportFailure('gemini', r.keyFailure.status);
+        failed = r;
+    }
+    const jwt = (!failed || failed.keyFailure) ? await cloudJwt() : '';
+    if (!jwt) {
+        if (failed) {
+            console.warn(`DROP: stt-gemini-failed — ${failed.error} (status ${failed.status})${failed.keyFailure ? '; not signed in: no credits fallback' : ''}`);
+            sendJson(res, failed.status, { error: failed.error, ...(failed.message ? { message: failed.message } : {}) });
+        } else {
+            console.warn('DROP: stt-gemini-no-payer — no Gemini key is stored and the box is not signed in');
+            sendJson(res, 503, { error: 'gemini_stt_no_key', message: 'Add a Gemini key in API Keys, or sign in to use your Dashie credits.' });
+        }
         return;
     }
-    const t0 = Date.now();
-    const r = await geminiStt.transcribe(audio);
-    if (!r.ok) {
-        console.warn(`DROP: stt-gemini-failed — ${r.error} (status ${r.status}); not falling through`);
-        sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
-        return;
-    }
-    console.log(`DASHIE-STT route=gemini text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
-    sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
-    sendJson(res, 200, { text: r.text });
+    if (failed) console.warn(`STT-FALLBACK: byok gemini failed (${failed.keyFailure.status}) → gemini-stt on account credits`);
+    await creditsGeminiStt(audio, jwt, res, sendJson);
 }
 
-/** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}). */
-async function cloudStt(audio, jwt, res, sendJson) {
-    const boundary = '----dashieha' + Date.now().toString(16);
-    const head = Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="audio.wav"\r\n` +
-        `Content-Type: audio/wav\r\n\r\n`);
-    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+/**
+ * Gemini STT on the account's CREDITS: the gemini-stt edge fn (raw WAV body → {transcript, model, billed}).
+ * The edge is the billing authority (checkSpendable → 402 insufficient_credits, recordSttUsage); the local
+ * row is the at-a-glance view, keyed `gemini|<model>|metered` so it never merges with the household's own
+ * `gemini|…|byok` spend (§5a). Replaced whisper-stt 10-12, which is not deployed (404 on staging and prod).
+ */
+async function creditsGeminiStt(audio, jwt, res, sendJson) {
     const t0 = Date.now();
     try {
-        const resp = await fetch(`${CLOUD.url}/functions/v1/whisper-stt`, {
+        const resp = await fetch(`${CLOUD.url}/functions/v1/gemini-stt`, {
             method: 'POST',
-            headers: {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                apikey: CLOUD.anonKey,
-                Authorization: `Bearer ${jwt}`,
-            },
-            body: Buffer.concat([head, audio, tail]),
+            headers: { 'Content-Type': 'audio/wav', apikey: CLOUD.anonKey, Authorization: `Bearer ${jwt}` },
+            body: audio,
         });
         const data = await resp.json().catch(() => ({}));
+        if (resp.status === 402) {
+            console.warn('DROP: stt-gemini-credits insufficient_credits — the account cannot pay and no key is working');
+            sendJson(res, 402, { error: 'insufficient_credits', message: 'Out of Dashie credits. Add credits, or add a Gemini key in API Keys.' });
+            return;
+        }
         if (!resp.ok) {
-            console.warn(`DROP: cloud stt HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`);
+            console.warn(`DROP: stt-gemini-credits HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`);
             sendJson(res, 502, { error: 'stt_engine_error', message: `cloud HTTP ${resp.status}` });
             return;
         }
-        const text = String(data.transcript || data.text || '').trim();
-        console.log(`DASHIE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
-        // Success path only. Recorded as `metered` — a SEPARATE store key from
-        // the local branch, because merging metered and BYOK spend into one row
-        // is what §5a forbids. This row is for the at-a-glance view; the issuer
-        // stays authoritative for its cost.
-        sttUsage.recordSttCall(audio, readOptions(), 'cloud');
+        const text = String(data.transcript || '').trim();
+        console.log(`DASHIE-STT route=gemini payer=credits text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        sttUsage.recordSttCall(audio, readOptions(), 'cloud', { model: data.model || null });
         sendJson(res, 200, { text });
     } catch (e) {
-        console.warn('DROP: cloud stt unreachable:', e.message);
+        console.warn('DROP: stt-gemini-credits unreachable:', e.message);
         sendJson(res, 504, { error: 'stt_unreachable', message: e.message });
     }
 }
@@ -302,14 +319,34 @@ async function cloudTts(text, voice, jwt, res, sendJson) {
     }
 }
 
+/** The household's picked Gemini voice name, or '' (never throws). */
+async function householdGeminiVoice() {
+    try {
+        const v = await require('./satellite-engines').householdVoice();
+        return String(v?.liveVoiceName || '').trim();
+    } catch { return ''; }
+}
+
+/** Credits-paid Gemini voice for an HA speaker, as WAV (gemini-tts-lane.js creditsBuffered). */
+async function sendCreditsGemini(text, voice, jwt, res, sendJson) {
+    const r = await geminiLane.creditsBuffered({ text, voice, jwt });
+    if (r.ok) {
+        res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
+        res.end(r.audio);
+        return;
+    }
+    sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+}
+
 /** POST /api/voice/tts — { text, voice? } → audio bytes (engine's WAV). */
 async function handleTts(req, res, sendJson) {
     const opts = readOptions();
-    // Same tier as handleStt — see satellite-engines.js for the class rule and why
-    // it tests the chosen ENGINE rather than the presence of a URL.
-    const resolved = await resolveSatelliteBase('tts');
-    const base = resolved?.base || '';
-    if (resolved?.source === 'household') console.log('[engines] tts base resolved from the household config (no tts_url set)');
+    // Routed on voice-routes.ttsRoute() — the same answer GET /api/voice/lanes reports,
+    // so the console's picker and this lane cannot drift (check-voice-lanes.mjs).
+    // The base-URL tier is satellite-engines.js's class rule (tests the chosen ENGINE).
+    const route = await voiceRoutes.ttsRoute();
+    const base = route.base;
+    if (route.source === 'household') console.log('[engines] tts base resolved from the household config (no tts_url set)');
     let payload;
     try {
         payload = JSON.parse((await readRawBody(req, 1024 * 1024)).toString('utf8') || '{}');
@@ -319,7 +356,20 @@ async function handleTts(req, res, sendJson) {
     }
     const text = String(payload.text || '').trim();
     if (!text) { sendJson(res, 400, { error: 'bad_request', message: 'text is required' }); return; }
-    const voice = String(payload.voice || opts.tts_voice || '');
+    // A TABLET asking for the Gemini voice as it is generated (dashie_voice's streaming view, path K).
+    // Key or 409; never credits from here (gemini-tts-lane.js). Ahead of tts_url: the tablet asked
+    // for Gemini by name, and an operator's engine URL is not that.
+    // The household's ONE Gemini voice (voice.liveVoiceName; John 2026-10-11 via B: the household's
+    // pick WINS over the operator's tts_voice, which is only the fallback for a box that never picked).
+    // Gemini-only by ruling (other engines' voice ids are a different namespace), so it applies only
+    // when Gemini will speak this turn.
+    const householdVoiceName = await householdGeminiVoice();
+    if (payload.stream === true) {
+        await geminiLane.streamWithKey(res, { text, voice: payload.voice || householdVoiceName });
+        return;
+    }
+    const geminiSpeaks = route.serves === 'gemini' || (!base && await byokTts.choseGeminiVoice());
+    const voice = String(payload.voice || (geminiSpeaks ? householdVoiceName : '') || opts.tts_voice || '');
     if (!base) {
         // BYOK: the household's own speech key, spent ON THE BOX (byok-tts.js
         // carries the precedence rationale). Ahead of the account path — a
@@ -327,17 +377,30 @@ async function handleTts(req, res, sendJson) {
         // install changes behaviour unless it holds a speech key, OR holds a
         // Gemini key while its account cannot pay (signed out, or no spendable
         // credits — John 2026-10-10; byok-tts.js resolveProvider has the rule).
-        if (await byokTts.available()) {
+        if (route.serves === 'elevenlabs' || route.serves === 'gemini') {
             const r = await byokTts.synthesize({ text, voice, model: payload.model });
             if (r.ok) {
+                keyHealth.reportOk(route.serves);
                 res.writeHead(200, { 'Content-Type': r.contentType, 'Cache-Control': 'no-store' });
                 res.end(r.audio);
                 return;
             }
-            // Deliberately no silent fall-through to the cloud. The household
-            // asked for its own key; billing it to the account instead because
-            // ElevenLabs 401'd would spend somebody's money to hide a fault.
-            sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+            // 🔴 REVERSED 2026-10-11 (John: "broken key goes to credits with small error message"):
+            // a failed key now falls back to the account's credits, and the failure is NOT hidden.
+            // It is written to the account (key-health.js) so every tablet shows "Voice key error".
+            // The usage row names the payer that SERVED the turn (credits), never the key that failed.
+            if (r.keyFailure) await keyHealth.reportFailure(r.keyFailure.provider, r.keyFailure.status);
+            const jwtFb = await cloudJwt();
+            if (!jwtFb) {
+                // Signed out: no credits to fall back to. HA's own engines / on-device (John's Q4) is
+                // not wired here yet, so this is still the provider's error, loudly.
+                console.warn(`DROP: tts byok ${route.serves} failed (${r.keyFailure?.status || r.error}) and not signed in: no credits fallback`);
+                sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+                return;
+            }
+            console.warn(`TTS-FALLBACK: byok ${route.serves} failed (${r.keyFailure?.status || r.error}) → account credits`);
+            if (route.serves === 'gemini') { await sendCreditsGemini(text, voice, jwtFb, res, sendJson); return; }
+            await cloudTts(text, voice, jwtFb, res, sendJson);
             return;
         }
         // Hosted fallback: Dashie Cloud voice under the account (metered).
@@ -347,6 +410,9 @@ async function handleTts(req, res, sendJson) {
             sendJson(res, 503, { error: 'tts_unconfigured', message: 'Sign in, add a speech provider key in API Keys, or set tts_url in the add-on configuration.' });
             return;
         }
+        // The household chose the Gemini voice and has no Gemini key: credits pay for the SAME voice
+        // (A2, byok-tts.js resolveProvider), not the account's default cloud voice.
+        if (await byokTts.choseGeminiVoice()) { await sendCreditsGemini(text, voice, jwt, res, sendJson); return; }
         await cloudTts(text, voice, jwt, res, sendJson);
         return;
     }

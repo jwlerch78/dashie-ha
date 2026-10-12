@@ -24,6 +24,7 @@
 'use strict';
 
 const { readKeys } = require('./key-store');
+const { classifyKeyFailure } = require('./generated/key-health-vocab');
 
 const MODEL = 'gemini-3.5-transcribe';
 const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -69,8 +70,10 @@ function _shapeOf(json) {
  * Transcribe one WAV utterance on the household's Gemini key.
  * @param {Buffer} wav  canonical 16 kHz mono PCM WAV (what stt.py sends)
  * @returns {Promise<{ok: true, text: string, model: string, usage: object|null}
- *                  | {ok: false, status: number, error: string, message?: string}>}
- *   Never throws, and no field ever contains the key.
+ *                  | {ok: false, status: number, error: string, message?: string,
+ *                     keyFailure?: {provider: 'gemini', status: string}}>}
+ *   Never throws, and no field ever contains the key. `keyFailure` (the key-health vocabulary) is set
+ *   whenever Google was CALLED and failed, so the caller can report it and fall back to credits.
  */
 async function transcribe(wav) {
     const key = _key();
@@ -91,24 +94,28 @@ async function transcribe(wav) {
             signal: ctl.signal,
         });
         clearTimeout(timer);
-        const json = await resp.json().catch(() => null);
+        const raw = await resp.text().catch(() => '');
+        let json = null; try { json = JSON.parse(raw); } catch { json = null; }
         if (!resp.ok) {
             // Google's error message carries no key; cap it anyway.
             const detail = String(json?.error?.message || '').slice(0, 200);
             console.warn(`DROP: gemini-stt HTTP ${resp.status}: ${detail}`);
-            return { ok: false, status: 502, error: 'gemini_stt_http', message: `Gemini HTTP ${resp.status}` };
+            // Classified on the WHOLE body: a bad key is 400 + API_KEY_INVALID in error.details (measured 10-12).
+            return { ok: false, status: 502, error: 'gemini_stt_http', message: `Gemini HTTP ${resp.status}`,
+                keyFailure: { provider: 'gemini', status: classifyKeyFailure(resp.status, raw) } };
         }
         const text = parseTranscript(json);
         if (text === null) {
             console.warn(`DROP: gemini-stt unrecognised-shape — 200 with no transcript part (${_shapeOf(json)})`);
-            return { ok: false, status: 502, error: 'gemini_stt_unparsed' };
+            return { ok: false, status: 502, error: 'gemini_stt_unparsed', keyFailure: { provider: 'gemini', status: 'other' } };
         }
         return { ok: true, text, model: MODEL, usage: json?.usageMetadata || null };
     } catch (e) {
         clearTimeout(timer);
         const msg = e?.name === 'AbortError' ? `timeout after ${TIMEOUT_MS} ms` : String(e?.message || e);
         console.warn(`DROP: gemini-stt unreachable: ${msg}`);
-        return { ok: false, status: 504, error: 'gemini_stt_unreachable', message: msg };
+        return { ok: false, status: 504, error: 'gemini_stt_unreachable', message: msg,
+            keyFailure: { provider: 'gemini', status: classifyKeyFailure(null) } };
     }
 }
 

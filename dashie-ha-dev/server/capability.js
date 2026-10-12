@@ -73,7 +73,7 @@ function signedIn() {
  *
  * Lives here — ONE holder — because three surfaces need the same answer
  * (converse.js's route decision, capabilityState('ai') below, and the
- * /api/voice/local-status probe) and the Configuration-tab era proved what
+ * /api/voice/lanes probe's brain half) and the Configuration-tab era proved what
  * happens when they read different homes of one fact.
  */
 function readLocalBoxLlm() {

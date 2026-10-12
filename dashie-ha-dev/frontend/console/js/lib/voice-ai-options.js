@@ -513,6 +513,118 @@ const VoiceAiOptions = {
     },
 
     /**
+     * WHO SERVES A LANE, in household words — the console half of `/api/voice/lanes`.
+     *
+     * 🔴 TWO QUESTIONS, TWO ANSWERS, NEITHER INFERRED FROM THE OTHER. The server answers
+     * `can_serve` = "would a spend on this row succeed NOW, on facts the server holds".
+     * The console answers OFFERING = "may this household be shown this row at all" — the
+     * cohort gate, since credits are `alpha-only`. `voice-routes.js`'s header says it
+     * outright: wiring offer-iff-can_serve is the `hasManagedCloud()` defect inverted. So
+     * nothing here removes a row. It only corrects what a row CLAIMS.
+     *
+     * 📌 Why it is needed, measured 2026-10-11, and note that `hasManagedCloud()` above is
+     * NOT a bug being worked around — its comment records the 2026-08-04 ruling faithfully
+     * ("a Dashie-for-HA box that signs in gets it back the moment it does"), which was
+     * right while signing in meant credits. **D1 alpha-gated credits and that premise
+     * changed underneath it.** A signed-in household with a Gemini key and no credits has
+     * `voice.ttsProvider = 'dashie_cloud'` stored, so the card renders
+     * `… TTS · $0.09–0.33/1k chars` — while the server reports
+     * `rows.dashie_cloud.can_serve: false` and `serves: 'gemini'`. Their voice WORKS, on
+     * their own key, free to us, and we quote a per-character price they are never
+     * charged. A household could decline a feature that costs them nothing.
+     *
+     * ⚠️ `can_serve: null` IS LEFT ALONE — "configured but not probed" (a household box
+     * URL). The console's own probe path answers reachability; restating it here would be
+     * us asserting a measurement the server deliberately declined to make. A row the
+     * server does not mention is also left alone: **absent is not a negative.**
+     */
+    LANE_WHY_COPY: {
+        no_credits:             'No credits on this account.',
+        credits_unreadable:     'Credit balance unavailable.',
+        signed_out:             'Needs a signed-in account.',
+        no_key:                 'Needs a key in API Keys.',
+        speech_key_present:     'A speech provider key is set, so that one is used.',
+        account_pays:           'Your account credits pay for this while they last.',
+        operator_url_overrides: "The add-on configuration points this lane at its own engine.",
+        not_configured:         'No address set yet.',
+    },
+
+    /** The household name for whatever actually serves a lane, for the disclosure line.
+     *  `null` = no disclosure needed (the selected row already says it). */
+    SERVES_LABELS: {
+        gemini:        'your Gemini key',
+        elevenlabs:    'your ElevenLabs key',
+        dashie_cloud:  null,
+        operator_url:  "this add-on's configured engine",
+        local_url:     'your own voice box',
+        local_stt_url: 'your own speech box',
+    },
+
+    // 🔴 A `serves` value with NO label suppresses the disclosure SILENTLY, so every
+    // null above must be declared here with the reason it needs none. Leg 18 fails on a
+    // null that is not declared — the same discipline as leg 12's UNASSEMBLED map,
+    // because "no label" and "nobody got round to it" are indistinguishable otherwise.
+    SERVES_LABEL_NONE: {
+        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: the selected row IS '
+            + 'dashie_cloud, so serves === selectedId and no disclosure is wanted. Revisit if a TTS '
+            + 'gemini row lands — then dashie_cloud serving a gemini selection NEEDS a sentence.',
+    },
+
+    /**
+     * Correct what each row CLAIMS, from the server's answer. PURE: returns new rows,
+     * mutates nothing, drops nothing.
+     *
+     * @param {string} stage 'tts' | 'stt'
+     * @param {Array} rows the assembled option rows
+     * @param {object|null} lanes the `/api/voice/lanes` payload, or null when we could not
+     *   read it — then this is a NO-OP. Never flash-disable on an answer we do not have
+     *   yet; that is the standing picker rule, and it is the same shape as `can_serve:
+     *   null` one layer out.
+     */
+    applyLanes(stage, rows, lanes) {
+        const list = Array.isArray(rows) ? rows : [];
+        const answer = lanes && lanes[stage] && lanes[stage].rows ? lanes[stage].rows : null;
+        if (!answer) return list;
+        return list.map((row) => {
+            const said = row && answer[row.id];
+            // Not mentioned (device-side), or `null` (configured, unprobed): leave the row
+            // exactly as it is. Only an explicit `false` is a negative.
+            if (!said || said.can_serve !== false) return row;
+            const why = this.LANE_WHY_COPY[said.why];
+            // An unknown `why` is the server growing a reason this copy map has not learned.
+            // Still strip the price — the price is the false claim — but say nothing we
+            // cannot say honestly, and make the gap loud rather than inventing a sentence.
+            if (!why) console.warn(`DROP: voice-lanes-why-unknown ${stage}/${row.id} why=${said.why}`);
+            return {
+                ...row,
+                cost: '',
+                description: why
+                    ? `${why} ${String(row.description || '')}`.trim()
+                    : String(row.description || ''),
+            };
+        });
+    },
+
+    /**
+     * The disclosure: what is ACTUALLY speaking, when it is not what is selected.
+     *
+     * 🔴 The condition is `serves` ≠ the SELECTED ROW ID — not `serves` ≠ `dashie_cloud`.
+     * Keying it to one provider would build a one-case fix wearing a general shape, and it
+     * would stay silent for the next stored provider that cannot serve.
+     *
+     * @returns {string|null} a sentence, or null when there is nothing to disclose.
+     */
+    servesDisclosure(stage, selectedId, lanes) {
+        const lane = lanes && lanes[stage] ? lanes[stage] : null;
+        if (!lane) return null;
+        const serves = lane.serves;
+        if (!serves || String(serves) === String(selectedId || '')) return null;
+        const label = this.SERVES_LABELS[serves];
+        if (!label) return null;
+        return `Running on ${label} right now.`;
+    },
+
+    /**
      * The managed cloud row, or its RESIDUAL, or nothing.
      *
      * 🔴 The residual is the load-bearing half, and dropping the row without it
@@ -539,13 +651,74 @@ const VoiceAiOptions = {
     /** TTS option list in the §3 order: cloud, Piper (if detected), your-box, HA
      *  pipeline, Android. `currentId` = the stage's stored provider, so a dropped
      *  managed row can still render as a residual when it is what is stored. */
+    // ── S0: ANY STORED VALUE MUST BE VISIBLE AS ITS OWN ROW ──────────────────
+    //
+    // 🔴 WHY THIS IS GENERAL AND NOT ONE MORE SPECIAL CASE. `VoiceAiCards.render()`
+    // resolves a selection with `opts.find(…) || opts[0]`, so a stored value that is
+    // not in the offered list renders the FIRST row as selected — the card names an
+    // engine the household never chose. That is bad on its own, and `selectOption` →
+    // `_selectProvider` writes `voice.{stt,tts}Provider` UNCONDITIONALLY, so one tap
+    // on the row that already looks selected PERSISTS the wrong engine. Measured
+    // 2026-10-12: stored `gemini` displayed as "Dashie Cloud", and a tap would have
+    // moved the household off their own key (TTS: onto metered credits; STT: onto a
+    // lane that returns 502 because whisper-stt is not deployed).
+    //
+    // ⚠️ This file had already fixed the SAME defect twice, per id — `_managedCloudRow`
+    // and a hand-written `sherpa_moonshine_tiny` block whose own comment called it
+    // "the exact lying-card defect leg 3 of the picker gate documents". Fixing it a
+    // third time per id is how the class survives. This closes the class instead: the
+    // next row somebody defines and forgets to assemble (leg 12's subject) cannot
+    // produce a lying card, and neither can a row WITHDRAWN by an offering rule —
+    // which is why S0 goes first in the plan (B's D2 objection, sustained by O
+    // 2026-10-12: offer on the cohort, disclose on the lane).
+    //
+    // A guard against the write is deliberately NOT the fix. An equality check cannot
+    // help (stored `gemini` vs clicked `dashie_cloud` differ, so the write passes) and
+    // refusing the write whenever the stored id is unoffered would STRAND a household
+    // on a value they could never change away from — the console is their only surface.
+    // The lie is in the render, so the fix is in the render.
+    RESIDUAL_COPY: {
+        sherpa_moonshine_tiny: { label: 'On-Device (retired model)', locality: 'local',
+            description: 'This bundled model was retired — pick another option.' },
+    },
+
+    /**
+     * Append a residual row for `currentId` when the offered list does not contain it.
+     * @param {'tts'|'stt'} stage
+     * @param {Array} options  the FINAL offered list (after withSavedEngines)
+     * @param {string} currentId  the stored wire value
+     */
+    withStoredResidual(stage, options, currentId) {
+        const list = Array.isArray(options) ? options : [];
+        const id = String(currentId || '');
+        if (!id || list.some(o => o && o.id === id)) return list;
+        // Defined-but-unassembled ids (leg 12's subject) still have their real label here.
+        const table = stage === 'tts' ? this.TTS : this.STT;
+        const defined = table.find(o => o.id === id) || null;
+        const copy = this.RESIDUAL_COPY[id] || null;
+        // 🔴 Names BOTH ids (O's requirement): without the pair this cannot tell a
+        // WITHDRAWN row from an UNASSEMBLED one, and those have different fixes.
+        console.warn(`DROP: voice-picker-stored-not-offered ${stage} stored=${id} ` +
+            `would-have-displayed=${(list[0] && list[0].id) || 'none'}`);
+        return [...list, {
+            ...(defined || {}),
+            ...(copy || {}),
+            id,
+            label: (copy && copy.label) || (defined && defined.label) || id,
+            locality: (copy && copy.locality) || (defined && defined.locality) || 'cloud',
+            cost: '',
+            description: (copy && copy.description) || (defined && defined.description)
+                || 'In use on this household. Not offered here — pick another option to change it.',
+        }];
+    },
+
     ttsOptions(detection, currentId) {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
         const out = [this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
-        return this.withSavedEngines('tts', out.filter(Boolean), 'local_url');
+        return this.withStoredResidual('tts', this.withSavedEngines('tts', out.filter(Boolean), 'local_url'), currentId);
     },
 
     /** STT option list in the §3 order: cloud, Whisper (if detected), your-box,
@@ -558,18 +731,12 @@ const VoiceAiOptions = {
         const out = [this._managedCloudRow(base.dashie_cloud, currentId),
                      base.sherpa_moonshine_base, base.android_voice,
                      this._whisperOption(detection), base.va_default, base.local_stt_url];
-        // Residual for a device that already STORED the retired tiny model: the card
-        // resolves a selection with `opts.find(…) || opts[0]`, so without this row a
-        // tiny-storing device renders the FIRST option as selected while the device
-        // still runs tiny — the exact lying-card defect leg 3 of the picker gate
-        // documents for the managed cloud row. Same pattern: shown only when stored,
-        // no cost, and it says plainly that the model is retired.
-        if (String(currentId || '') === 'sherpa_moonshine_tiny') {
-            out.push({ id: 'sherpa_moonshine_tiny', label: 'On-Device (retired model)',
-                locality: 'local', cost: '',
-                description: 'This bundled model was retired — pick another option.' });
-        }
-        return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
+        // The retired tiny model's residual is no longer hand-written here: it is
+        // RESIDUAL_COPY.sherpa_moonshine_tiny, applied by withStoredResidual below
+        // along with every other stored-but-unoffered id. Same row, same copy, one
+        // mechanism — see the S0 block above for why per-id was the bug.
+        return this.withStoredResidual('stt',
+            this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url'), currentId);
     },
 
     /** Piper (Home Assistant) engine-direct TTS row — only when a Piper TTS engine

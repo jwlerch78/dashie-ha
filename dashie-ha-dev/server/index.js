@@ -14,7 +14,7 @@
 //   CONSOLE (HA Ingress authenticates the user; no bridge secret):
 //     GET  /api/runtime          add-on detection for the SPA (+ email_auth)
 //     /api/auth/*                sign-in state, device flow, email/password
-//     /api/voice/engines|probe|preview|discover|local-status|converse-local
+//     /api/voice/engines|probe|preview|discover|lanes|converse-local
 //     /api/keys/*                on-box BYO provider keys
 //     /api/settings/*            add-on-local settings
 //     /                          the vendored Dashie console SPA

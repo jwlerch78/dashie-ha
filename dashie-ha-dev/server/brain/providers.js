@@ -208,11 +208,15 @@ async function validateProvider(provider) {
                 models,
             };
         }
-        if (resp.status === 401 || resp.status === 403) return { ok: false, detail: `Key was rejected (HTTP ${resp.status}) — check it and re-save.` };
-        return { ok: false, detail: `Unexpected response (HTTP ${resp.status}).` };
+        // httpStatus + errorText let key-health classify the failure (Gemini answers a bad key with 400 +
+        // API_KEY_INVALID, not 401). errorText is for classification only: never logged or returned to a page.
+        const errorText = (await resp.text().catch(() => '')).slice(0, 600);
+        if (resp.status === 401 || resp.status === 403) return { ok: false, detail: `Key was rejected (HTTP ${resp.status}) — check it and re-save.`, httpStatus: resp.status, errorText };
+        if (resp.status === 400 && /API_KEY_INVALID|API key not valid|pass a valid API key/i.test(errorText)) return { ok: false, detail: 'Key was rejected (HTTP 400, API key not valid) — check it and re-save.', httpStatus: 400, errorText };
+        return { ok: false, detail: `Unexpected response (HTTP ${resp.status}).`, httpStatus: resp.status, errorText };
     } catch (e) {
         clearTimeout(timer);
-        return { ok: false, detail: e?.name === 'AbortError' ? 'Timed out reaching the provider (8s).' : (e?.message || 'Could not reach the provider.') };
+        return { ok: false, detail: e?.name === 'AbortError' ? 'Timed out reaching the provider (8s).' : (e?.message || 'Could not reach the provider.'), httpStatus: null };
     }
 }
 

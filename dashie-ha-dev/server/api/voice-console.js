@@ -204,23 +204,28 @@ router.post('/converse-local', express.json(), async (req, res) => {
     res.status(status).json(turn);
 });
 
-// GET /api/voice/local-status — debug/info probe: where would a turn route?
+// GET /api/voice/lanes — which engine serves each voice lane on this box, and, per
+// picker row, whether it COULD (HV + B, 2026-10-11). Replaced /local-status, which had
+// zero readers in any repo or shipped release (its last caller, a landing card, was
+// deleted as unreachable in b58c4b0, 0.9.1) and answered `dashie_cloud` for any
+// signed-in box whatever its credits.
 //
-// ⭐ `tts` reports the route the lane would ACTUALLY take, BYOK included, and
-// that is the point of touching it: a household with a speech key gets a
-// different engine and nothing else on the box says so. A route you cannot ask
-// about is one you have to reproduce a bug to discover — and the same field
-// previously answered from the options file alone, which is a description of
-// configuration rather than of behaviour.
-router.get('/local-status', async (req, res) => {
-    const opts = readOptions();
+// 🔴 Read voice-routes.js's header before consuming this. In one line: `can_serve` is
+// "would a spend succeed NOW", never "may we OFFER it" — that is the console's cohort
+// gate. Rows are keyed by the stored voice.sttProvider/ttsProvider value; a row ABSENT
+// is not this server's question; can_serve:null is "configured, not probed".
+// The SAME functions engines.handleTts/handleStt route on, so the two cannot drift
+// (check-voice-lanes.mjs drives both). Point-in-time: credits are a ≤60 s cached read.
+//
+// AUTH: requireIngressUser — stricter than /api/keys/status, because this carries a
+// credit balance (account information), not provider booleans.
+router.get('/lanes', requireIngressUser('voice-lanes'), async (req, res) => {
     const signedIn = !!auth.readStoredJwt();
-    // The Configuration-tab llm_url/llm_model were REMOVED 2026-08-21 — the brain
-    // endpoint now DERIVES from the same sources converse.js routes on (account
-    // when signed in, the panel's local settings blob when signed out), so this
-    // probe can no longer answer 'local' from a tab field the route ignores —
-    // the exact stale-route pinning T measured (cont.19).
+    // The brain half the old probe reported, kept so the rename loses nothing. The
+    // endpoint DERIVES from the sources converse.js routes on (account when signed in,
+    // the panel's local settings blob when signed out). Host only: never echo a URL.
     const capability = require('../capability');
+    const voiceRoutes = require('../voice-routes');
     let endpoint = '';
     let model = '';
     if (signedIn) {
@@ -232,19 +237,22 @@ router.get('/local-status', async (req, res) => {
         const box = capability.readLocalBoxLlm();
         if (box) { endpoint = box.url; model = box.model; }
     }
-    const byokTts = require('../byok-tts');
-    const byokTtsProvider = await byokTts.resolveProvider();
+    const [tts, stt] = await Promise.all([voiceRoutes.ttsRoute(), voiceRoutes.sttRoute()]);
+    // `payer` (STT, John 10-12: key first then credits) says who would pay for the served Gemini turn:
+    // 'key' | 'credits' | null. Present only on lanes that report it.
+    const lane = ({ serves, byok_engine, operator_engine, rows, payer }) =>
+        ({ serves, ...(byok_engine !== undefined ? { byok_engine } : {}), ...(payer !== undefined ? { payer } : {}), operator_engine, rows });
     res.json({
         ok: true,
-        route: endpoint && model ? 'local' : (signedIn ? 'cloud' : 'unconfigured'),
-        endpoint: endpoint || null,
-        model: model || null,
         signed_in: signedIn,
-        stt: opts.stt_url || (signedIn ? 'dashie_cloud' : null),
-        // Same precedence as engines.handleTts, in the same order. If these two
-        // ever disagree the probe is the thing that is wrong.
-        tts: opts.tts_url || byokTtsProvider || (signedIn ? 'dashie_cloud' : null),
-        tts_byok_provider: byokTtsProvider,
+        credits: tts.credits,
+        brain: {
+            route: endpoint && model ? 'local' : (signedIn ? 'cloud' : 'unconfigured'),
+            endpoint_host: endpoint ? voiceRoutes.hostOf(endpoint) : null,
+            model: model || null,
+        },
+        tts: lane(tts),
+        stt: lane(stt),
     });
 });
 

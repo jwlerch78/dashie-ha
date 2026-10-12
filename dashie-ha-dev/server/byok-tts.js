@@ -70,6 +70,7 @@ const geminiTts = require('./gemini-tts');
 const { signedIn } = require('./capability');
 // The ONE balance read (shared with the brain's tool gate), three-valued.
 const { boxCredits } = require('./credit-balance');
+const { classifyKeyFailure } = require('./generated/key-health-vocab');
 
 const TTS_TIMEOUT_MS = 60000;
 const MAX_CHARS = 5000;
@@ -138,6 +139,13 @@ function fetchWithTimeout(url, init) {
 async function resolveProvider() {
     let status;
     try { status = keyStore.status(); } catch { return null; }
+    // 🔴 KEY-FIRST, A2 (John 10-11 "a key should probably be used before credits too"; O's ruling:
+    // the key decides WHO PAYS for the chosen voice, NEVER which voice speaks). When the household
+    // CHOSE the Gemini voice, its Gemini key pays whatever the credit balance, and with no key the
+    // answer is null, which means credits pay for the SAME Gemini voice (gemini-tts-lane.js). It does
+    // not fall through to an ElevenLabs key: that would change the voice to save the household money
+    // it didn't ask to save. Every other choice keeps the rules below exactly as released.
+    if (await choseGeminiVoice()) return status.gemini === true ? 'gemini' : null;
     if (status.elevenlabs === true) return 'elevenlabs';
     // 🔴 John 2026-10-10: a Gemini key buys speech when no speech key is stored
     // AND the account cannot pay — signed out, or signed in with NO spendable
@@ -159,6 +167,16 @@ async function resolveProvider() {
     noteFallback(credits.state === 'empty' ? `no credits (balance=${credits.balance})` : 'credit balance unreadable');
     return 'gemini';
 }
+
+/** Did the household choose the Gemini voice (voice.ttsProvider = 'gemini', Kotlin's
+ *  VoicePreferences.TTS_GEMINI, the naming source)? Unreadable → false, i.e. the released rules. */
+async function choseGeminiVoice() {
+    try {
+        const voice = await require('./satellite-engines').householdVoice();
+        return String(voice?.ttsProvider || '') === GEMINI_TTS_CHOICE;
+    } catch { return false; }
+}
+const GEMINI_TTS_CHOICE = 'gemini';
 
 // The marker fires on the SWITCH, not once per sentence (TTS is per sentence).
 let fallbackWhy = null;
@@ -210,7 +228,8 @@ async function synthesize({ text, voice, model }) {
         const msg = e?.name === 'AbortError' ? `timed out (${TTS_TIMEOUT_MS}ms)` : (e?.cause?.code || e?.message || 'fetch failed');
         console.warn(`DROP: byok-tts unreachable provider=${provider}: ${msg}`);
         recordLocalUsage({ lane: 'tts', provider, model: useModel, billing: 'byok', success: false, units: {} });
-        return { ok: false, status: 504, error: 'tts_unreachable', message: msg };
+        return { ok: false, status: 504, error: 'tts_unreachable', message: msg,
+            keyFailure: { provider, status: classifyKeyFailure(null) } };
     }
 
     if (!out?.resp) return finishBuffered(out, { provider, useModel, chars: clean.length, t0 });
@@ -220,7 +239,9 @@ async function synthesize({ text, voice, model }) {
         // The body can echo the request; take only the status into the log.
         console.warn(`DROP: byok-tts provider HTTP ${resp.status} (provider=${provider})`);
         recordLocalUsage({ lane: 'tts', provider, model: useModel, billing: 'byok', success: false, units: {} });
-        return { ok: false, status: 502, error: 'tts_engine_error', message: `HTTP ${resp.status}` };
+        const errorText = (await resp.text().catch(() => '')).slice(0, 600);   // classification only, never logged
+        return { ok: false, status: 502, error: 'tts_engine_error', message: `HTTP ${resp.status}`,
+            keyFailure: { provider, status: classifyKeyFailure(resp.status, errorText) } };
     }
 
     // 🔴 Lesson (1) above: the provider has committed and will bill for the full
@@ -250,7 +271,8 @@ function finishBuffered(out, { provider, useModel, chars, t0 }) {
         // The provider refused (non-2xx): nothing synthesised, nothing billed.
         console.warn(`DROP: byok-tts provider HTTP ${out?.status} (provider=${provider})`);
         recordLocalUsage({ lane: 'tts', provider, model, billing: 'byok', success: false, units: {} });
-        return { ok: false, status: 502, error: 'tts_engine_error', message: `HTTP ${out?.status}` };
+        return { ok: false, status: 502, error: 'tts_engine_error', message: `HTTP ${out?.status}`,
+            keyFailure: { provider, status: classifyKeyFailure(Number(out?.status) || null, out?.errorText || '') } };
     }
     // A 2xx: the provider has billed (lesson 1), so it is recorded as a billed call
     // even when its audio then proves unusable — the units are what the invoice says.
@@ -264,4 +286,4 @@ function finishBuffered(out, { provider, useModel, chars, t0 }) {
     return { ok: true, status: 200, audio: out.audio, contentType: out.contentType, provider, model };
 }
 
-module.exports = { ADAPTERS, SPEECH_KEYS, resolveProvider, available, synthesize, MAX_CHARS };
+module.exports = { ADAPTERS, SPEECH_KEYS, resolveProvider, available, synthesize, MAX_CHARS, GEMINI_TTS_CHOICE, choseGeminiVoice };

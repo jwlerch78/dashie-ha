@@ -20,6 +20,11 @@ export interface VoiceRequest {
   // {type:'image'} card (enrichment, §3.5) — gated by the client's
   // ai.retrievePicturesEnabled setting. Default off (resolving costs a Serper call).
   retrieve_pictures?: boolean;
+  // SPEAK FIRST (early-answer.ts, VH 2026-10-11): when true on a STREAMING request, a supplemental
+  // image turn's answer is emitted as {kind:'stage', stage:'answer_ready', turn} (no `status`, so
+  // old consumers ignore it) before the picture resolves; the card follows in the final line. Sent
+  // only by APKs that handle it. Absent → today's path, including the unkept-picture walk-back.
+  early_answer?: boolean;
   // True when this turn is a SCHEDULED ACTION FIRING, not a person speaking: the device
   // replays a stored prompt back through the pipeline at fire time (WS5-a). The brain
   // must not offer schedule_action on such a turn — a fired action that re-schedules
@@ -86,6 +91,11 @@ export interface VoiceRequest {
     // accuracy 100% across every category while cutting the field compound turn ~15s→~1s. The
     // narrate pass-2 keeps dynamic thinking regardless. Additive/nullable.
     thinking_budget?: number;
+    // Debug/proof ONLY (VH 2026-10-11): skip the picture search and treat it as returning nothing, so
+    // the speak-first failure path (image_promise_broken → the tablet's on-screen fallback) can be
+    // DRIVEN on a device instead of waited for (0 walk-backs in 30 days). Harmless by construction:
+    // it only removes a search. No production caller sets it. Additive/nullable.
+    force_image_fail?: boolean;
     // Bench/debug ONLY: force Gemini native grounding ON or OFF for this turn. ABSENT → the
     // shipped default (grounding on for Gemini, minus the sports/weather guards) — no production
     // caller sets it. Cannot buy grounding the account is not entitled to: the provider and

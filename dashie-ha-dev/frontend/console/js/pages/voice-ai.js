@@ -37,6 +37,7 @@ const VoiceAiPage = {
     _defaults: null,        // {dotted: value}
     _engines: null,         // GET /api/voice/engines result — add-on mode only (detection-gated picker)
     _keyStatus: null,       // GET /api/keys/status providers booleans — add-on mode only (preset gating)
+    _lanes: null,           // GET /api/voice/lanes — who serves each lane + per-row can_serve; null = no-op
     _modelAvailability: null, // same call: provider → {models: string[]|null, at} from the last successful key probe
     // (household sharing is now the ACCOUNT setting voice.householdSharing — it rides in
     //  _defaults with the other account defaults; the old per-instance _sharing fetch is gone)
@@ -268,6 +269,9 @@ const VoiceAiPage = {
                 // right now, as opposed to what the toggle claims. Best-effort;
                 // absence renders nothing.
                 this._fetchSharingState(),
+                // Who serves each voice lane right now (server/voice-routes.js — the same
+                // functions handleTts/handleStt route on). Best-effort; null = no-op.
+                this._fetchLanes(),
             ]);
             // The RAW account map — i.e. Default's values. Kept separately because the
             // switcher can change which profile is being edited without a refetch, and the
@@ -430,6 +434,30 @@ const VoiceAiPage = {
             console.warn('[VoiceAiPage] key status unavailable:', e?.message || e);
             this._keyStatus = null;
             this._modelAvailability = null;
+        }
+    },
+
+    /** WHICH ENGINE serves each voice lane right now, and per picker row whether it
+     *  could — `GET /api/voice/lanes` (server/voice-routes.js, the SAME functions
+     *  engines.handleTts/handleStt route on, so the picker cannot re-spell the lane's
+     *  precedence).
+     *
+     *  🔴 null is a MEANINGFUL answer and it means NO-OP: off add-on mode, or a failed
+     *  read, leaves every row exactly as authored. Never flash-disable or strip a price on
+     *  an answer we do not have yet — the standing picker rule, and the same shape as the
+     *  server's own `can_serve: null`.
+     *
+     *  ⚠️ Point-in-time: the server's credits read is a ≤60 s cached ledger value, so this
+     *  is re-fetched per page load and never cached across a credits change. */
+    async _fetchLanes() {
+        if (!DashieAuth.isAddonMode) { this._lanes = null; return; }
+        try {
+            const r = await fetch(DashieAuth._addonUrl('/api/voice/lanes'), { cache: 'no-store' });
+            const payload = r.ok ? await r.json() : null;
+            this._lanes = payload && payload.ok ? payload : null;
+        } catch (e) {
+            console.warn('[VoiceAiPage] voice lanes unavailable:', e?.message || e);
+            this._lanes = null;
         }
     },
 
@@ -1777,7 +1805,18 @@ const VoiceAiPage = {
         // WS-F (§13.1): stage icons on the three pipeline card titles — brain (AI),
         // ear (STT), speaking head (TTS). Other cards (search, defaults) stay bare.
         const CARD_ICONS = { model: 'icon-ai-brain', stt: 'icon-ear', tts: 'icon-speaking-head', search: 'icon-search' };
-        const card = (title, stageKey, options, selectedId) => VoiceAiCards.render({
+        // The DISCLOSURE: what is actually speaking, when it is not what is selected.
+        // Wrapped here rather than inside VoiceAiCards so the component keeps one job, and
+        // so every card — collapsed, expanded or grid — carries it from one place.
+        // 🔴 Condition is `serves` ≠ the SELECTED ROW ID (VoiceAiOptions.servesDisclosure),
+        // never a hard-coded provider: keyed to one id it would be a one-case fix wearing a
+        // general shape and would stay silent for the next provider that cannot serve.
+        const withServesNote = (html, stageKey, selectedId) => {
+            const note = O.servesDisclosure(stageKey, selectedId, this._lanes);
+            if (!note) return html;
+            return html + `<div style="font-size: 12px; color: var(--text-muted); margin: 2px 4px 10px; line-height: 1.45;">${this._escape(note)}</div>`;
+        };
+        const card = (title, stageKey, options, selectedId) => withServesNote(VoiceAiCards.render({
             title, stageKey, options, selectedId,
             icon: CARD_ICONS[stageKey] || '',
             expanded: this._expandedCards.has(stageKey),
@@ -1786,7 +1825,7 @@ const VoiceAiPage = {
             // Only reaches the COLLAPSED branch; an expanded card still renders its
             // full option list, and `gridCard` below gives it the whole row to do it in.
             compact: true,
-        });
+        }), stageKey, selectedId);
         const S = window.VoiceAiSections;
         // A card in the two-across grid, spanning both columns once it opens. Without
         // the span an expanded card grows its own column and shoves its neighbour
@@ -1814,7 +1853,7 @@ const VoiceAiPage = {
         // engines with a selectable voice (Piper ha_engine / Kokoro local_url).
         // The URL/other fields stay in the card.
         const VOICE_FIELD_KEYS = ['voice.haTtsVoiceId', 'voice.localTtsVoiceId'];
-        const ttsAll = this._applyProbed(filtered('tts', O.ttsOptions(this._engines, d['voice.ttsProvider'])));
+        const ttsAll = O.applyLanes('tts', this._applyProbed(filtered('tts', O.ttsOptions(this._engines, d['voice.ttsProvider']))), this._lanes);
         // A saved engine's row id stands in for the raw provider value, so the card
         // shows "Kokoro (Mac)" rather than the generic "Local TTS (your box)".
         const ttsSelectedId = this._engineRowId('tts') || String(d['voice.ttsProvider']);
@@ -1831,7 +1870,7 @@ const VoiceAiPage = {
         // (model/personality/search) since HA owns the conversation agent.
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
-            ${showPipeline ? card('Speech-to-text', 'stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) : ''}
+            ${showPipeline ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
             ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${S.grid([
@@ -1850,7 +1889,7 @@ const VoiceAiPage = {
                     saving: this._savingKey === 'ai.defaultPersonalityId',
                     compact: true,
                 }),
-                showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), sttSelectedId) : '',
+                showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : '',
                 showPipeline ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
                 // Full-width: these are notes and sub-rows that belong under the grid,
                 // not beside it. Kept in the same list so their conditions stay where
