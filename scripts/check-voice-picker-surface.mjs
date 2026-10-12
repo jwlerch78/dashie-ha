@@ -620,6 +620,74 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'a seam check that cannot fail when the seam moves is a decoration; this is the leg that proves 15a is measuring server/index.js. It must stay green when 15a goes red — a control that fails with its subject has stopped being a control');
 }
 
+// ── LEG 16 — S0: ANY STORED VALUE RENDERS AS ITSELF, NEVER AS opts[0] ───────
+//
+// 🔴 The defect this closes, measured 2026-10-12: stored `gemini` displayed as
+// "Dashie Cloud", and `selectOption` → `_selectProvider` writes the provider key
+// UNCONDITIONALLY, so one tap on the row that already looked selected moved the
+// household off their own key. This file had fixed the same class twice per id
+// (`_managedCloudRow`, a hand-written `sherpa_moonshine_tiny` block); leg 16b is the
+// one that matters, because it asserts the CLASS rather than the two known ids.
+{
+    setLocalMode(false);
+    const shows = (stage, stored) => {
+        const list = stage === 'tts' ? O.ttsOptions(null, stored) : O.sttOptions(null, stored);
+        const resolved = list.find(o => o.id === stored) || list[0];   // VoiceAiCards.render's own rule
+        return resolved ? resolved.id : null;
+    };
+
+    check('leg 16a — a stored id the list does not offer renders as ITSELF (gemini, both stages)',
+        shows('stt', 'gemini') === 'gemini' && shows('tts', 'gemini') === 'gemini',
+        `stt -> ${shows('stt', 'gemini')}  tts -> ${shows('tts', 'gemini')}`,
+        'this is the measured defect: the card named Dashie Cloud while the box ran Gemini, and because _selectProvider writes unconditionally, one tap on that row persisted the wrong engine — TTS onto metered credits, STT onto a lane that 502s');
+
+    check('leg 16b — 🔑 THE CLASS, not the ids: an id this gate invented also renders as itself',
+        shows('stt', 'a-row-nobody-has-assembled-yet') === 'a-row-nobody-has-assembled-yet' &&
+        shows('tts', 'a-row-nobody-has-assembled-yet') === 'a-row-nobody-has-assembled-yet',
+        `stt -> ${shows('stt', 'a-row-nobody-has-assembled-yet')}  tts -> ${shows('tts', 'a-row-nobody-has-assembled-yet')}`,
+        'the two per-id fixes that preceded this each left the class open, and leg 12 exists because a defined row went unassembled for three releases. A guard that only covers today\'s ids would be the third instance of the same mistake');
+
+    check('leg 16c — ⚖️ CONTROL: an OFFERED id is untouched, and an empty stored value adds no row',
+        shows('stt', 'va_default') === 'va_default' && shows('tts', 'dashie_cloud') === 'dashie_cloud' &&
+        !O.sttOptions(null, '').some(o => !o.id) &&
+        O.sttOptions(null, '').length === O.sttOptions(null, 'va_default').length,
+        `va_default -> ${shows('stt', 'va_default')}  dashie_cloud -> ${shows('tts', 'dashie_cloud')}  ` +
+        `empty-list=${O.sttOptions(null, '').length} offered-list=${O.sttOptions(null, 'va_default').length}`,
+        'without this, 16a/16b are satisfiable by a builder that appends a residual for EVERY value — which would put a duplicate row under every normal selection and make the legs vacuous');
+
+    // ⚖️ The DROP must name BOTH ids (O's requirement, 2026-10-12): without the pair it
+    // cannot tell a row WITHDRAWN by an offering rule from one never ASSEMBLED, and those
+    // have different fixes.
+    const warnings = [];
+    const realWarn = sandbox.console.warn;
+    sandbox.console.warn = (...a) => warnings.push(a.join(' '));
+    O.sttOptions(null, 'gemini');
+    sandbox.console.warn = realWarn;
+    const marker = warnings.find(w => w.includes('voice-picker-stored-not-offered'));
+    check('leg 16d — the DROP marker names BOTH the stored id and the one that would have displayed',
+        !!marker && /stored=gemini/.test(marker) && /would-have-displayed=\w+/.test(marker),
+        `markers: ${JSON.stringify(warnings)}`,
+        'a bare "selection-mismatch" cannot distinguish a withdrawn row from an unassembled one. The pair is what makes the log actionable rather than just alarming');
+
+    check('leg 16e — the retired tiny model keeps its OWN copy after the per-id block was folded in',
+        /retired/i.test(String((O.sttOptions(null, 'sherpa_moonshine_tiny').find(o => o.id === 'sherpa_moonshine_tiny') || {}).description)),
+        `description=${JSON.stringify((O.sttOptions(null, 'sherpa_moonshine_tiny').find(o => o.id === 'sherpa_moonshine_tiny') || {}).description)}`,
+        'generalising a hand-written residual must not flatten its wording: "this model was retired" tells the household what to do, where a generic residual sentence does not');
+}
+
+// ── LEG 17 — the lane REASONS stay discriminating (O's requirement) ─────────
+{
+    const why = O.LANE_WHY_COPY || {};
+    const vals = Object.values(why).map(v => String(v || ''));
+    const distinct = new Set(vals).size === vals.length;
+    const keyAndCredits = String(why.no_credits || '') !== String(why.no_key || '')
+        && /credit/i.test(String(why.no_credits || '')) && /key/i.test(String(why.no_key || ''));
+    check('leg 17 — "no credits" and "no key" stay DIFFERENT sentences (never merged into "unavailable")',
+        distinct && keyAndCredits && vals.length > 0,
+        `no_credits=${JSON.stringify(why.no_credits)}\n     no_key=${JSON.stringify(why.no_key)}\n     all distinct=${distinct}`,
+        'they are different instructions to the household — add credits, or add a key. A merged "unavailable" is what makes a row\'s state unexplainable, which is the whole reason offer-on-cohort/disclose-on-lane beats withdrawing the row');
+}
+
 console.log('');
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);

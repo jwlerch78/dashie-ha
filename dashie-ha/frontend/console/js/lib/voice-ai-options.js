@@ -641,13 +641,74 @@ const VoiceAiOptions = {
     /** TTS option list in the §3 order: cloud, Piper (if detected), your-box, HA
      *  pipeline, Android. `currentId` = the stage's stored provider, so a dropped
      *  managed row can still render as a residual when it is what is stored. */
+    // ── S0: ANY STORED VALUE MUST BE VISIBLE AS ITS OWN ROW ──────────────────
+    //
+    // 🔴 WHY THIS IS GENERAL AND NOT ONE MORE SPECIAL CASE. `VoiceAiCards.render()`
+    // resolves a selection with `opts.find(…) || opts[0]`, so a stored value that is
+    // not in the offered list renders the FIRST row as selected — the card names an
+    // engine the household never chose. That is bad on its own, and `selectOption` →
+    // `_selectProvider` writes `voice.{stt,tts}Provider` UNCONDITIONALLY, so one tap
+    // on the row that already looks selected PERSISTS the wrong engine. Measured
+    // 2026-10-12: stored `gemini` displayed as "Dashie Cloud", and a tap would have
+    // moved the household off their own key (TTS: onto metered credits; STT: onto a
+    // lane that returns 502 because whisper-stt is not deployed).
+    //
+    // ⚠️ This file had already fixed the SAME defect twice, per id — `_managedCloudRow`
+    // and a hand-written `sherpa_moonshine_tiny` block whose own comment called it
+    // "the exact lying-card defect leg 3 of the picker gate documents". Fixing it a
+    // third time per id is how the class survives. This closes the class instead: the
+    // next row somebody defines and forgets to assemble (leg 12's subject) cannot
+    // produce a lying card, and neither can a row WITHDRAWN by an offering rule —
+    // which is why S0 goes first in the plan (B's D2 objection, sustained by O
+    // 2026-10-12: offer on the cohort, disclose on the lane).
+    //
+    // A guard against the write is deliberately NOT the fix. An equality check cannot
+    // help (stored `gemini` vs clicked `dashie_cloud` differ, so the write passes) and
+    // refusing the write whenever the stored id is unoffered would STRAND a household
+    // on a value they could never change away from — the console is their only surface.
+    // The lie is in the render, so the fix is in the render.
+    RESIDUAL_COPY: {
+        sherpa_moonshine_tiny: { label: 'On-Device (retired model)', locality: 'local',
+            description: 'This bundled model was retired — pick another option.' },
+    },
+
+    /**
+     * Append a residual row for `currentId` when the offered list does not contain it.
+     * @param {'tts'|'stt'} stage
+     * @param {Array} options  the FINAL offered list (after withSavedEngines)
+     * @param {string} currentId  the stored wire value
+     */
+    withStoredResidual(stage, options, currentId) {
+        const list = Array.isArray(options) ? options : [];
+        const id = String(currentId || '');
+        if (!id || list.some(o => o && o.id === id)) return list;
+        // Defined-but-unassembled ids (leg 12's subject) still have their real label here.
+        const table = stage === 'tts' ? this.TTS : this.STT;
+        const defined = table.find(o => o.id === id) || null;
+        const copy = this.RESIDUAL_COPY[id] || null;
+        // 🔴 Names BOTH ids (O's requirement): without the pair this cannot tell a
+        // WITHDRAWN row from an UNASSEMBLED one, and those have different fixes.
+        console.warn(`DROP: voice-picker-stored-not-offered ${stage} stored=${id} ` +
+            `would-have-displayed=${(list[0] && list[0].id) || 'none'}`);
+        return [...list, {
+            ...(defined || {}),
+            ...(copy || {}),
+            id,
+            label: (copy && copy.label) || (defined && defined.label) || id,
+            locality: (copy && copy.locality) || (defined && defined.locality) || 'cloud',
+            cost: '',
+            description: (copy && copy.description) || (defined && defined.description)
+                || 'In use on this household. Not offered here — pick another option to change it.',
+        }];
+    },
+
     ttsOptions(detection, currentId) {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
         const out = [this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
-        return this.withSavedEngines('tts', out.filter(Boolean), 'local_url');
+        return this.withStoredResidual('tts', this.withSavedEngines('tts', out.filter(Boolean), 'local_url'), currentId);
     },
 
     /** STT option list in the §3 order: cloud, Whisper (if detected), your-box,
@@ -660,18 +721,12 @@ const VoiceAiOptions = {
         const out = [this._managedCloudRow(base.dashie_cloud, currentId),
                      base.sherpa_moonshine_base, base.android_voice,
                      this._whisperOption(detection), base.va_default, base.local_stt_url];
-        // Residual for a device that already STORED the retired tiny model: the card
-        // resolves a selection with `opts.find(…) || opts[0]`, so without this row a
-        // tiny-storing device renders the FIRST option as selected while the device
-        // still runs tiny — the exact lying-card defect leg 3 of the picker gate
-        // documents for the managed cloud row. Same pattern: shown only when stored,
-        // no cost, and it says plainly that the model is retired.
-        if (String(currentId || '') === 'sherpa_moonshine_tiny') {
-            out.push({ id: 'sherpa_moonshine_tiny', label: 'On-Device (retired model)',
-                locality: 'local', cost: '',
-                description: 'This bundled model was retired — pick another option.' });
-        }
-        return this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url');
+        // The retired tiny model's residual is no longer hand-written here: it is
+        // RESIDUAL_COPY.sherpa_moonshine_tiny, applied by withStoredResidual below
+        // along with every other stored-but-unoffered id. Same row, same copy, one
+        // mechanism — see the S0 block above for why per-id was the bug.
+        return this.withStoredResidual('stt',
+            this.withSavedEngines('stt', out.filter(Boolean), 'local_stt_url'), currentId);
     },
 
     /** Piper (Home Assistant) engine-direct TTS row — only when a Piper TTS engine
