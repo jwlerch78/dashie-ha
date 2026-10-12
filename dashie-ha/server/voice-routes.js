@@ -146,25 +146,30 @@ async function sttRoute() {
     const resolved = chose === 'gemini' ? null : await resolveSatelliteBase('stt');
     const credits = await creditsNow(isSignedIn);
     const opts = readOptions();
-    const payer = sttGeminiPayer(isSignedIn);
+    // ROUTING asks "could anyone pay?" (a key, or an account the edge can bill); the edge decides 402 per turn.
+    const routable = sttGeminiPayer(isSignedIn);
 
     let serves = null;
     if (chose === 'gemini') serves = 'gemini';
     else if (resolved) serves = resolved.source === 'addon-option' ? 'operator_url' : 'local_stt_url';
-    else if (payer) serves = 'gemini';
+    else if (routable) serves = 'gemini';
 
     const gemini = geminiSttRow(isSignedIn, credits);
     return {
         serves,
-        payer: serves === 'gemini' ? payer : null,
+        // `payer` answers "who IS paying for the served turn right now": the row's payer, and ONLY when the row
+        // can serve. Never the routing guess above, which says 'credits' for an empty balance too (B, 10-12): a
+        // disclosure keyed off it would tell an empty-balance household it is being served.
+        payer: serves === 'gemini' && gemini.can_serve === true ? gemini.payer : null,
         base: resolved?.base || '',
         source: resolved?.source || null,
         operator_engine: opts.stt_url ? { url_host: hostOf(opts.stt_url), overrides_household: chose !== 'gemini' } : null,
         credits,
         rows: {
             gemini,
-            // RETIRED (John 10-12). Kept as the SAME answer as `gemini` until the console stops reading it
-            // (B's S3), so a console from before the retirement never renders a row this server stopped sending.
+            // RETIRED (John 10-12). The SAME answer as `gemini`, PERMANENTLY: B's S0 still renders a stored
+            // `dashie_cloud` as its own residual row and looks it up here by id, and the stored values are never
+            // migrated (O 10-12: S6 skipped). Removing this leaves that row with no explanation.
             dashie_cloud: gemini,
             local_stt_url: boxUrlRow(voice.localSttUrl),
         },

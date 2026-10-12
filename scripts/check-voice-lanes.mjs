@@ -236,6 +236,7 @@ check('rows: spendable → cloud true; Gemini TTS false/account_pays (the 10-10 
     check('STT row: no key, credits spendable → true, payer credits', t.row?.can_serve === true && t.row?.payer === 'credits' && t.payer === 'credits', JSON.stringify(t));
     t = await sttRow({ signedIn: true, balance: 0 });
     check('STT row: no key, NO credits → false/no_key_no_credits', t.row?.can_serve === false && t.row?.why === 'no_key_no_credits', JSON.stringify(t));
+    check('STT lane: no key, NO credits → lane payer is NULL (never "credits" while the row says it cannot serve)', t.payer === null, JSON.stringify(t));
     t = await sttRow({ signedIn: true, balance: 'unknown' });
     check('STT row: no key, credits UNREADABLE → false/no_key_credits_unreadable (its own why)', t.row?.can_serve === false && t.row?.why === 'no_key_credits_unreadable', JSON.stringify(t));
     t = await sttRow({});
