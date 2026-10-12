@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // ⛔ GENERATED, DO NOT EDIT. Source: dashieapp_staging supabase/functions/_shared/gemini-tts-stream.ts
-// source sha256/16: bfdc443a96f75e62. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
+// source sha256/16: 4abd4575bfbf019a. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
 // The edge gemini-tts function streams with the SAME code, so tablet audio is converted identically whether the household key (this add-on) or Dashie credits (the edge) pays.
 'use strict';
 var __defProp = Object.defineProperty;
@@ -25,6 +25,7 @@ __export(stdin_exports, {
   GEMINI_TTS_DEFAULT_VOICE: () => GEMINI_TTS_DEFAULT_VOICE,
   GEMINI_TTS_MODEL: () => GEMINI_TTS_MODEL,
   GEMINI_TTS_STREAM_URL: () => GEMINI_TTS_STREAM_URL,
+  GEMINI_VOICES: () => GEMINI_VOICES,
   geminiTtsBody: () => geminiTtsBody,
   geminiVoiceName: () => geminiVoiceName,
   sseToPcm: () => sseToPcm
@@ -34,9 +35,41 @@ const GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
 const GEMINI_TTS_DEFAULT_VOICE = "Aoede";
 const GEMINI_TTS_STREAM_URL = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 const PCM_24K = /^audio\/l16;\s*(codec=pcm;\s*)?rate=24000(;\s*channels=1)?$/i;
+const GEMINI_VOICES = Object.freeze([
+  "Aoede",
+  "Zephyr",
+  "Puck",
+  "Charon",
+  "Kore",
+  "Fenrir",
+  "Leda",
+  "Orus",
+  "Callirrhoe",
+  "Autonoe",
+  "Enceladus",
+  "Iapetus",
+  "Umbriel",
+  "Algieba",
+  "Despina",
+  "Erinome",
+  "Algenib",
+  "Rasalgethi",
+  "Laomedeia",
+  "Achernar",
+  "Alnilam",
+  "Schedar",
+  "Gacrux",
+  "Pulcherrima",
+  "Achird",
+  "Zubenelgenubi",
+  "Vindemiatrix",
+  "Sadachbia",
+  "Sadaltager",
+  "Sulafat"
+]);
 function geminiVoiceName(v) {
   const s = typeof v === "string" ? v.trim() : "";
-  return /^[A-Z][a-z]{1,20}$/.test(s) ? { name: s, substituted: false } : { name: GEMINI_TTS_DEFAULT_VOICE, substituted: s !== "" };
+  return GEMINI_VOICES.includes(s) ? { name: s, substituted: false } : { name: GEMINI_TTS_DEFAULT_VOICE, substituted: s !== "" };
 }
 function geminiTtsBody(text, voiceName) {
   return {
