@@ -134,7 +134,8 @@ function geminiTokenUnits(meta) {
  * @param {Buffer} audio  the exact bytes sent to the engine
  * @param {object} opts   add-on options (readOptions())
  * @param {'local'|'cloud'|'gemini'} route  which branch of handleStt ran
- * @param {object|null} [providerUsage]  Gemini's `usageMetadata` for the 'gemini' route
+ * @param {object|null} [providerUsage]  Gemini's `usageMetadata` for the 'gemini' route; `{model}` (the edge's
+ *   answer) for the 'cloud' route, which is Gemini on the account's credits since 10-12
  */
 function recordSttCall(audio, opts, route, providerUsage = null) {
     try {
@@ -153,36 +154,16 @@ function recordSttCall(audio, opts, route, providerUsage = null) {
         }
 
         if (route === 'cloud') {
-            // 🔴 `dashie_cloud`, with an UNDERSCORE — a deliberate deviation
-            // from D's §8c.3, which wrote the same name HYPHENATED.
-            //
-            // ⚠️ The hyphenated form is not written out anywhere in this file,
-            // deliberately: the brand-residue gate scans text, so quoting it
-            // even in a comment re-breaks the regeneration. (It did, once —
-            // this comment was the second offender after the code was fixed.)
-            //
-            // That hyphenated form would have been a SECOND SPELLING of an
-            // identity this codebase already has: `dashie_cloud` is the engine
-            // id, a wire value on the account contract, and it is already on the
-            // brand table's annotated keep-list for exactly that reason. The
-            // usage view joins to the provider surface ON PROVIDER IDENTITY
-            // (D §7), so two spellings of one provider would split a household's
-            // own history across two store keys — invisibly, because both rows
-            // look correct.
-            //
-            // ⭐ The brand-residue gate is what found it: the hyphenated token
-            // is not on the keep-list, so the regeneration REFUSED. A gate
-            // written for brand leakage caught a hand-mirror instead, which is
-            // the second time this week a check has been more useful than the
-            // property it was written for.
-            recordLocalUsage({
-                lane: 'stt', provider: 'dashie_cloud', model: null,
-                billing: 'metered', success: true, units,
-            });
-            turnLog.recordTurnIfEnabled({
-                lane: 'stt', provider: 'dashie_cloud', model: '',
-                billing: 'metered', success: true, latency_ms: null, units,
-            });
+            // 🔴 RE-SPELLED 2026-10-12 (John: STT's one cloud option is Gemini; `dashie_cloud` retired). The
+            // credits route is now the gemini-stt edge, so this row is `gemini|<model>|metered`: the SAME
+            // provider identity as the household's own-key row (one identity, one spelling), separated from
+            // it by BILLING, which is part of the store key (usage-store.js:170), so metered and byok spend
+            // can never merge (§5a). Rows already written as `dashie_cloud|-|metered` stay as history: a
+            // store row cannot be migrated away (contract row 201), so the console keeps NAMING the retired
+            // id (usage-providers.js DECLARED) forever. Never write the retired id again.
+            const model = String(providerUsage?.model || GEMINI_MODEL);
+            recordLocalUsage({ lane: 'stt', provider: 'gemini', model, billing: 'metered', success: true, units });
+            turnLog.recordTurnIfEnabled({ lane: 'stt', provider: 'gemini', model, billing: 'metered', success: true, latency_ms: null, units });
             return;
         }
 

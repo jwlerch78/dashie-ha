@@ -107,32 +107,65 @@ async function ttsRoute() {
 /**
  * STT, the household default (an explicit `?engine=` on a request is handled in
  * handleStt before this, because it is a per-request fact, not a lane fact).
+ *
+ * 🔴 John 2026-10-12 (to HV, verbatim): "voice input is one Gemini option for the engine and key first then
+ * credits". So `gemini` names the ENGINE; the PAYER is the household's Gemini key when one is stored, else the
+ * account's credits (gemini-stt edge). `dashie_cloud` is retired from the offer and is read here as the cloud
+ * DEFAULT, i.e. exactly like an unset value, NOT like an explicit `gemini`. Old consoles and APKs seed it as a
+ * default, and an operator's stt_url has always beaten it; an alias to explicit `gemini` would silently move
+ * every such box off its operator Whisper.
+ *
  * Precedence: 1. the household chose `gemini` (ahead of stt_url — O's D5 ruling);
  *   2. a base URL (operator stt_url, else the household's local_stt_url box);
- *   3. Dashie Cloud when signed in;  4. null → 503.
+ *   3. Gemini when someone can pay (a stored key, or signed in → credits);  4. null → 503.
  */
+const STT_RETIRED_CLOUD = 'dashie_cloud';
+
+/** Who would pay for a Gemini STT turn right now: 'key' | 'credits' | null. */
+function sttGeminiPayer(isSignedIn) {
+    if (geminiStt.available()) return 'key';
+    return isSignedIn ? 'credits' : null;
+}
+
+/**
+ * The `gemini` row (D2, John 10-12: "always show, explain"). can_serve answers whether a turn would be
+ * transcribed now; `why` names WHICH thing to fix, never a merged "unavailable". Offering is the console's.
+ */
+function geminiSttRow(isSignedIn, credits) {
+    if (geminiStt.available()) return { can_serve: true, why: 'ok', payer: 'key' };
+    if (!isSignedIn) return { can_serve: false, why: 'no_key_signed_out' };
+    if (credits.state === 'spendable') return { can_serve: true, why: 'ok', payer: 'credits' };
+    return { can_serve: false, why: credits.state === 'empty' ? 'no_key_no_credits' : 'no_key_credits_unreadable' };
+}
+
 async function sttRoute() {
     const isSignedIn = signedIn();
     const voice = (await householdVoice()) || {};
-    const chose = String(voice.sttProvider || '');
+    const stored = String(voice.sttProvider || '');
+    const chose = stored === STT_RETIRED_CLOUD ? '' : stored;   // retired → the cloud default (see above)
     const resolved = chose === 'gemini' ? null : await resolveSatelliteBase('stt');
     const credits = await creditsNow(isSignedIn);
     const opts = readOptions();
+    const payer = sttGeminiPayer(isSignedIn);
 
     let serves = null;
     if (chose === 'gemini') serves = 'gemini';
     else if (resolved) serves = resolved.source === 'addon-option' ? 'operator_url' : 'local_stt_url';
-    else if (isSignedIn) serves = 'dashie_cloud';
+    else if (payer) serves = 'gemini';
 
+    const gemini = geminiSttRow(isSignedIn, credits);
     return {
         serves,
+        payer: serves === 'gemini' ? payer : null,
         base: resolved?.base || '',
         source: resolved?.source || null,
         operator_engine: opts.stt_url ? { url_host: hostOf(opts.stt_url), overrides_household: chose !== 'gemini' } : null,
         credits,
         rows: {
-            dashie_cloud: cloudRow(isSignedIn, credits),
-            gemini: geminiStt.available() ? { can_serve: true, why: 'ok' } : { can_serve: false, why: 'no_key' },
+            gemini,
+            // RETIRED (John 10-12). Kept as the SAME answer as `gemini` until the console stops reading it
+            // (B's S3), so a console from before the retirement never renders a row this server stopped sending.
+            dashie_cloud: gemini,
             local_stt_url: boxUrlRow(voice.localSttUrl),
         },
     };

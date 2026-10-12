@@ -156,15 +156,10 @@ async function handleStt(req, res, sendJson) {
         return;
     }
     if (!base) {
-        // Hosted fallback: whisper-stt under the account. ⚠️ whisper-stt is NOT DEPLOYED (10-12, see
-        // cloudStt), so this lane answers 502 for every signed-in box that lands here.
-        const jwt = await cloudJwt();
-        if (!jwt) {
-            console.warn('DROP: stt requested but no stt_url and not signed in');
-            sendJson(res, 503, { error: 'stt_unconfigured', message: 'Sign in, or set stt_url in the add-on configuration.' });
-            return;
-        }
-        await cloudStt(audio, jwt, res, sendJson);
+        // Nobody can pay for Gemini (no key stored, not signed in) and no box engine is set: sttRoute
+        // returned null. A signed-in box or a stored key never lands here; it routes to Gemini above.
+        console.warn('DROP: stt requested but no engine can serve: no Gemini key, not signed in, no stt_url');
+        sendJson(res, 503, { error: 'stt_unconfigured', message: 'Add a Gemini key in API Keys, sign in to use your Dashie credits, or set stt_url in the add-on configuration.' });
         return;
     }
     const url = /\/audio\/transcriptions$/.test(base) ? base : base + '/v1/audio/transcriptions';
@@ -210,15 +205,17 @@ async function handleStt(req, res, sendJson) {
 }
 
 /**
- * D5 Gemini branch. Never falls through to a LOCAL engine the household did not choose.
- * 🔴 REVERSED 2026-10-12, the same rule as handleTts (John 10-11: "broken key goes to credits with small
- * error message"): when Google was called and failed, the failure is reported to the account (the
- * "Voice key error" pill, key-health.js, awaited) and a signed-in household's turn goes to cloudStt.
- * ⚠️ CORRECTED 10-12: cloudStt is NOT credits, and it does not transcribe at all: it calls whisper-stt,
- * which is NOT DEPLOYED on the backend (measured 10-12: OPTIONS 404 NOT_FOUND on staging and prod, against
- * gemini-stt 200), so this turn ends 502 stt_engine_error. The STT-FALLBACK marker's "account credits" is
- * false. The fix is the lane change cloudStt → gemini-stt (HV's alignment plan, awaiting John). Signed out → the provider error, loudly, as before. No key
- * stored and bad audio are not key failures and are unchanged. Each outcome has its own marker.
+ * The Gemini STT lane. 🔴 John 2026-10-12 (to HV, verbatim): "voice input is one Gemini option for the engine
+ * and key first then credits". So the ENGINE is always Gemini and never a local one the household did not
+ * choose; the PAYER is the household's key when stored, else the account's credits via the gemini-stt edge
+ * (billed + credit-enforced there: checkSpendable → 402, recordSttUsage).
+ *   key stored, works      → transcribed on the key (`byok` usage row), key health reported ok.
+ *   key stored, Google failed → the failure is reported to the account FIRST (the "Voice key error" pill,
+ *                            key-health.js, awaited; John 10-11), then credits if signed in.
+ *   no key, signed in      → credits.
+ *   no key, signed out     → 503: nobody can pay. Signed out after a key failure → the provider error.
+ * Each outcome has its own marker. (Before 10-12 the credits leg called whisper-stt, which is not deployed:
+ * every such turn ended 502. fb4939c's "credits" claim was false until this.)
  */
 async function geminiSttBranch(req, res, sendJson) {
     let audio;
@@ -228,70 +225,66 @@ async function geminiSttBranch(req, res, sendJson) {
         sendJson(res, 400, { error: 'bad_audio', message: e.message });
         return;
     }
-    if (!geminiStt.available()) {
-        console.warn('DROP: stt-gemini-no-key — household chose gemini but no Gemini key is stored');
-        sendJson(res, 503, { error: 'gemini_stt_no_key', message: 'Add a Gemini key in API Keys, or choose another speech-to-text engine.' });
-        return;
-    }
-    const t0 = Date.now();
-    const r = await geminiStt.transcribe(audio);
-    if (!r.ok) {
-        if (r.keyFailure) await keyHealth.reportFailure('gemini', r.keyFailure.status);
-        const jwt = r.keyFailure ? await cloudJwt() : '';
-        if (!jwt) {
-            console.warn(`DROP: stt-gemini-failed — ${r.error} (status ${r.status})${r.keyFailure ? '; not signed in: no credits fallback' : ''}`);
-            sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+    let failed = null;
+    if (geminiStt.available()) {
+        const t0 = Date.now();
+        const r = await geminiStt.transcribe(audio);
+        if (r.ok) {
+            keyHealth.reportOk('gemini');
+            console.log(`DASHIE-STT route=gemini payer=key text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+            sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
+            sendJson(res, 200, { text: r.text });
             return;
         }
-        console.warn(`STT-FALLBACK: byok gemini failed (${r.keyFailure.status}) → account credits`);
-        await cloudStt(audio, jwt, res, sendJson);
+        if (r.keyFailure) await keyHealth.reportFailure('gemini', r.keyFailure.status);
+        failed = r;
+    }
+    const jwt = (!failed || failed.keyFailure) ? await cloudJwt() : '';
+    if (!jwt) {
+        if (failed) {
+            console.warn(`DROP: stt-gemini-failed — ${failed.error} (status ${failed.status})${failed.keyFailure ? '; not signed in: no credits fallback' : ''}`);
+            sendJson(res, failed.status, { error: failed.error, ...(failed.message ? { message: failed.message } : {}) });
+        } else {
+            console.warn('DROP: stt-gemini-no-payer — no Gemini key is stored and the box is not signed in');
+            sendJson(res, 503, { error: 'gemini_stt_no_key', message: 'Add a Gemini key in API Keys, or sign in to use your Dashie credits.' });
+        }
         return;
     }
-    keyHealth.reportOk('gemini');
-    console.log(`DASHIE-STT route=gemini text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
-    sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
-    sendJson(res, 200, { text: r.text });
+    if (failed) console.warn(`STT-FALLBACK: byok gemini failed (${failed.keyFailure.status}) → gemini-stt on account credits`);
+    await creditsGeminiStt(audio, jwt, res, sendJson);
 }
 
-/** Hosted STT: whisper-stt edge fn (multipart field `audio` → {transcript}).
- *  ⚠️ (10-12, measured) whisper-stt is NOT DEPLOYED: OPTIONS → 404 NOT_FOUND on staging AND prod, while
- *  gemini-stt answers 200 on staging (a made-up name also 404s, so the probe discriminates). Every call
- *  here fails → 502 stt_engine_error. (Its SOURCE also has no checkSpendable/recordSttUsage, so even if
- *  redeployed it would be unbilled.) Fix = point this at gemini-stt (HV's alignment plan, awaiting John;
- *  gemini-stt is not on prod either). */
-async function cloudStt(audio, jwt, res, sendJson) {
-    const boundary = '----dashieha' + Date.now().toString(16);
-    const head = Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="audio.wav"\r\n` +
-        `Content-Type: audio/wav\r\n\r\n`);
-    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+/**
+ * Gemini STT on the account's CREDITS: the gemini-stt edge fn (raw WAV body → {transcript, model, billed}).
+ * The edge is the billing authority (checkSpendable → 402 insufficient_credits, recordSttUsage); the local
+ * row is the at-a-glance view, keyed `gemini|<model>|metered` so it never merges with the household's own
+ * `gemini|…|byok` spend (§5a). Replaced whisper-stt 10-12, which is not deployed (404 on staging and prod).
+ */
+async function creditsGeminiStt(audio, jwt, res, sendJson) {
     const t0 = Date.now();
     try {
-        const resp = await fetch(`${CLOUD.url}/functions/v1/whisper-stt`, {
+        const resp = await fetch(`${CLOUD.url}/functions/v1/gemini-stt`, {
             method: 'POST',
-            headers: {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                apikey: CLOUD.anonKey,
-                Authorization: `Bearer ${jwt}`,
-            },
-            body: Buffer.concat([head, audio, tail]),
+            headers: { 'Content-Type': 'audio/wav', apikey: CLOUD.anonKey, Authorization: `Bearer ${jwt}` },
+            body: audio,
         });
         const data = await resp.json().catch(() => ({}));
+        if (resp.status === 402) {
+            console.warn('DROP: stt-gemini-credits insufficient_credits — the account cannot pay and no key is working');
+            sendJson(res, 402, { error: 'insufficient_credits', message: 'Out of Dashie credits. Add credits, or add a Gemini key in API Keys.' });
+            return;
+        }
         if (!resp.ok) {
-            console.warn(`DROP: cloud stt HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`);
+            console.warn(`DROP: stt-gemini-credits HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`);
             sendJson(res, 502, { error: 'stt_engine_error', message: `cloud HTTP ${resp.status}` });
             return;
         }
-        const text = String(data.transcript || data.text || '').trim();
-        console.log(`DASHIE-STT route=cloud text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
-        // Success path only. Recorded as `metered` — a SEPARATE store key from
-        // the local branch, because merging metered and BYOK spend into one row
-        // is what §5a forbids. This row is for the at-a-glance view; the issuer
-        // stays authoritative for its cost.
-        sttUsage.recordSttCall(audio, readOptions(), 'cloud');
+        const text = String(data.transcript || '').trim();
+        console.log(`DASHIE-STT route=gemini payer=credits text="${text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
+        sttUsage.recordSttCall(audio, readOptions(), 'cloud', { model: data.model || null });
         sendJson(res, 200, { text });
     } catch (e) {
-        console.warn('DROP: cloud stt unreachable:', e.message);
+        console.warn('DROP: stt-gemini-credits unreachable:', e.message);
         sendJson(res, 504, { error: 'stt_unreachable', message: e.message });
     }
 }

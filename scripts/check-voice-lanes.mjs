@@ -90,6 +90,8 @@ function netStub(touched) {
             return new Response(JSON.stringify(u.includes('tts') ? audio : stt), { status: 200 });
         }
         if (u.includes('elevenlabs.io')) { touched.push('elevenlabs'); return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); }
+        // Gemini STT on CREDITS (the gemini-stt edge, since 10-12): the ENGINE is gemini, so it reports as gemini.
+        if (u.includes('/functions/v1/gemini-stt')) { touched.push('gemini'); return new Response(JSON.stringify({ transcript: 'hi', model: 'gemini-3.5-transcribe' }), { status: 200 }); }
         if (u.includes('/functions/v1/inworld-tts') || u.includes('/functions/v1/whisper-stt')) {
             touched.push('dashie_cloud');
             return new Response(u.includes('whisper') ? JSON.stringify({ text: 'hi' }) : new Uint8Array([1]), { status: 200 });
@@ -166,7 +168,12 @@ const STATES = [
     ['STT household chose gemini (+ key)', 'stt', { keys: { gemini: 1 }, voice: { sttProvider: 'gemini' } }],
     ['STT household gemini BEATS operator stt_url', 'stt', { keys: { gemini: 1 }, voice: { sttProvider: 'gemini' }, options: { stt_url: 'http://operator.box:9000' } }],
     ['STT operator stt_url', 'stt', { options: { stt_url: 'http://operator.box:9000' } }],
-    ['STT signed in + spendable → cloud', 'stt', { signedIn: true, balance: 5 }],
+    // John 10-12: STT's one cloud option is Gemini; key first, then credits. Unset/retired → the Gemini default.
+    ['STT signed in + spendable, no key → gemini (credits)', 'stt', { signedIn: true, balance: 5 }],
+    ['STT signed in + EMPTY, no key → gemini (credits; the edge decides 402)', 'stt', { signedIn: true, balance: 0 }],
+    ['STT signed OUT + Gemini key, nothing chosen → gemini (key)', 'stt', { keys: { gemini: 1 } }],
+    ['STT RETIRED dashie_cloud stored, signed in → gemini', 'stt', { signedIn: true, balance: 5, voice: { sttProvider: 'dashie_cloud' } }],
+    ['STT RETIRED dashie_cloud stored + operator stt_url → the OPERATOR (alias keeps the old precedence)', 'stt', { signedIn: true, balance: 5, voice: { sttProvider: 'dashie_cloud' }, options: { stt_url: 'http://operator.box:9000' } }],
     ['STT household local_stt_url box', 'stt', { voice: { sttProvider: 'local_stt_url', localSttUrl: 'http://household.box:9000' } }],
 ];
 
@@ -219,6 +226,34 @@ check('rows: UNREADABLE credits → cloud false/credits_unreadable (never true)'
 setBox({ signedIn: true, keys: { gemini: 1 }, balance: 5 });
 r = answer(await lanes());
 check('rows: spendable → cloud true; Gemini TTS false/account_pays (the 10-10 rule, key-first not built)', r.body.tts.rows.dashie_cloud?.can_serve === true && r.body.tts.rows.gemini?.why === 'account_pays', JSON.stringify(r.body.tts.rows));
+// ── STT Gemini row (John 10-12: one Gemini option, key first then credits; D2 "always show, explain") ──
+// can_serve on key OR credits; `why` must name WHICH to fix, never a merged "unavailable" (B's leg 17 maps it).
+{
+    const sttRow = async (box) => { setBox(box); const x = answer(await lanes()); return { row: x.body.stt?.rows?.gemini, legacy: x.body.stt?.rows?.dashie_cloud, payer: x.body.stt?.payer }; };
+    let t = await sttRow({ keys: { gemini: 1 } });
+    check('STT row: a stored key → true, payer key (signed out too)', t.row?.can_serve === true && t.row?.payer === 'key' && t.payer === 'key', JSON.stringify(t));
+    t = await sttRow({ signedIn: true, balance: 5 });
+    check('STT row: no key, credits spendable → true, payer credits', t.row?.can_serve === true && t.row?.payer === 'credits' && t.payer === 'credits', JSON.stringify(t));
+    t = await sttRow({ signedIn: true, balance: 0 });
+    check('STT row: no key, NO credits → false/no_key_no_credits', t.row?.can_serve === false && t.row?.why === 'no_key_no_credits', JSON.stringify(t));
+    t = await sttRow({ signedIn: true, balance: 'unknown' });
+    check('STT row: no key, credits UNREADABLE → false/no_key_credits_unreadable (its own why)', t.row?.can_serve === false && t.row?.why === 'no_key_credits_unreadable', JSON.stringify(t));
+    t = await sttRow({});
+    check('STT row: no key, signed OUT → false/no_key_signed_out', t.row?.can_serve === false && t.row?.why === 'no_key_signed_out', JSON.stringify(t));
+    check('STT row: the RETIRED dashie_cloud row mirrors gemini (an old console still reads it)', JSON.stringify(t.legacy) === JSON.stringify(t.row), JSON.stringify(t));
+    const whys = new Set();
+    for (const box of [{ signedIn: true, balance: 0 }, { signedIn: true, balance: 'unknown' }, {}]) { const x = await sttRow(box); whys.add(x.row?.why); }
+    check('STT row: the three can\'t-serve causes are THREE different whys (discriminating)', whys.size === 3 && !whys.has(undefined), JSON.stringify([...whys]));
+    // EXPECTED VALUES, not agreement: the AGREE legs above compare /lanes with the lane, which share sttRoute, so a
+    // wrong precedence in sttRoute agrees with itself. These pin what the answer MUST be.
+    const serves = async (box) => { setBox(box); return answer(await lanes()).body.stt?.serves; };
+    let v = await serves({ signedIn: true, balance: 5, voice: { sttProvider: 'dashie_cloud' }, options: { stt_url: 'http://operator.box:9000' } });
+    check('STT expected: RETIRED dashie_cloud + operator stt_url → operator_url (the alias keeps dashie_cloud\'s OLD precedence; it is not an explicit gemini)', v === 'operator_url', `serves=${v}`);
+    v = await serves({ signedIn: true, balance: 5, voice: { sttProvider: 'gemini' }, options: { stt_url: 'http://operator.box:9000' } });
+    check('STT expected (control): an EXPLICIT gemini + operator stt_url → gemini (D5: a chosen gemini beats stt_url)', v === 'gemini', `serves=${v}`);
+    v = await serves({ signedIn: true, balance: 5, voice: { sttProvider: 'dashie_cloud' } });
+    check('STT expected: RETIRED dashie_cloud, signed in, no box URL → gemini', v === 'gemini', `serves=${v}`);
+}
 setBox({ keys: { gemini: 1 }, options: { tts_url: `http://operator.box:8880/?k=${SECRET}` } });
 r = answer(await lanes());
 check('operator engine: its own field, HOST only — the secret-bearing URL is never echoed', r.body.tts?.operator_engine?.url_host === 'operator.box:8880' && !JSON.stringify(r.body).includes(SECRET), JSON.stringify(r.body.tts.operator_engine));

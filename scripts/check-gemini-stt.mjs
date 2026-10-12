@@ -203,7 +203,7 @@ const usageText = () => JSON.stringify(usageStore.readUsage());
 
     __setKeys({});
     const n = await capture(async () => json(200, { text: 'FELL THROUGH' }), async () => { out = await callHandleStt(wav()); });
-    if (out?.status === 503 && out.body?.error === 'gemini_stt_no_key' && n.calls.length === 0 && n.logs.some((l) => l.startsWith('DROP: stt-gemini-no-key'))) ok('4h: chosen but no key → 503 stt-gemini-no-key, nothing called');
+    if (out?.status === 503 && out.body?.error === 'gemini_stt_no_key' && n.calls.length === 0 && n.logs.some((l) => l.startsWith('DROP: stt-gemini-no-payer'))) ok('4h: chosen, no key, SIGNED OUT → 503 (nobody can pay), nothing called; signed in it is credits: check-key-first-tts T');
     else fail(`[4h] ${JSON.stringify(out)} calls=${n.calls.length} logs=${JSON.stringify(n.logs)}`);
 
     // Positive control on the routing: with the household NOT on gemini, the same

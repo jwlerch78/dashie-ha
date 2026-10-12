@@ -238,8 +238,10 @@ router.get('/lanes', requireIngressUser('voice-lanes'), async (req, res) => {
         if (box) { endpoint = box.url; model = box.model; }
     }
     const [tts, stt] = await Promise.all([voiceRoutes.ttsRoute(), voiceRoutes.sttRoute()]);
-    const lane = ({ serves, byok_engine, operator_engine, rows }) =>
-        ({ serves, ...(byok_engine !== undefined ? { byok_engine } : {}), operator_engine, rows });
+    // `payer` (STT, John 10-12: key first then credits) says who would pay for the served Gemini turn:
+    // 'key' | 'credits' | null. Present only on lanes that report it.
+    const lane = ({ serves, byok_engine, operator_engine, rows, payer }) =>
+        ({ serves, ...(byok_engine !== undefined ? { byok_engine } : {}), ...(payer !== undefined ? { payer } : {}), operator_engine, rows });
     res.json({
         ok: true,
         signed_in: signedIn,
