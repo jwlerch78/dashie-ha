@@ -8,10 +8,13 @@
 // account's database-operations ops report_key_failure / report_key_ok own the episode rules.
 //
 // Rules this file keeps:
-//   - WRITE ON CHANGE ONLY. A broken key fails every turn; it is reported once per episode, not per
-//     turn. The last state REPORTED is held per provider. After a restart it is unknown, so the first
-//     outcome of either kind is reported (idempotent on the server). Otherwise a restart between a fix
-//     and the next turn would leave the row stuck at failing.
+//   - WRITE ON CHANGE, RE-ASSERT AT MOST ONCE A MINUTE. A broken key fails every turn; it is reported
+//     once per episode, not per turn. But this box is NOT the only writer: the streaming-STT edge
+//     writes the same row (a refused household token), so "what I last reported" goes stale. A memory
+//     that skipped forever would leave an edge-raised pill up through every later successful turn here,
+//     or swallow a new failure after the edge cleared it. So the same state is re-asserted after
+//     REASSERT_MS (both server functions are idempotent; an ok on a non-failing row is a no-op update).
+//     After a restart the memory is empty, so the first outcome of either kind is reported.
 //   - Only the KEY's faults raise the pill (generated/key-health-vocab.js PILL_STATUSES). An outage or
 //     our own malformed request falls back to credits silently.
 //   - reportFailure is AWAITED before the tablet's 409, because the tablet force-refreshes its balance
@@ -25,7 +28,12 @@
 const { PILL_STATUSES, isKeyFailureStatus } = require('./generated/key-health-vocab');
 
 const WRITE_TIMEOUT_MS = 2500;
-const lastReported = new Map();   // provider → 'failing' | 'ok'  (absent = unknown)
+const REASSERT_MS = 60_000;
+const lastReported = new Map();   // provider → { state: 'failing' | 'ok', at }  (absent = unknown)
+const fresh = (provider, state) => {
+    const l = lastReported.get(provider);
+    return !!l && l.state === state && Date.now() - l.at < REASSERT_MS;
+};
 
 async function callOp(operation, data) {
     let jwt = '';
@@ -52,21 +60,21 @@ async function callOp(operation, data) {
 async function reportFailure(provider, status) {
     if (!isKeyFailureStatus(status)) { console.warn(`DROP: key-health bad status ${String(status).slice(0, 30)}`); return false; }
     if (!PILL_STATUSES.has(status)) { console.log(`KEY-HEALTH: ${provider} ${status}: not the key's fault, no pill`); return false; }
-    if (lastReported.get(provider) === 'failing') return false;   // episode already open
+    if (fresh(provider, 'failing')) return false;   // reported within the last minute: episode open
     const r = await callOp('report_key_failure', { provider, status });
     if (!r.ok) {
         if (r.why !== 'signed_out') console.warn(`DROP: key-health report_key_failure ${provider} ${status}: ${r.why}`);
         return false;   // state stays unknown, so the next failure tries again
     }
-    lastReported.set(provider, 'failing');
+    lastReported.set(provider, { state: 'failing', at: Date.now() });
     console.log(`KEY-HEALTH: ${provider} failing (${status}) reported`);
     return true;
 }
 
-/** The household's `provider` key just WORKED. Fire-and-forget; writes only when not already 'ok'. */
+/** The household's `provider` key just WORKED. Fire-and-forget; skipped if ok was asserted < a minute ago. */
 function reportOk(provider) {
-    if (lastReported.get(provider) === 'ok') return;
-    lastReported.set(provider, 'ok');   // optimistic, so concurrent turns don't all write
+    if (fresh(provider, 'ok')) return;
+    lastReported.set(provider, { state: 'ok', at: Date.now() });   // optimistic, so concurrent turns don't all write
     callOp('report_key_ok', { provider }).then((r) => {
         if (r.ok) console.log(`KEY-HEALTH: ${provider} ok reported`);
         else {
@@ -78,5 +86,7 @@ function reportOk(provider) {
 
 /** Test seam. */
 function __resetForTest() { lastReported.clear(); }
+/** Test seam: make the last report for `provider` look `ms` older. */
+function __ageForTest(provider, ms) { const l = lastReported.get(provider); if (l) l.at -= ms; }
 
-module.exports = { reportFailure, reportOk, WRITE_TIMEOUT_MS, __resetForTest };
+module.exports = { reportFailure, reportOk, WRITE_TIMEOUT_MS, REASSERT_MS, __resetForTest, __ageForTest };

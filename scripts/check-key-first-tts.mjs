@@ -336,6 +336,48 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
     }
 }
 
+// ── P. probe-on-save (John 10-12 via VH: a key fixed in the console clears the pill ON SAVE) ──
+{
+    const router = require_(join(SERVER, 'api', 'keys.js'));
+    const put = router.stack.find(l => l.route?.path === '/' && l.route.methods.put)?.route?.stack?.at(-1)?.handle;
+    const save = (key) => new Promise((resolve) => {
+        const res = { status() { return this; }, json(b) { resolve(b); } };
+        put({ body: { provider: 'gemini', value: { key } } }, res);
+    });
+    const settleProbe = () => new Promise((r) => setTimeout(r, 30));
+    // Google's MEASURED answer to a bad key on the probe endpoint (10-12): 400, no API_KEY_INVALID reason.
+    const badProbe = () => new Response('{"error":{"code":400,"message":"Please pass a valid API key","status":"INVALID_ARGUMENT"}}', { status: 400 });
+    reset(); signIn(true); setKeys({});
+    let r = await drive(async () => { await save(GKEY); await settleProbe(); }, (u) => u.includes('/openai/models') ? badProbe() : ok200());
+    const rep = r.calls.find(c => c.body?.operation === 'report_key_failure');
+    check('P1 — saving a BAD Gemini key probes it and reports invalid_key (the measured 400 "Please pass a valid API key")',
+        rep?.body?.data?.provider === 'gemini' && rep.body.data.status === 'invalid_key', `ops=${ops(r.calls)} rep=${JSON.stringify(rep?.body)}`);
+    reset();
+    r = await drive(async () => { await save(GKEY); await settleProbe(); }, (u) => u.includes('/openai/models') ? new Response('{"data":[]}', { status: 200 }) : ok200());
+    check('P2 — saving a WORKING Gemini key reports ok (the pill clears on save, not at the next turn)', ops(r.calls).includes('report_key_ok'), `ops=${ops(r.calls)}`);
+    reset();
+    r = await drive(async () => { await save(GKEY); await settleProbe(); }, (u) => u.includes('/openai/models') ? (() => { throw new Error('offline'); })() : ok200());
+    check('P3 — a probe that cannot reach Google reports NOTHING either way', !ops(r.calls).some(o => /^report_key/.test(o)), `ops=${ops(r.calls)}`);
+    signIn(false);
+}
+
+// ── R. the add-on is NOT the only writer (the STT edge writes the same row): re-assert after a minute ──
+{
+    reset(); signIn(true);
+    let r = await drive(async () => { keyHealth.reportOk('gemini'); keyHealth.reportOk('gemini'); await new Promise((x) => setTimeout(x, 20)); }, () => ok200());
+    check('R1 — two successes inside a minute write ok ONCE', ops(r.calls).filter(o => o === 'report_key_ok').length === 1, `ops=${ops(r.calls)}`);
+    keyHealth.__ageForTest('gemini', keyHealth.REASSERT_MS + 1000);
+    r = await drive(async () => { keyHealth.reportOk('gemini'); await new Promise((x) => setTimeout(x, 20)); }, () => ok200());
+    check('R2 — after a minute a success RE-ASSERTS ok (clears a pill the STT edge raised meanwhile)', ops(r.calls).includes('report_key_ok'), `ops=${ops(r.calls)}`);
+    reset();
+    r = await drive(async () => { await keyHealth.reportFailure('gemini', 'invalid_key'); await keyHealth.reportFailure('gemini', 'invalid_key'); }, () => ok200());
+    check('R3 — two failures inside a minute write the episode ONCE', ops(r.calls).filter(o => o === 'report_key_failure').length === 1, `ops=${ops(r.calls)}`);
+    keyHealth.__ageForTest('gemini', keyHealth.REASSERT_MS + 1000);
+    r = await drive(() => keyHealth.reportFailure('gemini', 'invalid_key'), () => ok200());
+    check('R4 — after a minute a failure RE-ASSERTS (a pill the edge cleared comes back if the key is still bad)', ops(r.calls).includes('report_key_failure'), `ops=${ops(r.calls)}`);
+    signIn(false);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log('   (green does NOT prove HA, the K view or a tablet carries this; fixtures are hand-built; the signed-in account read is driven against a STUBBED user_settings, not a real account)');
 if (!failed) console.log('check-key-first-tts: ALL PASS');

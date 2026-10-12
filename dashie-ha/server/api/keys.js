@@ -36,6 +36,24 @@ const { classifyKeyFailure } = require('../generated/key-health-vocab');
 
 const router = express.Router();
 
+/** Providers whose key pays for VOICE, so a failure shows the tablet's "Voice key error" pill. */
+const KEY_HEALTH_PROVIDERS = new Set(['gemini', 'elevenlabs']);
+
+/**
+ * Probe a stored key (the same free /models check as /validate) and tell the account what it found.
+ * John 2026-10-12 (via VH): a key fixed in the console clears the pill ON SAVE, not at the next turn.
+ * A probe that cannot conclude (no probe for the provider, unreachable) reports nothing either way.
+ */
+async function probeAndReport(provider) {
+    if (!KEY_HEALTH_PROVIDERS.has(provider)) return null;
+    const result = await providers.validateProvider(provider);
+    if (result?.ok === true) keyHealth.reportOk(provider);
+    else if (result?.ok === false && 'httpStatus' in result) {
+        await keyHealth.reportFailure(provider, classifyKeyFailure(result.httpStatus ?? null, result.errorText || ''));
+    }
+    return result;
+}
+
 /** GET /api/keys → masked values + set flags. Full keys never leave the box. */
 router.get('/', (req, res) => {
     // `routable` = the providers whose key actually flips brain routing (brain/providers.js).
@@ -88,7 +106,7 @@ router.post('/validate', express.json(), async (req, res) => {
         return res.status(400).json({ error: 'unknown_provider' });
     }
     try {
-        const result = await providers.validateProvider(provider);
+        const result = await probeAndReport(provider) ?? await providers.validateProvider(provider);
         // Deposit what the probe learned for the picker. Only on a successful
         // probe: a rejected or unreachable key tells us nothing about which
         // models it could serve, and recording `null` there would be
@@ -155,6 +173,8 @@ router.put('/', express.json(), (req, res) => {
     try {
         keyStore.writeProvider(provider, value);
         console.log(`[keys] ${provider} → ${keyStore.status()[provider] ? 'set' : 'cleared'}`);
+        // Probe-on-save (fire-and-forget: the save answers now; the pill follows the probe).
+        if (value !== null) probeAndReport(provider).catch((e) => console.warn(`DROP: key-health probe-on-save ${provider}: ${e?.message || e}`));
     } catch (e) {
         console.error('[keys] write failed:', e.message);
         return res.status(500).json({ error: 'write_failed' });
