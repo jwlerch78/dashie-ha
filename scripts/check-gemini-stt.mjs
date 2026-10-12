@@ -16,7 +16,8 @@
  *   • a 200 in neither shape is an ERROR with its own marker, never "".
  *   • household Gemini outranks `stt_url` (O, decision 1), and says so with
  *     STT-OVERRIDE. That marker is distinct from every failure marker.
- *   • a Gemini failure does NOT fall through to the operator's engine or the cloud.
+ *   • a Gemini failure does NOT fall through to the operator's engine; SIGNED OUT, not to the cloud either
+ *     (signed in it falls back to credits since 10-12: check-key-first-tts T1-T7).
  *   • success records ONE usage row under provider `gemini` / billing `byok`, a
  *     store key of its own; a failure records nothing.
  *
@@ -194,7 +195,7 @@ const usageText = () => JSON.stringify(usageStore.readUsage());
     const mid = usageText();
     const f = await capture(async (url) => String(url).includes('generativelanguage') ? json(500, { error: { message: 'boom' } }) : json(200, { text: 'FELL THROUGH' }),
         async () => { out = await callHandleStt(wav()); });
-    if (out?.status === 502 && f.calls.length === 1 && f.calls[0].url.includes('generativelanguage')) ok('4e: a Gemini failure does not fall through (one call, to Google only)');
+    if (out?.status === 502 && f.calls.length === 1 && f.calls[0].url.includes('generativelanguage')) ok('4e: signed out, a Gemini failure does not fall through (one call, to Google only); signed in → credits, check-key-first-tts T');
     else fail(`[4e] ${JSON.stringify(out)} calls=${f.calls.map((c) => c.url)}`);
     if (f.logs.some((l) => l.startsWith('DROP: stt-gemini-failed')) && f.logs.filter((l) => l.startsWith('STT-OVERRIDE:')).length === 1) ok('4f: the failure has its own marker, distinct from STT-OVERRIDE');
     else fail(`[4f] logs=${JSON.stringify(f.logs)}`);

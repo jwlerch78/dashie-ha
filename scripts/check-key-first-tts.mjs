@@ -12,6 +12,8 @@
  *      key_failed for routing but writes NO row (it is not the key's fault).
  *   H  HA speaker: a failed key falls back to credits (Gemini → the edge gemini-tts with the SAME
  *      voice; ElevenLabs → the cloud voice), and the failure is reported. Signed out → no fallback.
+ *   T  batch Gemini STT (HA's Gemini STT entity, the tablet's GEMINI_VIA_HA rung): the same rule as H,
+ *      transcribed on credits by whisper-stt.
  *
  * ⚠️ What a green does NOT prove: that HA, the integration's streaming view (K) or a tablet carries
  *    any of this; that Google returns these shapes today (fixtures are hand-built from the measured
@@ -375,6 +377,49 @@ const ops = (calls) => calls.filter(c => c.url.includes('database-operations')).
     keyHealth.__ageForTest('gemini', keyHealth.REASSERT_MS + 1000);
     r = await drive(() => keyHealth.reportFailure('gemini', 'invalid_key'), () => ok200());
     check('R4 — after a minute a failure RE-ASSERTS (a pill the edge cleared comes back if the key is still bad)', ops(r.calls).includes('report_key_failure'), `ops=${ops(r.calls)}`);
+    signIn(false);
+}
+
+// ── T. HA/tablet batch Gemini STT (engines.js geminiSttBranch): the SAME rule as H (added 10-12) ──
+{
+    const WAV = Buffer.from('RIFF0000WAVEfmt control');
+    const sttReq = () => ({ query: { engine: 'gemini' }, on(ev, cb) { if (ev === 'data') cb(WAV); if (ev === 'end') cb(); return this; } });
+    async function stt(route) {
+        let out = null;
+        const r = await drive(async (events) => {
+            await engines.handleStt(sttReq(), {}, (_res, status, body) => { out = { status, body }; events.push(`send:${status}`); });
+            await new Promise((x) => setTimeout(x, 20));   // reportOk is fire-and-forget: let it hit the STUB, never the network
+        }, route);
+        return { ...r, out };
+    }
+    const whisper = (u) => u.includes('whisper-stt');
+    const route = (google) => (u) => isGoogle(u) ? google() : whisper(u) ? ok200({ transcript: 'turn on the lights' }) : ok200();
+    reset(); signIn(true); setKeys({ gemini: { key: GKEY } });
+    let t = await stt(route(geminiBad));
+    check('T1 — signed in, Gemini key 400 API_KEY_INVALID → the turn is transcribed on CREDITS (whisper-stt), 200 {text}',
+        t.out?.status === 200 && t.out?.body?.text === 'turn on the lights' && t.calls.some(c => whisper(c.url)), `out=${JSON.stringify(t.out)} events=${t.events.join(' → ')}`);
+    const fi = t.events.indexOf('fetch:report_key_failure'), wi = t.events.indexOf('fetch:whisper-stt');
+    check('T2 — the key failure is reported as invalid_key (the pill) BEFORE the credits call',
+        fi !== -1 && wi !== -1 && fi < wi && t.calls.find(c => c.body?.operation === 'report_key_failure')?.body?.data?.status === 'invalid_key', `events=${t.events.join(' → ')}`);
+    check('T3 — the fallback is LOUD (STT-FALLBACK marker)', t.lines.some(l => l.includes('STT-FALLBACK: byok gemini failed (invalid_key)')), t.lines.join(' | '));
+    reset();
+    t = await stt(route(() => new Response('{"error":{"code":503}}', { status: 503 })));
+    check('T4 — a Google OUTAGE still falls back to credits but writes NO row (not the key\'s fault)',
+        t.out?.status === 200 && !ops(t.calls).includes('report_key_failure'), `out=${JSON.stringify(t.out)} ops=${ops(t.calls)}`);
+    reset();
+    t = await stt(route(() => ok200({ candidates: [{ content: { parts: [{ text: 'hello' }] } }] })));
+    check('T5 — a working key: 200 from Gemini, ok reported, credits never called',
+        t.out?.status === 200 && t.out?.body?.text === 'hello' && !t.calls.some(c => whisper(c.url)) && ops(t.calls).includes('report_key_ok'),
+        `out=${JSON.stringify(t.out)} events=${t.events.join(' → ')}`);
+    reset(); signIn(false);
+    t = await stt(route(geminiBad));
+    check('T6 — signed OUT, key 400 → no credits: the provider error, loudly, no account call and no whisper-stt',
+        t.out?.status === 502 && !t.calls.some(c => whisper(c.url) || c.url.includes('database-operations')) && t.lines.some(l => l.includes('not signed in: no credits fallback')),
+        `out=${JSON.stringify(t.out)} calls=${t.calls.map(c => c.url).join(' ')}`);
+    reset(); signIn(true); setKeys({});
+    t = await stt(route(geminiBad));
+    check('T7 — NO key stored is not a broken key: 503 gemini_stt_no_key, unchanged, nothing billed',
+        t.out?.status === 503 && t.out?.body?.error === 'gemini_stt_no_key' && t.calls.length === 0, `out=${JSON.stringify(t.out)} calls=${t.calls.length}`);
     signIn(false);
 }
 

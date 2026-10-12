@@ -209,10 +209,12 @@ async function handleStt(req, res, sendJson) {
 }
 
 /**
- * D5 Gemini branch. 🔴 No fall-through on failure, to cloud OR to a local
- * engine: the household chose its own key, and routing the audio somewhere it
- * did not choose (or billing it to the account) to hide a fault is the rule the
- * BYOK TTS branch states at handleTts. Each failure has its own marker.
+ * D5 Gemini branch. Never falls through to a LOCAL engine the household did not choose.
+ * 🔴 REVERSED 2026-10-12, the same rule as handleTts (John 10-11: "broken key goes to credits with small
+ * error message"): when Google was called and failed, the failure is reported to the account (the
+ * "Voice key error" pill, key-health.js, awaited) and a signed-in household's turn is transcribed on its
+ * CREDITS (cloudStt). Signed out → no credits: the provider error, loudly, as before. No key stored and
+ * bad audio are not key failures and are unchanged. Each outcome has its own marker.
  */
 async function geminiSttBranch(req, res, sendJson) {
     let audio;
@@ -230,10 +232,18 @@ async function geminiSttBranch(req, res, sendJson) {
     const t0 = Date.now();
     const r = await geminiStt.transcribe(audio);
     if (!r.ok) {
-        console.warn(`DROP: stt-gemini-failed — ${r.error} (status ${r.status}); not falling through`);
-        sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+        if (r.keyFailure) await keyHealth.reportFailure('gemini', r.keyFailure.status);
+        const jwt = r.keyFailure ? await cloudJwt() : '';
+        if (!jwt) {
+            console.warn(`DROP: stt-gemini-failed — ${r.error} (status ${r.status})${r.keyFailure ? '; not signed in: no credits fallback' : ''}`);
+            sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+            return;
+        }
+        console.warn(`STT-FALLBACK: byok gemini failed (${r.keyFailure.status}) → account credits`);
+        await cloudStt(audio, jwt, res, sendJson);
         return;
     }
+    keyHealth.reportOk('gemini');
     console.log(`DASHIE-STT route=gemini text="${r.text}" bytes=${audio.length} latency=${Date.now() - t0}ms`);
     sttUsage.recordSttCall(audio, readOptions(), 'gemini', r.usage);
     sendJson(res, 200, { text: r.text });
