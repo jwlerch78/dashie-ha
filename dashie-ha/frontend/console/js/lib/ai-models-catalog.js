@@ -341,6 +341,23 @@
           'inworld-tts-2': 25.00    // $25 per 1M characters (on-demand)
         },
     
+        // Gemini TTS (gemini-tts fn, the tablet's Gemini voice on Dashie credits). Billed per TOKEN from
+        // the stream's usageMetadata (ttsTokenCost, emitted into token-pricing.ts by bundle-ai-prompts.js),
+        // NOT per character: every per-char helper (server + Console ttsCost, calculateTTSCost) reads a
+        // number and so returns 0 for this row (its values are arrays). Source: ai.google.dev/gemini-api/docs/pricing,
+        // read via a page fetch 2026-10-11 (a tool-produced summary quoting the page): $0.50 / 1M text-in +
+        // $9.00 / 1M audio-out through 2026-12-31, DOUBLING to $1.00 / $18.00 from 2027-01-01; 25 audio
+        // tokens per second (VH measured 25.0 on a live stream). Both eras are here so January does not
+        // silently bill at half cost. This is COGS; the USER charge is fixedCharge's tts tier (credit-debit.ts).
+        // Lives HERE because token-pricing.ts is generated from this block: a row added only there is
+        // deleted by the next regen (6a6b71a38 did exactly that; O caught it at lint:prompts, 10-12).
+        gemini: {
+          'gemini-3.8-flash-tts': [
+            { from: '2000-01-01', perMillionInputTokens: 0.50, perMillionOutputTokens: 9.00 },
+            { from: '2027-01-01', perMillionInputTokens: 1.00, perMillionOutputTokens: 18.00 },
+          ],
+        },
+    
         // OpenAI TTS (per 1M characters)
         openai: {
           'tts-1': 15.00,           // $15 per 1M characters
