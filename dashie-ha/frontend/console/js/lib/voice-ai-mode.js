@@ -85,7 +85,7 @@ const VoiceAiMode = {
      * stageKey) — they are named here because this map is the declaration of the
      * PARTITION, not of the page's expand/collapse bookkeeping.
      */
-    SIMPLE_CARDS: ['model', 'personality', 'wakeword', 'stt', 'tts'],
+    SIMPLE_CARDS: ['model', 'personality', 'wakeword', 'stt', 'tts', 'conversation-mode'],
 
     /**
      * What Simple withholds. This is not documentation — the gate reads it to
@@ -99,7 +99,7 @@ const VoiceAiMode = {
     ADVANCED_ONLY: [
         'voice', 'engine-detection', 'live-voice',
         'live-stt-note', 'prompt-mode', 'house-rules', 'tools-enabled',
-        'search', 'entities', 'conversation-mode', 'household-sharing',
+        'search', 'entities', 'household-sharing',
         'profile-switcher',
     ],
 

@@ -1906,6 +1906,13 @@ const VoiceAiPage = {
                     showStt && isLive ? this._renderLiveSttNote() : '',
                     showPipeline ? this._renderEngineDetectionRow() : '',
                     showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
+                    // 🔴 MOVED here from AI Prompt & Tools (John, 2026-10-13: *"let's move
+                    // conversation dialog into the Voice & LLM section"*). It belongs with how the
+                    // assistant LISTENS, not with what it may reach for — and the move has a second
+                    // effect worth keeping: the tools section is hidden entirely in Simple, so while
+                    // this row lived there a Simple household could neither set dialog nor see its
+                    // value. Here it is visible in both modes.
+                    !isLive ? this._renderDialogRows(d, agentMode) : '',
                 ].filter(Boolean).join('')),
             ].filter(Boolean))}
             ${window.VoiceAiMode?.renderFooter?.() || ''}
@@ -1934,7 +1941,6 @@ const VoiceAiPage = {
         // Customize × agent mode × HA reachable) is the part most likely to break
         // silently, so it was deliberately not touched.
         const toolToggles = [
-            !isLive ? this._renderDialogRows(d, agentMode) : '',
             // 🔴 ALPHA-GATED for the HA first release (D3, 2026-10-09) — the same cohort
             // shape as credits and scheduled actions, not a deletion.
             //
@@ -1988,14 +1994,14 @@ const VoiceAiPage = {
             isHaAssist ? '' : lbl(this._modelOptions(preset), this._selectedModelId(agentMode)),
             sttReal ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
             pipelineReal ? lbl(ttsAll, ttsSelectedId) : '',
+            // Follows the ROW, which moved here 2026-10-13. John, 2026-09-23, on why it is
+            // summarised at all: it is the one setting that changes how every single turn
+            // behaves, so a collapsed section omitting it hid the most consequential row.
+            isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
             ...window.VoiceAiPromptSection.summary(promptSectionArgs),
             pipelineReal ? lbl(searchOptions, searchSelected) : '',
-            // John, 2026-09-23: the summary must capture conversation mode. It is the
-            // one setting in here that changes how every single turn behaves, so a
-            // collapsed section that omitted it was hiding the most consequential row.
-            isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
             // Only summarised where the row is actually offered. A collapsed section
             // reporting 'pictures off' for a control the user cannot find is naming a
             // setting that, for them, does not exist.

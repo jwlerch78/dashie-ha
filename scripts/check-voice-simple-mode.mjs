@@ -171,16 +171,28 @@ t('4 Simple shows AI Model', simple.html.includes('AI Model'));
 t('5 Simple shows Personality', simple.html.includes('Personality'));
 
 // ── …and withholds the rest ───────────────────────────────────────────────
-t('6 Simple withholds the Wake word card', !simple.html.includes('Wake word'));
-t('7 Simple withholds the Speech-to-text and Text-to-speech CARDS',
-  !/VoiceAiPage\.toggleCard\('stt'\)/.test(simple.html) && !/VoiceAiPage\.toggleCard\('tts'\)/.test(simple.html),
-  'the pipeline cards are the bulk of the page Simple exists to quiet');
+// 🔴 6 and 7 were INVERTED on 2026-10-13 (John). They used to assert that Simple
+// WITHHELD the wake word and the STT/TTS cards. His reason for the reversal is the
+// one this gate should carry: Hybrid and Local do not FIX an engine, they open a
+// choice, so hiding the cards left exactly those households with no route to the
+// setting their preset exists to configure. Simple quiets the page by withholding
+// the prompt, tools, search and entity scope — not the pipeline the user picked.
+t('6 Simple SHOWS the Wake word card', simple.html.includes('Wake word'),
+  'a one-tap identity choice, not an expert control');
+t('7 Simple SHOWS the Speech-to-text and Text-to-speech CARDS',
+  /VoiceAiPage\.toggleCard\('stt'\)/.test(simple.html) && /VoiceAiPage\.toggleCard\('tts'\)/.test(simple.html),
+  'Hybrid and Local imply a CHOICE of engine, not a fixed one — withholding the cards '
+  + 'made those presets unconfigurable in the default mode');
+t('7b Simple SHOWS the conversation dialog row (moved into Voice & LLM, 2026-10-13)',
+  simple.html.includes('Conversation dialog'),
+  'it moved out of AI Prompt & Tools, which Simple hides entirely — while it lived '
+  + 'there a Simple household could neither set dialog nor see its value');
 t('8 Simple withholds the AI Prompt & Tools section',
   !simple.html.includes('AI Prompt &amp; Tools') && !simple.html.includes('AI Prompt & Tools'));
 t('9 Simple withholds Retrieve pictures and Web search source',
   !simple.html.includes('Retrieve pictures') && !simple.html.includes('Web search source'));
 t('10 Simple names the way through to Advanced',
-  simple.html.includes('follow the preset') && /VoiceAiMode\.set\('advanced'\)/.test(simple.html),
+  simple.html.includes('are in Advanced') && /VoiceAiMode\.set\('advanced'\)/.test(simple.html),
   "a withheld control must not read as a missing one — Simple's footer is what makes it "
   + 'a view rather than a reduced feature set');
 
@@ -202,7 +214,9 @@ t('11b CONTROL: those labels are NOT what this preset would imply by itself',
   + 'reported nothing at all');
 
 // ── 12. Advanced is the superset ──────────────────────────────────────────
-const BACK = ['Wake word', 'Retrieve pictures', 'Web search source'];
+// 'Wake word' left this list 2026-10-13 — it is in BOTH modes now, so it cannot be
+// evidence that Advanced brings anything back.
+const BACK = ['Retrieve pictures', 'Web search source'];
 const missing = BACK.filter(x => !adv.html.includes(x));
 t(`12 Advanced brings back everything Simple withheld (${BACK.length} checked)`,
   missing.length === 0, `still absent in Advanced: ${missing.join(', ')}`);
@@ -212,7 +226,7 @@ t('12b Advanced renders the pipeline cards',
 // first version used the call, which is also the segmented control's own onclick —
 // present in both modes by design — so it failed against correct code and was a
 // finding about the matcher.
-const FOOTER = 'follow the preset';
+const FOOTER = 'are in Advanced';
 t('12c Advanced renders no Simple footer', !adv.html.includes(FOOTER),
   'the "Speech-to-text and text-to-speech follow the preset" line is still shown on the '
   + 'Advanced page, where those controls are right there');
@@ -236,32 +250,51 @@ t(`13 the partition is a partition (${M.SIMPLE_CARDS?.length} simple, ${M.ADVANC
       `warnings seen: ${JSON.stringify(w.warnings)}`);
 }
 
-// ── 16. FAULT INJECTION on the real page source ───────────────────────────
+// ── 16. THE SUMMARY STILL READS REAL STATE (source-level) ─────────────────
+//
+// 🔴 THIS LEG WAS A RENDER-LEVEL FAULT INJECTION UNTIL 2026-10-13, AND IT RETIRED
+// ITSELF. It mutated the summary to read the RENDER flags (`showStt`/`showPipeline`)
+// instead of the real-state flags (`sttReal`/`pipelineReal`) and asserted that the
+// engine names then VANISHED from Simple. Once John moved the STT/TTS cards INTO
+// Simple, the cards carry those names themselves, so breaking the summary no longer
+// hides anything and the mutant went green against a genuinely broken summary.
+//
+// The gate caught that itself — 16b failed and said "an injection that fails to turn a
+// leg red is a finding about the leg, not about the code." It was right, so the leg is
+// replaced rather than deleted or loosened until it passed.
+//
+// What still needs guarding: a COLLAPSED Voice & LLM section shows only the summary, so
+// the summary must keep reporting the pipeline's real state rather than this view's
+// render flags. That is now asserted at SOURCE level — weaker than an injection,
+// because it checks the expression and not the rendered consequence, but it cannot go
+// quietly dead the way the injection did.
 {
-    const mutate = (src) => {
-        let count = 0;
-        let out = src.replace(/sttReal \? lbl\(/g, () => { count++; return 'showStt ? lbl('; });
-        out = out.replace(/pipelineReal \? lbl\(ttsAll/g, () => { count++; return 'showPipeline ? lbl(ttsAll'; });
-        return { src: out, count };
-    };
-    const broken = render('simple', SELF_HOSTED, { mutate });
-    // 🔴 ASSERTED FIRST. A mutation that matched nothing renders an unmodified page,
-    // leg 16 then "passes" by finding the labels present, and the whole injection is
-    // a green reading of an untouched subject.
-    t(`16a CONTROL: the injection actually rewrote the summary (${broken.mutations} site(s))`,
-      broken.mutations === 2,
-      'the summary no longer reads `sttReal ? lbl(` / `pipelineReal ? lbl(ttsAll` — either it '
-      + 'was refactored (update this matcher) or the split is gone and leg 11 is unguarded');
-    t('16b the pre-D8 summary DOES lose the engine names in Simple',
-      !broken.html.includes(SELF_STT) && !broken.html.includes(SELF_TTS),
-      'reading the RENDER flags in the summary no longer hides the values, which means leg 11 '
-      + 'is not measuring the invariant it claims — an injection that fails to turn a leg red '
-      + 'is a finding about the leg, not about the code');
-    t('16c CONTROL: the injected page still renders (the mutation is not just a syntax error)',
-      broken.html.length > 500 && broken.html.includes('AI Model'),
-      `${broken.html.length} chars`);
+    // 🔴 COMMENTS STRIPPED FIRST, and this is not hygiene — the first spelling of this
+    // leg FAILED against correct code. `voice-ai.js:1771` is a COMMENT that quotes the
+    // dangerous pattern verbatim (`showPipeline ? lbl(ttsAll, ...)`) to explain why the
+    // split exists. In this codebase live files deliberately document the wrong version
+    // beside the right one, so a prose-blind matcher reports the better-documented file
+    // as the broken one. Same defect `check-gate-subject-liveness` was redesigned around.
+    const raw = readFileSync(PAGE, 'utf8');
+    const src = raw.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const readsReal = /sttReal \? lbl\(/.test(src) && /pipelineReal \? lbl\(ttsAll/.test(src);
+    const readsRenderFlags = /showStt \? lbl\(/.test(src) || /showPipeline \? lbl\(ttsAll/.test(src);
+    t('16 the section SUMMARY reads real state (`sttReal`/`pipelineReal`), not the render flags',
+      readsReal && !readsRenderFlags,
+      'a COLLAPSED section shows only the summary. Reading `showStt`/`showPipeline` there would '
+      + 'make a collapsed page describe this VIEW rather than the household\'s pipeline.');
 }
 
 console.log(`\ncheck-voice-simple-mode: ${pass} pass, ${fail} fail`);
+console.log(
+  'FLOOR — what a green here does NOT prove:\n'
+  + '  • That Simple names every value it withholds. It does NOT: the AI Prompt & Tools\n'
+  + '    SECTION is hidden entirely in Simple, so the Web search source and Retrieve\n'
+  + '    pictures VALUES have no summary there. Pre-existing and unfixed (2026-10-13);\n'
+  + '    the conversation-dialog row was moved out of that section precisely because of it.\n'
+  + '  • That the summary RENDERS correctly — leg 16 reads the source expression, not the\n'
+  + '    output. The render-level injection that used to prove this retired itself when the\n'
+  + '    STT/TTS cards moved into Simple (see the block above).\n'
+  + '  • Anything about the tablet. This gate renders the console page only.');
 if (fail === 0) console.log('ALL PASS');
 process.exit(fail ? 1 : 0);
