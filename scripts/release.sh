@@ -159,6 +159,11 @@ node "$ADDON_ROOT/scripts/check-voice-lanes.mjs"
 # a failed key falls back to credits with the failure reported to the account BEFORE the tablet's 409.
 echo "==> Checking key-first Gemini TTS + broken-key fallback (resolveProvider, tablet stream, HA speakers)"
 node "$ADDON_ROOT/scripts/check-key-first-tts.mjs"
+# Ruling A across ALL lanes at once (T, John 10-12 "Yes - A"): the same provider answers driven through
+# the brain, STT, the tablet TTS stream and HA-speaker TTS; credits and the pill only for a key fault.
+# Exit 0 all pass, 1 regression or stale known-defect, 4 known defects only (also a failure here).
+echo "==> Checking key first, then credits agrees across every lane (ruling A)"
+node "$ADDON_ROOT/scripts/check-key-first-consistency.mjs"
 
 # The other end of the same lane: a household can ENTER a speech key, the brain
 # routability filter does not eat it, and one with no adapter yet says so in the
