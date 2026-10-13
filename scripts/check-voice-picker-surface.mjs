@@ -508,10 +508,28 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         'applyLanes(…, null) differs from the input',
         'the standing picker rule: an answer we do not have yet is not a negative answer. A slow or failed fetch must not strip prices or disable rows');
 
+    // 🔴 REAIMED 2026-10-13. This used to assert that `serves:'gemini'` against a stored
+    // `dashie_cloud` produced "Running on your Gemini key right now." It must NOT any more:
+    // the row was renamed to "Gemini" while the STORED id stayed `dashie_cloud` (John ruled
+    // display-only, no migration), so those two ids are now ONE ROW and the lane is not
+    // contradicting anything. Who PAYS moved to the key icon (`laneKeyed`).
+    // ⚠️ The invariant itself is unchanged and is still asserted — by `operator_url`, a
+    // genuinely different engine. Re-aimed at a real mismatch rather than relaxed.
     check('leg 13f — the disclosure names what is ACTUALLY serving when it is not what is selected',
-        O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS) === 'Running on your Gemini key right now.',
-        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS))}`,
+        O.servesDisclosure('tts', 'dashie_cloud', { tts: { serves: 'operator_url', rows: {} } })
+            === `Running on ${O.SERVES_LABELS.operator_url} right now.`,
+        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', { tts: { serves: 'operator_url', rows: {} } }))}`,
         'without it the household reads a priced row as their voice while something else speaks — the card is the only place that disagreement is visible');
+
+    check('leg 13f2 — ⚖️ the ALIAS is EARNED: dashie_cloud/gemini are one row, so no disclosure',
+        O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS) === null
+        && O._sameRow('dashie_cloud', 'gemini') === true
+        && O._sameRow('dashie_cloud', 'operator_url') === false,
+        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS))} `
+        + `sameRow(dc,gemini)=${O._sameRow('dashie_cloud', 'gemini')} sameRow(dc,operator)=${O._sameRow('dashie_cloud', 'operator_url')}`,
+        'the suppression must be EARNED by a declared alias, not by the sentence quietly going missing. '
+        + 'The second clause is the control: if _sameRow said yes to everything, this leg would still '
+        + 'pass on the first clause while the picker had stopped disclosing anything at all');
 
     check('leg 13g — ⚖️ NEGATIVE CONTROL: no disclosure when serves IS the selected row',
         O.servesDisclosure('tts', 'gemini', KEYED_NO_CREDITS) === null,
@@ -739,7 +757,10 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
     const pairs = [];
     for (const serves of [...served]) {
         for (const selected of ['gemini', 'dashie_cloud', 'va_default', 'local_stt_url']) {
-            if (serves === selected) continue;
+            // Alias pairs are ONE row (dashie_cloud ≡ gemini), so there is no mismatch to
+            // disclose. Skipped via the SAME predicate the picker uses — not a second list
+            // here that could drift from it, and not a hard-coded pair.
+            if (serves === selected || O._sameRow(serves, selected)) continue;
             const note = O.servesDisclosure('stt', selected, { stt: { serves, rows: {} } });
             const ok = labels[serves]
                 ? (!!note && note.includes(labels[serves]))     // labelled ⇒ must name it

@@ -3,6 +3,62 @@
    ============================================================ */
 
 const Sidebar = {
+
+    /** Collapsed section ids, per VIEWER. John, 2026-10-13: *"can we make the Manage
+     *  and Dashie Cloud sections here collapsable?"*
+     *
+     *  localStorage, matching `VoiceAiMode`'s key next door rather than the
+     *  sessionStorage used by VoiceAiSections. The argument for per-session there was
+     *  that *"a persisted 'I collapsed this once' silently becomes the permanent shape
+     *  of the page, and the next person cannot tell a collapsed section from a missing
+     *  one."* That premise does not hold here: **the section LABEL and its chevron stay
+     *  on screen when collapsed**, so a collapsed section reads as collapsed and never
+     *  as absent. With the ambiguity gone, charging a viewer a re-collapse on every page
+     *  load is the worse trade.
+     *
+     *  Per-viewer, never synced — this is how one person likes their nav, and two people
+     *  administering one household should not inherit each other's. */
+    _KEY: 'dashie-console-sidebar-collapsed',
+
+    /** Always an array. A blocked/absent/garbled store means "nothing collapsed", which
+     *  is the shape that shows the most — failing open, so a storage fault can never
+     *  hide navigation. */
+    _collapsed() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(this._KEY) || '[]');
+            return Array.isArray(raw) ? raw.filter(x => typeof x === 'string') : [];
+        } catch { return []; }
+    },
+
+    isCollapsed(id) { return this._collapsed().includes(String(id)); },
+
+    /** Toggle + repaint. Re-renders the sidebar in place (the same assignment
+     *  credits-service.js:112 and app.js use) rather than App.renderPage(), so collapsing
+     *  a nav section never re-runs the page's own fetches. */
+    toggleSection(id) {
+        const key = String(id);
+        const next = this.isCollapsed(key)
+            ? this._collapsed().filter(x => x !== key)
+            : [...this._collapsed(), key];
+        try { localStorage.setItem(this._KEY, JSON.stringify(next)); } catch { /* private window — this render still flips */ }
+        const el = document.getElementById('sidebar');
+        if (el) el.innerHTML = this.render(window.App?._currentPage);
+    },
+
+    /** A section label that is also its own toggle. `▸`/`▾` matches the convention
+     *  scheduled-actions.js already uses, so the two read the same way. */
+    _sectionLabel(id, text) {
+        const collapsed = this.isCollapsed(id);
+        return `<div class="sidebar-section-label" role="button" tabindex="0"
+                     aria-expanded="${collapsed ? 'false' : 'true'}"
+                     onclick="Sidebar.toggleSection('${id}')"
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();Sidebar.toggleSection('${id}')}"
+                     style="cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none;">
+                    <span style="width: 9px; display: inline-block; opacity: 0.65;">${collapsed ? '▸' : '▾'}</span>
+                    <span>${text}</span>
+                </div>`;
+    },
+
     render(activePage) {
         // Real balance from CreditsService — fetched once at boot and
         // refreshed after every Token Usage view (and, eventually, after
@@ -41,8 +97,8 @@ const Sidebar = {
             <div class="sidebar-divider"></div>
 
             <div class="sidebar-section">
-                <div class="sidebar-section-label">${BRAND.cloudName}</div>
-                ${dashieCloudItems}
+                ${this._sectionLabel('cloud', BRAND.cloudName)}
+                ${this.isCollapsed('cloud') ? '' : dashieCloudItems}
             </div>
         ` : '';
         return `
@@ -64,12 +120,14 @@ const Sidebar = {
             <div class="sidebar-divider"></div>
 
             <div class="sidebar-section">
-                <div class="sidebar-section-label">Manage</div>
-                ${this._gatedNavItem('account', 'Account', 'icon-account-settings', activePage)}
-                ${this._gatedNavItem('credits', 'Credits', 'icon-credits', activePage)}
-                ${this._gatedNavItem('usage', 'Usage', 'icon-credits', activePage)}
-                ${this._gatedNavItem('api-keys', 'API Keys', 'icon-key', activePage)}
-                ${this._gatedNavItem('local-engines', 'Local Engines', 'icon-server', activePage)}
+                ${this._sectionLabel('manage', 'Manage')}
+                ${this.isCollapsed('manage') ? '' : `
+                    ${this._gatedNavItem('account', 'Account', 'icon-account-settings', activePage)}
+                    ${this._gatedNavItem('credits', 'Credits', 'icon-credits', activePage)}
+                    ${this._gatedNavItem('usage', 'Usage', 'icon-credits', activePage)}
+                    ${this._gatedNavItem('api-keys', 'API Keys', 'icon-key', activePage)}
+                    ${this._gatedNavItem('local-engines', 'Local Engines', 'icon-server', activePage)}
+                `}
             </div>
 
             <div class="sidebar-footer">

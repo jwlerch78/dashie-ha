@@ -254,6 +254,9 @@ fi
 
 # The picker end: no managed cloud row on a box with no account to bill, the
 # residual keeps a box that already stored it honest, and the wire id survives.
+echo "==> Checking for a key declared twice in one object literal (silent last-wins override)"
+node "$ADDON_ROOT/scripts/check-duplicate-keys.mjs"
+
 echo "==> Checking the voice picker surface (managed row · residual · id validity)"
 node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
 

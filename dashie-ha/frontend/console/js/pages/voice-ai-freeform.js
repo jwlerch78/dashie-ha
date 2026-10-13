@@ -49,12 +49,31 @@ const VoiceAiFreeform = {
     async setView(view) {
         if (!this._open) return;
         this._open.view = view;
-        if (view === 'raw' && this._open.rendered === null) await this.render();
+        if (view === 'raw' && this._open.rendered === null) await this.renderTemplate();
         else App.renderPage();
     },
 
-    /** Ask HA to render the template. HA's error is shown as HA wrote it. */
-    async render() {
+    /**
+     * Ask HA to render the template. HA's error is shown as HA wrote it.
+     *
+     * 🔴 NAMED `renderTemplate`, NOT `render` — it was `render()` until 2026-10-13 and
+     * THIS OBJECT ALREADY HAS A `render()` (the modal's HTML, below). A duplicate key in
+     * one object literal is not an error: the LAST one silently wins, so this method did
+     * not exist at runtime and every call to it reached the HTML renderer instead, which
+     * returns a string and performs no fetch.
+     *
+     * It broke three things at once, all reported by John as separate bugs:
+     *   • the "Render" button did nothing, so Raw kept saying "[not rendered yet]" forever;
+     *   • Editable↔Raw appeared not to switch, because `setView('raw')` awaited this and
+     *     the HTML renderer never calls `App.renderPage()` — the view flipped in state
+     *     with nothing repainting it;
+     *   • so the view only appeared to change when some OTHER control forced a repaint,
+     *     which is exactly what John saw with the personality switch.
+     *
+     * ⚠️ Do not rename this back, and do not add a second `render`. The HTML one must keep
+     * that name — `voice-ai.js:162` calls `VoiceAiFreeform.render()` to mount the modal.
+     */
+    async renderTemplate() {
         if (!this._open) return;
         this._open.busy = true;
         this._open.error = null;
@@ -145,7 +164,13 @@ const VoiceAiFreeform = {
                      style="background: var(--bg-card, #fff); border-radius: 12px; max-width: 1080px; width: 100%; max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 20px;">
 
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
-                        <h2 style="margin: 0; font-size: 17px;">Freeform</h2>
+                        <!-- Titled by what the panel CONTAINS, not by the prompt mode.
+                             John, 2026-10-13: *"When i click edit tools for dashie cloud it
+                             shows an interface labeled freeform"* — the panel holds the
+                             personality, the prompt AND the tool switches, and it is reached
+                             from more than one place, so naming it after one of its modes
+                             told the user they had opened the wrong thing. -->
+                        <h2 style="margin: 0; font-size: 17px;">Prompt &amp; Tools</h2>
                         <div style="display: flex; gap: 8px; align-items: center;">
                             <button class="btn btn-primary" onclick="VoiceAiFreeform.save()" ${m.busy ? 'disabled' : ''}>${m.busy ? 'Saving…' : 'Save'}</button>
                             <button class="btn btn-ghost btn-sm" onclick="VoiceAiFreeform.close()" aria-label="Close">✕</button>
@@ -202,7 +227,7 @@ const VoiceAiFreeform = {
                     : `<textarea class="form-input" rows="14" spellcheck="false"
                         style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.75; margin-top: 11px; resize: vertical;"
                         oninput="VoiceAiFreeform.set(this.value)">${esc(m.prompt)}</textarea>
-                       <div style="margin-top: 9px;"><button class="btn btn-ghost btn-sm" onclick="VoiceAiFreeform.render()" ${m.busy ? 'disabled' : ''}>Render</button></div>`}
+                       <div style="margin-top: 9px;"><button class="btn btn-ghost btn-sm" onclick="VoiceAiFreeform.renderTemplate()" ${m.busy ? 'disabled' : ''}>Render</button></div>`}
             </div>`;
     },
 

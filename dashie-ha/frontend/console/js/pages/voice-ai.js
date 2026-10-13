@@ -1823,8 +1823,16 @@ const VoiceAiPage = {
             if (!note) return html;
             return html + `<div style="font-size: 12px; color: var(--text-muted); margin: 2px 4px 10px; line-height: 1.45;">${this._escape(note)}</div>`;
         };
+        // The key icon on STT/TTS, from the LANE's `payer` — the same badge the AI Model
+        // row already shows, which is what John asked for in place of the sentence.
+        // Marks only the SELECTED row: the badge means "this is what is paying right now",
+        // not "a key exists somewhere".
+        const withLaneKey = (options, stageKey, selectedId) =>
+            (O.laneKeyed(stageKey, this._lanes)
+                ? (options || []).map(o => (o && O._sameRow(o.id, selectedId) ? { ...o, keyed: true } : o))
+                : options);
         const card = (title, stageKey, options, selectedId) => withServesNote(VoiceAiCards.render({
-            title, stageKey, options, selectedId,
+            title, stageKey, options: withLaneKey(options, stageKey, selectedId), selectedId,
             icon: CARD_ICONS[stageKey] || '',
             expanded: this._expandedCards.has(stageKey),
             anyExpanded: this._expandedCards.size > 0,  // dim the other cards while one is open

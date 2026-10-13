@@ -631,9 +631,44 @@ const VoiceAiOptions = {
         if (!lane) return null;
         const serves = lane.serves;
         if (!serves || String(serves) === String(selectedId || '')) return null;
+        // 🔴 ALIAS: `dashie_cloud` and `gemini` are ONE row (the stored id stayed
+        // `dashie_cloud` when the row was renamed to "Gemini" — John ruled display-only,
+        // no migration). Without this the lane serving `gemini` against a stored
+        // `dashie_cloud` reads as "serving something else" and fires a disclosure on the
+        // normal, correct case — which is what put *"Running on your Gemini key right
+        // now."* under a row already labelled Gemini. Who PAYS is now the key icon's job
+        // (`laneKeyed`); this sentence is for the lane serving a DIFFERENT engine.
+        if (this._sameRow(serves, selectedId)) return null;
         const label = this.SERVES_LABELS[serves];
         if (!label) return null;
         return `Running on ${label} right now.`;
+    },
+
+    /** The one place the stored-id/display-name alias is spelled out. */
+    _ALIASES: [['dashie_cloud', 'gemini']],
+
+    _sameRow(a, b) {
+        const x = String(a || ''), y = String(b || '');
+        if (x === y) return true;
+        return this._ALIASES.some(pair => pair.includes(x) && pair.includes(y));
+    },
+
+    /**
+     * Is this lane being paid for by the HOUSEHOLD'S OWN KEY right now?
+     *
+     * John, 2026-10-13: *"It says running on your gemini key right now in the Voice &
+     * LLM box, but it should just show the key icon next to AI, TTS, and STT"* — the
+     * same signal the AI Model row already carries, instead of a sentence under one card.
+     *
+     * 🔴 Read from the LANE (`payer`), never from "is a key stored". A stored key that
+     * cannot serve must not put a key icon on a row that credits are actually paying
+     * for — that is the lying-card class this file exists to prevent. `payer` is set
+     * only when the row both serves AND can_serve (voice-routes.js:160-163), so an
+     * absent or unprobed lane yields false and shows nothing.
+     */
+    laneKeyed(stage, lanes) {
+        const lane = lanes && lanes[stage] ? lanes[stage] : null;
+        return !!lane && lane.payer === 'key';
     },
 
     /**
