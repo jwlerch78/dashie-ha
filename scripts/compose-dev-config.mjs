@@ -76,8 +76,13 @@ const DEV_OVERLAY = {
     '  # priced like a soak and stops being run, which is how a revocation mechanism',
     '  # silently rots.',
     '  lease_ttl_seconds: 0',
+    '  # ⚠️ DEV CHANNEL ONLY — makes every call to GOOGLE fail on purpose (server/provider-fetch.js), so a',
+    '  # test box can prove an outage spends no credits (John 10-12, ruling A). off | 503 | timeout | unparsed.',
+    '  # Absent from prod\'s schema, so Home Assistant rejects it there. While armed the add-on logs',
+    '  # FAULT-INJECTION ARMED at start and FAULT-INJECTED: on every faked call. Set back to off after the test.',
+    '  debug_provider_fault: "off"',
   ],
-  schema: ['  lease_ttl_seconds: int(0,14400)?'],
+  schema: ['  lease_ttl_seconds: int(0,14400)?', '  debug_provider_fault: list(off|503|timeout|unparsed)?'],
 
   /**
    * Lines the DEV channel REPLACES rather than adds. Key → per-block lines.

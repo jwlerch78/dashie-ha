@@ -34,6 +34,7 @@ const DEFAULT_VOICE = 'Aoede';
 // a shape rule also admitted 'Ashley' (Inworld) and misspellings like 'Korre', which Google then
 // 400s instead of us falling back cleanly (John 10-11: one validator).
 const { GEMINI_VOICES } = require('./generated/gemini-voices');
+const { providerFetch } = require('./provider-fetch');   // every Google call: the dev fault switch
 const GEMINI_VOICE_SET = new Set(GEMINI_VOICES);
 const GEMINI_TTS_MODEL = /^gemini-[a-z0-9.-]*tts[a-z0-9.-]*$/;
 
@@ -75,7 +76,7 @@ const adapter = {
             console.warn(`DROP: byok-tts gemini-model-not-tts — "${String(useModel).slice(0, 60)}" is not a Gemini TTS model; using ${DEFAULT_MODEL}`);
             useModel = DEFAULT_MODEL;
         }
-        const resp = await fetch(`${URL_BASE}/${encodeURIComponent(useModel)}:generateContent`, {
+        const resp = await providerFetch(`${URL_BASE}/${encodeURIComponent(useModel)}:generateContent`, {
             method: 'POST',
             headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
             body: JSON.stringify({

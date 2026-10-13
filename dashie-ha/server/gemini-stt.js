@@ -25,6 +25,7 @@
 
 const { readKeys } = require('./key-store');
 const { classifyKeyFailure } = require('./generated/key-health-vocab');
+const { providerFetch } = require('./provider-fetch');   // every Google call: the dev fault switch
 
 const MODEL = 'gemini-3.5-transcribe';
 const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -87,7 +88,7 @@ async function transcribe(wav) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
-        const resp = await fetch(`${URL_BASE}/${MODEL}:generateContent`, {
+        const resp = await providerFetch(`${URL_BASE}/${MODEL}:generateContent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
             body: JSON.stringify(body),

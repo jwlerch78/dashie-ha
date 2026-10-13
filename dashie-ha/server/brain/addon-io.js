@@ -53,6 +53,7 @@ const { recordLocalUsage } = require('../usage-store');
 // from the aggregate above — see turn-log.js's header for why the two do not share
 // a file, a retention, or a backup posture.
 const turnLog = require('../turn-log');
+const { providerFetch } = require('../provider-fetch');   // every Google call: the dev fault switch
 
 // Sampling temperature by call INTENT (see Dashie 20260714_LOCAL_MODEL_BENCHMARK_RESULTS
 // "DECIDE-vs-NARRATE"): routing/action emission is a classification — sample
@@ -128,7 +129,7 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), GATEWAY_TIMEOUT_MS);
         try {
-            const resp = await fetch(chatUrl, {
+            const resp = await providerFetch(chatUrl, {
                 method: 'POST',
                 signal: ctl.signal,
                 headers: { 'Content-Type': 'application/json', ...authHeaders },

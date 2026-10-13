@@ -436,6 +436,10 @@ node "$ADDON_ROOT/scripts/check-brain-route-tiers.mjs"
 # cloud call) turn it red.
 echo "==> Checking the brain's broken-key fallback to credits (key faults only, pass 1 only, report first)"
 node "$ADDON_ROOT/scripts/check-brain-key-fallback.mjs"
+# The dev-only Google fault switch (debug_provider_fault) that lets a test box prove an outage spends
+# nothing: off is plain fetch, armed announces itself, only Google is faked, and no lane bypasses it.
+echo "==> Checking the dev Google fault switch (one wrapper, off is a no-op, prod does not declare it)"
+node "$ADDON_ROOT/scripts/check-provider-fault.mjs"
 
 # The dev channel's options/schema must equal canonical + the declared dev overlay.
 # Checked here as well as composed above, so a hand-edit between cuts is caught

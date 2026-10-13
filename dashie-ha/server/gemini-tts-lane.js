@@ -34,6 +34,7 @@ const { recordLocalUsage } = require('./usage-store');
 const { pcmToWav } = require('./wav-header');
 const { classifyKeyFailure } = require('./generated/key-health-vocab');
 const { sseToPcm, geminiTtsBody, GEMINI_TTS_STREAM_URL } = require('./generated/gemini-tts-stream');
+const { providerFetch } = require('./provider-fetch');   // every Google call: the dev fault switch
 
 const FIRST_BYTE_TIMEOUT_MS = 15_000;   // headers from Google; the stream itself may run longer
 const MAX_CHARS = 5000;
@@ -64,7 +65,7 @@ async function streamWithKey(res, { text, voice }) {
     const timer = setTimeout(() => ctl.abort(), FIRST_BYTE_TIMEOUT_MS);
     let resp;
     try {
-        resp = await fetch(GEMINI_TTS_STREAM_URL(model), {
+        resp = await providerFetch(GEMINI_TTS_STREAM_URL(model), {
             method: 'POST',
             headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
             body: JSON.stringify(geminiTtsBody(clean, voiceName)),
