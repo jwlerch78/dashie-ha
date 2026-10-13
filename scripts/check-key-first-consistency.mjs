@@ -234,7 +234,8 @@ What a green does NOT prove:
   - that the TABLET obeys the add-on: tts-tablet "credits" = the add-on answered 409 key_failed; CloudTtsRouter.kt decides
   - the LLM lane's gateway translation: llm is fed addon-io.js result shapes; check-brain-key-fallback.mjs drives the real gateway
   - that the credits leg bills (the edge meters), or that a pill renders on any tablet
-  - a real outage on a real box: that is Tier 2, and needs a fault hook that does not exist yet (10-12)`);
+  - a real outage on a real box: that is Tier 2 — set the dev add-on option debug_provider_fault (503|timeout|unparsed,
+    server/provider-fetch.js) and watch for a credits call while FAULT-INJECTED: lines appear`);
 
 if (regressions || stale) { console.log(`\n${regressions} REGRESSION(S), ${stale} STALE known-defect entr${stale === 1 ? 'y' : 'ies'} — not passing`); process.exit(1); }
 if (knownRed) {
