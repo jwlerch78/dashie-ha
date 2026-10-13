@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // ⛔ GENERATED, DO NOT EDIT. Source: dashieapp_staging supabase/functions/_shared/key-health-vocab.ts
-// source sha256/16: a19dae63bdd88e32. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
+// source sha256/16: 830ad97c7c5a689d. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
 // The add-on's 409 {reason:'key_failed', status} and the edge's byok_key_health.last_status are ONE list; the tablet reads both.
 'use strict';
 var __defProp = Object.defineProperty;
