@@ -16,11 +16,25 @@
  *
  * ── THE PARTITION, AND THE ONE RULE IT MUST OBEY ─────────────────────────────
  *
- * Simple shows three things: the PRESET (which decides everything downstream),
- * the AI MODEL (the one thing a BYOK household must point at its own key) and
- * the PERSONALITY (what they came for). Speech-to-text and text-to-speech are
- * DERIVED from the preset — Hybrid and Local each imply their own voice engine —
- * so asking again makes the user re-answer a question the preset just answered.
+ * Simple shows the PRESET (which decides everything downstream), the AI MODEL
+ * (the one thing a BYOK household must point at its own key), the PERSONALITY
+ * (what they came for), the WAKE WORD, and SPEECH-TO-TEXT / TEXT-TO-SPEECH.
+ *
+ * 🔴 REVISED 2026-10-13 (John): STT and TTS used to be Advanced-only, on the
+ * argument that they are DERIVED from the preset — Hybrid and Local each imply
+ * their own voice engine — so asking again makes the user re-answer a question
+ * the preset just answered. **That argument was wrong for the two presets it
+ * most mattered to.** John, measured on the page: *"I think STT/TTS should stay
+ * visible in simple mode. Otherwise the hybrid and local settings are not
+ * showing at all."* Hybrid and Local do not FIX an engine, they open a choice —
+ * which HA pipeline, which box — so a Simple mode that hid the cards left those
+ * households with no way to reach the setting their preset exists to configure.
+ * Wake word joined them in the same pass: it is a one-tap identity choice, not
+ * an expert control.
+ *
+ * ⇒ What is still Advanced is the stuff that is genuinely downstream of a
+ * choice already made: which named voice speaks, engine detection, the web
+ * search source, entity scope, the prompt and tools, dialog, and sharing.
  *
  * 🔴 SIMPLE MAY HIDE A CONTROL. IT MUST NEVER HIDE A VALUE.
  *
@@ -71,7 +85,7 @@ const VoiceAiMode = {
      * stageKey) — they are named here because this map is the declaration of the
      * PARTITION, not of the page's expand/collapse bookkeeping.
      */
-    SIMPLE_CARDS: ['model', 'personality'],
+    SIMPLE_CARDS: ['model', 'personality', 'wakeword', 'stt', 'tts'],
 
     /**
      * What Simple withholds. This is not documentation — the gate reads it to
@@ -83,7 +97,7 @@ const VoiceAiMode = {
      * one control over two keys (Voice; the local-engine URL rows).
      */
     ADVANCED_ONLY: [
-        'wakeword', 'stt', 'tts', 'voice', 'engine-detection', 'live-voice',
+        'voice', 'engine-detection', 'live-voice',
         'live-stt-note', 'prompt-mode', 'house-rules', 'tools-enabled',
         'search', 'entities', 'conversation-mode', 'household-sharing',
         'profile-switcher',
@@ -150,7 +164,7 @@ const VoiceAiMode = {
     renderFooter() {
         if (!this.isSimple()) return '';
         return `<div style="font-size: 11.5px; color: var(--text-muted); margin-top: 11px; line-height: 1.45;">
-            Speech-to-text and text-to-speech follow the preset.
+            The prompt, tools, web search and entity scope are in Advanced.
             <a href="#" onclick="event.preventDefault(); VoiceAiMode.set('advanced')"
                style="color: var(--accent); font-weight: 600; text-decoration: none;">Advanced…</a>
         </div>`;

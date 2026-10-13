@@ -60,10 +60,13 @@ const VoiceAiOptions = {
     // ⚠️ Still NOT in the LABEL. The label is the product ("Dashie Cloud STT"); the
     // vendor is an implementation detail that can change, and a label is what a stored
     // value renders as on every other screen.
-    CLOUD_SUPPLIERS: [
-        { stage: 'Speech-to-text', vendors: 'Deepgram' },
-        { stage: 'Text-to-speech', vendors: 'ElevenLabs and Inworld' },
-    ],
+    // 🔴 CLOUD_SUPPLIERS DELETED 2026-10-13. Its last READER was the STT row's description,
+    // and that row now names Gemini outright (John's 10-13 rename), so the structure became
+    // write-only: a value computed from the server on every load and displayed nowhere.
+    // It also still said **'Deepgram'** for a lane that has been Gemini since 10-12 — a stale
+    // claim that survived precisely because nothing rendered it, so no one could see it was
+    // wrong. The TTS half was unread too (that row's copy is a literal).
+    // ⇒ Deleted with its writer rather than left as a holder nothing consumes.
 
     // ── pipeline presets (Open Brain plan §6) ─────────────────
     // The top-level Voice & AI selector: three Dashie Intelligence presets
@@ -328,12 +331,21 @@ const VoiceAiOptions = {
         // suppliers note under the preset picker; that note is gone, and a comment that
         // still named it would send the next reader looking for a paragraph that no
         // longer renders.
+        // 🔴 NAMED "Gemini", not "<cloud> STT" (John, 2026-10-13: *"we are now calling out Gemini by
+        // name rather than Dashie Cloud"*; his 10-12 ruling was *"we'll call it Gemini and retire
+        // dashie cloud"*). The console was the LAGGING surface — the tablet already shows one
+        // "Gemini" row (VoiceAiOptions.kt `oneGeminiRow`), so the two disagreed on screen.
+        //
+        // ⚠️ The STORED id stays `dashie_cloud`. John ruled display-and-comments-only, no migration:
+        // the value is persisted in SharedPreferences, Supabase and this console, so renaming the wire
+        // value would need a read-both-keys window on three surfaces and would strand every household
+        // that has one stored today. Display changes; storage does not.
+        //
+        // Copy is John's D6, verbatim, and is the same sentence the tablet shows.
         { id: 'dashie_cloud',
-          label: `${BRAND.cloudName} STT`,
+          label: 'Gemini',
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
-          // D5(i), John 2026-10-08: "Streaming" dropped (false under batch Gemini), and the vendor now reads
-          // from CLOUD_SUPPLIERS — the single holder the comment above names — instead of a hard-coded copy.
-          get description() { return `Premium accuracy, provided by ${VoiceAiOptions.CLOUD_SUPPLIERS[0].vendors}.`; } },
+          description: 'Your key if you\u2019ve added one, otherwise your Dashie credits. Audio goes to Google.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
           description: 'Whisper server on your own box (OpenAI-compatible, LAN, direct).',
           configFields: [
@@ -986,11 +998,6 @@ const VoiceAiOptions = {
                 const stt = this.STT.find(o => o.id === 'dashie_cloud');
                 if (stt) stt.cost = `$${cr.stt.per_min.toFixed(3)}/min · ${perCmd}/command`;
             }
-            // D5(i), John 2026-10-08: the Cloud STT description names the vendor that ACTUALLY runs, from
-            // the server knob carried on this same payload. Absent (older server) → keep the default.
-            const sttVendor = { deepgram: 'Deepgram', gemini: 'Google' }[res?.cloud_stt_provider];
-            if (sttVendor) this.CLOUD_SUPPLIERS[0].vendors = sttVendor;
-            else if (res?.cloud_stt_provider) console.warn(`DROP: cloud-stt-vendor-unknown '${res.cloud_stt_provider}' — keeping '${this.CLOUD_SUPPLIERS[0].vendors}'`);
             if (typeof cr?.image_search?.per_unit === 'number') {
                 this.imageSearchCost = this._usd(cr.image_search.per_unit);
             } else {

@@ -1776,14 +1776,21 @@ const VoiceAiPage = {
         // hide a control. It must never hide a value.
         const simple = window.VoiceAiMode?.isSimple?.() === true;
         const pipelineReal = customPipeline && !isLive;
-        const showPipeline = pipelineReal && !simple;
+        // 🔴 Simple now SHOWS stt/tts/wake word (John 2026-10-13 — Hybrid and Local
+        // open a choice rather than fixing an engine, so hiding the cards left those
+        // households unable to reach the setting their preset exists to configure).
+        // `showTts` is split OUT of `showPipeline` deliberately: text-to-speech joins
+        // Simple, while the web-search source and entity scope stay Advanced-only.
+        // Collapsing them again would quietly drag two more cards into Simple.
+        const showPipeline = pipelineReal && !simple;   // search + entities + voice row + engine detection
+        const showTts = pipelineReal;                   // the TTS card itself: both modes
         // STT shows whenever the pipeline is customized — in cascade (with TTS/search) AND
         // in Live mode (on its own, below Live Voice). In Live it's the engine that
         // transcribes the FIRST wake command for the local-vs-Live routing decision; the
         // rest of the pipeline stays hidden (Live speaks its own voice, grounds via the
         // model). Gated on the Customize-pipeline toggle so it's opt-in. Asterisked in Live.
         const sttReal = customPipeline;
-        const showStt = sttReal && !simple;
+        const showStt = sttReal;                        // both modes (see showTts above)
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
@@ -1796,8 +1803,8 @@ const VoiceAiPage = {
         // off, preset switch, Live hiding the pipeline). A stale entry keeps
         // anyExpanded true and dims every visible card indefinitely.
         const visibleStages = new Set(isHaAssist
-            ? (showPipeline ? ['tts', 'stt'] : [])
-            : ['model', ...(showStt ? ['stt'] : []), ...(showPipeline ? ['tts', 'search'] : []), ...(showEntities ? ['entities'] : [])]);
+            ? [...(showTts ? ['tts'] : []), ...(showStt ? ['stt'] : [])]
+            : ['model', ...(showStt ? ['stt'] : []), ...(showTts ? ['tts'] : []), ...(showPipeline ? ['search'] : []), ...(showEntities ? ['entities'] : [])]);
         for (const k of [...this._expandedCards]) {
             if (!visibleStages.has(k)) this._expandedCards.delete(k);
         }
@@ -1870,15 +1877,15 @@ const VoiceAiPage = {
         // (model/personality/search) since HA owns the conversation agent.
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
-            ${showPipeline ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
-            ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
+            ${showStt ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
+            ${showTts ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${S.grid([
                 gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
                 // Wake word is Advanced (D8): one choice, set once, and 'Hey Dashie'
                 // is right for nearly every household. Its VALUE is not lost — a
                 // non-default wake word is named in the section summary below.
-                simple ? '' : D.renderWakeWordCard({
+                D.renderWakeWordCard({
                     currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                     saving: this._savingKey === 'ai.defaultWakeWord',
                     compact: true,
@@ -1890,7 +1897,7 @@ const VoiceAiPage = {
                     compact: true,
                 }),
                 showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : '',
-                showPipeline ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
+                showTts ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
                 // Full-width: these are notes and sub-rows that belong under the grid,
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
