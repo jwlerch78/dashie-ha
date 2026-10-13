@@ -239,10 +239,14 @@ async function geminiSttBranch(req, res, sendJson) {
         if (r.keyFailure) await keyHealth.reportFailure('gemini', r.keyFailure.status);
         failed = r;
     }
-    const jwt = (!failed || failed.keyFailure) ? await cloudJwt() : '';
+    // Credits pay ONLY for the key's own fault (John 10-12, "Yes - A"): an outage, a timeout or an unparsed
+    // answer is not a key result, so the household's credits are not spent on it and the error stands.
+    const keyFault = !!failed && !!failed.keyFailure && keyHealth.isKeyFault(failed.keyFailure.status);
+    const jwt = (!failed || keyFault) ? await cloudJwt() : '';
     if (!jwt) {
         if (failed) {
-            console.warn(`DROP: stt-gemini-failed — ${failed.error} (status ${failed.status})${failed.keyFailure ? '; not signed in: no credits fallback' : ''}`);
+            console.warn(`DROP: stt-gemini-failed — ${failed.error} (status ${failed.status}, ${failed.keyFailure?.status || 'unclassified'})` +
+                `${keyFault ? '; not signed in: no credits fallback' : '; not the key\'s fault: no credits fallback'}`);
             sendJson(res, failed.status, { error: failed.error, ...(failed.message ? { message: failed.message } : {}) });
         } else {
             console.warn('DROP: stt-gemini-no-payer — no Gemini key is stored and the box is not signed in');
@@ -390,6 +394,13 @@ async function handleTts(req, res, sendJson) {
             // It is written to the account (key-health.js) so every tablet shows "Voice key error".
             // The usage row names the payer that SERVED the turn (credits), never the key that failed.
             if (r.keyFailure) await keyHealth.reportFailure(r.keyFailure.provider, r.keyFailure.status);
+            // Credits pay ONLY for the key's own fault (John 10-12, "Yes - A"). Until then this fell back on
+            // ANY failure, so a provider outage spent the household's credits.
+            if (!(r.keyFailure && keyHealth.isKeyFault(r.keyFailure.status))) {
+                console.warn(`DROP: tts byok ${route.serves} failed (${r.keyFailure?.status || r.error}): not the key's fault, no credits fallback`);
+                sendJson(res, r.status, { error: r.error, ...(r.message ? { message: r.message } : {}) });
+                return;
+            }
             const jwtFb = await cloudJwt();
             if (!jwtFb) {
                 // Signed out: no credits to fall back to. HA's own engines / on-device (John's Q4) is

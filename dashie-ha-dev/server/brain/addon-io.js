@@ -53,6 +53,7 @@ const { recordLocalUsage } = require('../usage-store');
 // from the aggregate above — see turn-log.js's header for why the two do not share
 // a file, a retention, or a backup posture.
 const turnLog = require('../turn-log');
+const { providerFetch } = require('../provider-fetch');   // every Google call: the dev fault switch
 
 // Sampling temperature by call INTENT (see Dashie 20260714_LOCAL_MODEL_BENCHMARK_RESULTS
 // "DECIDE-vs-NARRATE"): routing/action emission is a classification — sample
@@ -128,7 +129,7 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), GATEWAY_TIMEOUT_MS);
         try {
-            const resp = await fetch(chatUrl, {
+            const resp = await providerFetch(chatUrl, {
                 method: 'POST',
                 signal: ctl.signal,
                 headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -174,6 +175,12 @@ function createAddonIO({ endpoint, chatUrl: chatUrlOpt, model, key = '', provide
                     ok: false,
                     error: providerLabel ? `${providerLabel}: ${msg}` : msg,
                     latency_ms,
+                    // The provider's own answer, for brain-key-fallback.js: it classifies with the
+                    // SHARED key-health vocabulary (400 API_KEY_INVALID and 429 count too, which
+                    // `key_rejected` below does not), so the brain falls back on exactly the faults
+                    // the TTS and STT lanes do. The core ignores both fields.
+                    http_status: resp.status,
+                    error_body: msg,
                     ...(modelUnavailable
                         ? { model_unavailable: true, provider_label: providerLabel, model_id: useModel }
                         : {}),

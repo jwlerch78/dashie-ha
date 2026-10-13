@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // ⛔ GENERATED, DO NOT EDIT. Source: dashieapp_staging supabase/functions/_shared/key-health-vocab.ts
-// source sha256/16: a19dae63bdd88e32. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
+// source sha256/16: a69239042a74d4e2. Regenerate: node scripts/gen-addon-shared.mjs (in dashieapp_staging).
 // The add-on's 409 {reason:'key_failed', status} and the edge's byok_key_health.last_status are ONE list; the tablet reads both.
 'use strict';
 var __defProp = Object.defineProperty;
@@ -41,11 +41,12 @@ const KEY_FAILURE_STATUSES = [
   "timeout",
   // no answer in time
   "mint_failed",
-  // a Live token could not be minted and no status was available
+  // a Live token could not be minted and no status was available (an UNKNOWN cause:
+  //   NOT in PILL_STATUSES since 10-12, ruling A; no producer sends it today)
   "other"
   // anything else (including a 400 that is OUR malformed request)
 ];
-const PILL_STATUSES = /* @__PURE__ */ new Set(["invalid_key", "forbidden", "rate_limited", "mint_failed"]);
+const PILL_STATUSES = /* @__PURE__ */ new Set(["invalid_key", "forbidden", "rate_limited"]);
 function classifyKeyFailure(status, bodyText = "") {
   if (status === null) return "timeout";
   if (status === 401) return "invalid_key";

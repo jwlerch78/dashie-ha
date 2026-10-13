@@ -76,6 +76,8 @@ const settingsStore = require('./settings-store');
 const { createAddonIO } = require('./brain/addon-io');
 const { resolveByokTarget } = require('./brain/providers');
 const brain = require('./brain/voice-brain.bundle.js');
+const keyFallback = require('./brain-key-fallback');
+const keyHealth = require('./key-health');
 
 const CLOUD_TIMEOUT_MS = 60000;
 
@@ -112,7 +114,9 @@ async function converseCloud(payload, jwt) {
     } catch (e) {
         clearTimeout(timer);
         console.error('DROP: cloud brain unreachable:', e.message);
-        return speak("I couldn't reach Dashie Cloud just now. Please try again in a moment.");
+        // `unreachable` (beside the body, not in it) lets the key fallback keep its own, more
+        // useful "replace the key" turn instead of this one. Every other caller ignores it.
+        return { ...speak("I couldn't reach Dashie Cloud just now. Please try again in a moment."), unreachable: true };
     }
 }
 
@@ -182,6 +186,7 @@ async function converse(payload) {
     let shell = null;      // createAddonIO options for an on-box/BYOK turn
     let routeTag = '';     // for the DASHIE-TURN log line
     let metered = false;   // does this route spend the household's money?
+    let byokProvider = ''; // set on the BYOK tier: a refused key there falls back to credits
     const localBox = !jwt ? capability.readLocalBoxLlm() : null;
     if (acct?.routeReason === 'local_model' && acct.localLlmUrl && acct.localLlmModel) {
         // ── TIER 1 (signed in) — the ACCOUNT's own local endpoint (added 2026-08-21) ─
@@ -237,6 +242,7 @@ async function converse(payload) {
                 extraHeaders: byok.headers || {},
             };
             routeTag = `byok:${byok.provider}`;
+            byokProvider = byok.provider;
             metered = true;   // the household's own provider key, always
         } else if (acct?.route === 'local') {
             // 🔴 NO SILENT DROP (standing rule 2). We are about to send a turn to the
@@ -307,7 +313,10 @@ async function converse(payload) {
     const model = shell.model;
     // accountToken is THE gate: present → the account-backed shell (tools, credit-aware
     // gating, console History); absent → the no-account shell (no Dashie service contacted).
-    const io = createAddonIO({ ...shell, accountToken: jwt });
+    // A BYOK turn's model calls are WATCHED (not changed) so a refused key can fall back to credits
+    // after the turn: brain-key-fallback.js has the rules (key faults only, pass 1 only, report first).
+    const watch = byokProvider ? keyFallback.watchCalls(createAddonIO({ ...shell, accountToken: jwt })) : null;
+    const io = watch ? watch.io : createAddonIO({ ...shell, accountToken: jwt });
 
     // ── FREEFORM: the household's own pass-1 prompt, if they wrote one ──────────────
     //
@@ -365,6 +374,13 @@ async function converse(payload) {
         );
         console.log(`DASHIE-BRAIN type=${turn?.type || '?'} ok=${turn?.ok !== false} ` +
             `latency=${Date.now() - t0}ms brain=${brain.BRAIN_SOURCE_SHA?.slice(0, 9) || '?'}`);
+        if (watch) {
+            const fb = await keyFallback.afterByokTurn({
+                provider: byokProvider, turn, seen: watch.seen(), jwt, keyHealth,
+                askCloud: () => converseCloud({ ...payload, text }, jwt),
+            });
+            if (fb) return fb;
+        }
         return { status: 200, body: turn, routeTag };
     } catch (e) {
         console.error('DROP: brain crashed:', (e && e.stack) || e);

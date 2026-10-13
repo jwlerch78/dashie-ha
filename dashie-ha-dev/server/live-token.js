@@ -14,6 +14,8 @@
 // The token is single-purpose (Live only) and expires quickly, so a leaked token is a
 // bounded ~one-session, ~minutes exposure — NOT the raw key.
 
+const { providerFetch } = require('./provider-fetch');   // every Google call: the dev fault switch
+
 const MINT_URL = 'https://generativelanguage.googleapis.com/v1alpha/auth_tokens';
 
 const DEFAULTS = {
@@ -49,7 +51,7 @@ async function mintEphemeralToken(geminiKey, opts = {}) {
         body.bidiGenerateContentSetup = { model: m };
     }
 
-    const r = await fetch(`${MINT_URL}?key=${encodeURIComponent(key)}`, {
+    const r = await providerFetch(`${MINT_URL}?key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

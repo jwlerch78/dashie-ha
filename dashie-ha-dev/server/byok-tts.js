@@ -71,6 +71,7 @@ const { signedIn } = require('./capability');
 // The ONE balance read (shared with the brain's tool gate), three-valued.
 const { boxCredits } = require('./credit-balance');
 const { classifyKeyFailure } = require('./generated/key-health-vocab');
+const { providerFetch } = require('./provider-fetch');   // every Google call: the dev fault switch
 
 const TTS_TIMEOUT_MS = 60000;
 const MAX_CHARS = 5000;
@@ -124,7 +125,7 @@ const SPEECH_KEYS = ['elevenlabs', 'inworld'];
 function fetchWithTimeout(url, init) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TTS_TIMEOUT_MS);
-    return fetch(url, { ...init, signal: ctl.signal }).finally(() => clearTimeout(timer));
+    return providerFetch(url, { ...init, signal: ctl.signal }).finally(() => clearTimeout(timer));
 }
 
 /**

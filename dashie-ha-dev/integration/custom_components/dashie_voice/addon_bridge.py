@@ -12,8 +12,15 @@ import json
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
-from aiohttp import ClientTimeout
+from aiohttp import ClientConnectorError, ClientTimeout
+
+try:  # aiohttp >= 3.10: a connect-phase timeout has its own type. Older: absent, so only ClientConnectorError counts.
+    from aiohttp import ConnectionTimeoutError as _ConnectTimeout
+except ImportError:  # pragma: no cover
+    _ConnectTimeout = None
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -46,6 +53,13 @@ _base_cache: tuple[str, float] | None = None
 
 class AddonUnavailable(Exception):
     """The Dashie for Home Assistant add-on can't be reached (not installed, stopped, or no bridge secret)."""
+
+
+class AddonOutcomeUnknown(Exception):
+    """The request may have REACHED the add-on, and then the exchange failed (a timeout, a dropped connection,
+    an unreadable reply). The add-on may already have acted on it, e.g. billed a credits transcription, so a
+    caller must NOT retry it elsewhere. Raised only by call_addon_raw_phased; every other site keeps the
+    single AddonUnavailable."""
 
 
 class SharingDisabled(AddonUnavailable):
@@ -239,6 +253,93 @@ async def call_addon_raw(
     except Exception as err:  # noqa: BLE001
         _base_cache = None  # force rediscovery next call
         raise AddonUnavailable(f"add-on call failed: {err}") from err
+
+
+async def call_addon_raw_phased(
+    hass: HomeAssistant,
+    path: str,
+    body: bytes,
+    content_type: str,
+    timeout_s: int = 60,
+    connect_timeout_s: int = 5,
+) -> tuple[int, bytes, str]:
+    """call_addon_raw for ONE caller, the tablet's STT relay (stt_relay_view.py), with the failure split in two.
+
+    🔴 Why a sibling and not a change to call_addon_raw (O, 10-12, condition 1): call_addon_raw is shared and
+    every caller relies on "any failure → AddonUnavailable". Only the relay needs to know WHEN it failed.
+
+      AddonUnavailable    the request was NEVER SENT: no secret, no add-on found, or the TCP connection could
+                          not be made (refused / DNS / connect timeout). Nothing happened; a retry elsewhere is safe.
+      AddonOutcomeUnknown anything after the connection was made: a timeout, a dropped connection, an
+                          unreadable reply. The add-on may have acted (e.g. billed credits); never retry it.
+
+    The split is deliberately CONSERVATIVE: only a connection-establishment failure counts as "never sent".
+    Every other exception counts as possibly sent. If a failure is misclassified, it errs toward NOT retrying,
+    which costs one turn; the other direction would charge a household twice.
+    """
+    global _base_cache  # noqa: PLW0603
+    secret = await _read_bridge_secret(hass)
+    if not secret:
+        raise AddonUnavailable("bridge secret not found — is the Dashie for Home Assistant add-on installed?")
+
+    base = await _resolve_base(hass)
+    session = async_get_clientsession(hass)
+    never_sent = (ClientConnectorError,) + ((_ConnectTimeout,) if _ConnectTimeout else ())
+    try:
+        async with session.post(
+            f"{base}{path}",
+            data=body,
+            headers={"Content-Type": content_type, BRIDGE_HEADER: secret},
+            timeout=ClientTimeout(total=timeout_s, sock_connect=connect_timeout_s),
+        ) as resp:
+            payload = await resp.read()
+            return resp.status, payload, resp.headers.get("Content-Type", "")
+    except AddonUnavailable:
+        raise
+    except never_sent as err:
+        _base_cache = None  # force rediscovery next call
+        raise AddonUnavailable(f"add-on not reachable (request never sent): {err}") from err
+    except Exception as err:  # noqa: BLE001
+        _base_cache = None
+        raise AddonOutcomeUnknown(f"add-on exchange failed after connecting: {type(err).__name__}: {err}") from err
+
+
+@asynccontextmanager
+async def stream_addon(
+    hass: HomeAssistant,
+    path: str,
+    payload: dict,
+    first_byte_timeout_s: int = 20,
+) -> AsyncIterator:
+    """POST JSON to an add-on endpoint and yield the OPEN aiohttp response, unread.
+
+    The streaming sibling of call_addon_raw: the caller reads `resp.status`,
+    `resp.headers` and iterates `resp.content` as bytes arrive (the tablet's
+    Gemini TTS, path K). The timeout covers connect + headers only; a long reply
+    keeps streaming. Raises AddonUnavailable when the add-on or its bridge secret
+    is missing, or the request cannot be sent.
+    """
+    global _base_cache  # noqa: PLW0603
+    secret = await _read_bridge_secret(hass)
+    if not secret:
+        raise AddonUnavailable("bridge secret not found — is the Dashie for Home Assistant add-on installed?")
+
+    base = await _resolve_base(hass)
+    session = async_get_clientsession(hass)
+    try:
+        resp = await session.post(
+            f"{base}{path}",
+            json=payload,
+            headers={"Content-Type": "application/json", BRIDGE_HEADER: secret},
+            timeout=ClientTimeout(total=None, sock_connect=first_byte_timeout_s, sock_read=first_byte_timeout_s),
+        )
+    except Exception as err:  # noqa: BLE001
+        _base_cache = None  # force rediscovery next call
+        raise AddonUnavailable(f"add-on call failed: {err}") from err
+    try:
+        yield resp
+    finally:
+        resp.release()
 
 
 async def call_addon_json(

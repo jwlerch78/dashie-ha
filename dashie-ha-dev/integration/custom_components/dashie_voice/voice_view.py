@@ -513,4 +513,10 @@ def register_voice_views(hass: HomeAssistant) -> None:
     hass.http.register_view(DashieVoiceAccountAuthorizeView())
     hass.http.register_view(DashieVoiceLiveTokenView())
     hass.http.register_view(DashieVoiceLeaseView())
+    from .tts_stream_view import register_tts_stream_view  # noqa: PLC0415 — path K lives in its own file
+
+    register_tts_stream_view(hass)
+    from .stt_relay_view import register_stt_relay_view  # noqa: PLC0415 — the tablet's STT relay, its own file
+
+    register_stt_relay_view(hass)
     _LOGGER.info("Registered Dashie Voice gateway views (/api/dashie_voice/voice/* + legacy /api/dashie/voice/* aliases)")
