@@ -226,8 +226,17 @@ const VoiceAiFreeform = {
                     ? `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.75; white-space: pre-wrap; background: var(--bg-subtle, #fafafa); border: 1px solid var(--border, #e5e7eb); border-radius: 7px; padding: 12px 14px; margin: 11px 0 0; max-height: 46vh; overflow: auto;">${esc(this._rawText())}</pre>`
                     : `<textarea class="form-input" rows="14" spellcheck="false"
                         style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.75; margin-top: 11px; resize: vertical;"
-                        oninput="VoiceAiFreeform.set(this.value)">${esc(m.prompt)}</textarea>
-                       <div style="margin-top: 9px;"><button class="btn btn-ghost btn-sm" onclick="VoiceAiFreeform.renderTemplate()" ${m.busy ? 'disabled' : ''}>Render</button></div>`}
+                        oninput="VoiceAiFreeform.set(this.value)">${esc(m.prompt)}</textarea>`}
+                ${/* 🔴 The Render button belongs to BOTH views (VH's headless walkthrough, 2026-10-14).
+                      It used to live inside the `: `...`` editable arm only, while the RAW view is the
+                      one that prints `[not rendered yet — press Render]` (freeform-prompt.js:174) — so the
+                      only view that ASKS for Render was the only view without it. The instruction was
+                      unfollowable exactly where it appeared.
+                      ⚠️ Fixed by moving the CONTROL, not by editing the string: that sentence is mirrored
+                      in HV's `dashie-ha/server/freeform-prompt.js:175`, so changing the copy would have
+                      split a mirror to fix an affordance. Making the instruction TRUE is both smaller and
+                      the better reading of it. */ ''}
+                <div style="margin-top: 9px;"><button class="btn btn-ghost btn-sm" onclick="VoiceAiFreeform.renderTemplate()" ${m.busy ? 'disabled' : ''}>Render</button></div>
             </div>`;
     },
 

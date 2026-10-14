@@ -208,6 +208,39 @@ t('7b CONTROL: and NOT a disabled one (a leg that can fail)',
   typeof rawText === 'string' && !rawText.includes('sports('),
   'a tool that is off is reaching the Raw view the user is told is what gets sent');
 
+// ── 7c/7d the Render button must exist in BOTH views ───────────────────────
+// 🔴 WHY THIS LEG EXISTS: VH's headless walkthrough found, and no gate here noticed, that
+// the Render button lived in the EDITABLE arm only — while the RAW view is the one that
+// prints "[not rendered yet — press Render]" (freeform-prompt.js:174). The only view that
+// ASKS for Render was the only view without it, so the instruction was unfollowable exactly
+// where it appeared. Fixed by moving the control, not the copy (that sentence is mirrored in
+// the add-on server's freeform-prompt.js, and splitting a mirror to fix an affordance is the
+// wrong trade).
+//
+// ⚠️ The CONTROL legs matter more than the assertion: if both views rendered the same HTML,
+// "Render is in both" would be true and meaningless. 7c-pre pins that the two views really
+// differ in the way that defines them (<pre> vs <textarea>), so 7d is about Render and not
+// about the switch silently doing nothing — which was the ORIGINAL bug on this page.
+const viewHtml = (v) => {
+    try {
+        run(`VoiceAiFreeform.open(); VoiceAiFreeform.setView('${v}');`);
+        return run('VoiceAiFreeform.render()');
+    } catch (e) { return `THREW ${e.message}`; }
+};
+const rawHtml = viewHtml('raw');
+const editHtml = viewHtml('edit');
+t('7c-pre CONTROL: the two views really are different renders (<pre> vs <textarea>)',
+  typeof rawHtml === 'string' && typeof editHtml === 'string'
+  && /<pre/.test(rawHtml) && !/<textarea/.test(rawHtml)
+  && /<textarea/.test(editHtml) && !/<pre/.test(editHtml),
+  'the view switch is not changing the render, so 7c/7d say nothing about Render');
+t('7c the Render button is in the RAW view (the view that says "press Render")',
+  typeof rawHtml === 'string' && /renderTemplate\(\)/.test(rawHtml) && />Render</.test(rawHtml),
+  'Raw tells the user to press Render and offers no Render button');
+t('7d ...and still in the EDITABLE view',
+  typeof editHtml === 'string' && /renderTemplate\(\)/.test(editHtml) && />Render</.test(editHtml),
+  'the button moved out of Editable instead of being shared by both');
+
 const TOOL_IDS = run('PromptToolCatalog.TOOLS.map((t) => t.id)');
 
 // ── 8 the tools card's CHECKED state, which no leg read until 2026-10-05 ─────
