@@ -1971,7 +1971,8 @@ const VoiceAiPage = {
             // The stored key is untouched, exactly as with 'Always use AI for chores'
             // (hidden 2026-10-04): an account that already chose it keeps its choice.
             (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
-                ? this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                ? this._toggleRow('Retrieve pictures', 'Allow the AI to show pictures with its responses.', 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                  + (d['ai.retrievePicturesEnabled'] ? this._pictureSourceRow(d, O) : '')
                 : '',
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
@@ -2671,6 +2672,30 @@ const VoiceAiPage = {
             <div class="form-group">
                 <label class="form-label">AI model ${saving ? '<span style="color: var(--text-muted); font-weight: 400;">· saving…</span>' : ''}</label>
                 <select class="form-select" onchange="VoiceAiPage.saveDefault('ai.model', this.value)">${groups}</select>
+            </div>
+        `;
+    },
+
+    /** Picture source (John 10-13: "the user should select the source here with credits opening up the availability
+     *  of serper"). Free is always there. Google Images is billed, so: no row at all when this account doesn't see
+     *  credits (the HA MVP sells none, John 10-14 — a greyed paid option would advertise what isn't sold); greyed with
+     *  the reason when it sees credits but has none. The price lives HERE, on the Google option only, never on Free.
+     *  The brain re-checks and falls back to free with no credits, so a stale choice can't bill. */
+    _pictureSourceRow(d, O) {
+        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return '';
+        const bal = window.CreditsService?.balance();
+        const local = typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode;
+        const googleOk = !local && (!bal || typeof bal.balance !== 'number' || bal.balance > 0);   // loading → optimistic
+        const current = d['ai.pictureSource'] === 'google' ? 'google' : 'free';
+        const saving = this._savingKey === 'ai.pictureSource';
+        const google = `Google Images — uses credits (${this._escape(O.imageSearchCost)}/picture)`;
+        return `
+            <div class="form-group">
+                <label class="form-label">Picture source ${saving ? '<span style="color: var(--text-muted); font-weight: 400;">· saving…</span>' : ''}</label>
+                <select class="form-select" onchange="VoiceAiPage.saveDefault('ai.pictureSource', this.value)">
+                    <option value="free" ${current === 'free' ? 'selected' : ''}>Free (Wikipedia &amp; stock photos)</option>
+                    <option value="google" ${current === 'google' ? 'selected' : ''} ${googleOk ? '' : 'disabled'}>${google}${googleOk ? '' : ' — needs credits'}</option>
+                </select>
             </div>
         `;
     },

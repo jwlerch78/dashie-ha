@@ -56,6 +56,7 @@ const VoiceAiApi = {
         ['voice', 'haSttEngineId'],
         ['ai', 'webSearchEnabled'],
         ['ai', 'retrievePicturesEnabled'],
+        ['ai', 'pictureSource'],          // John 10-13: 'free' | 'google' (the Picture source row writes it)
         ['ai', 'promptForFeedback'],
         ['ai', 'conversationContextEnabled'],
         ['ai', 'conversationTimeout'],
@@ -159,6 +160,8 @@ const VoiceAiApi = {
         'ai.toolsEnabled': 'home_assistant,live_context,calendar,weather,chores,music,answer',
         'ai.webSearchEnabled': true,
         'ai.retrievePicturesEnabled': false,
+        // Where pictures come from (John 10-13). 'free' = Wikipedia/Commons/Pexels; unset means free in the brain too.
+        'ai.pictureSource': 'free',
         // Defaults ON, matching the native settings page (getPromptForFeedbackEnabled
         // treats an unset value as enabled — !== false).
         'ai.promptForFeedback': true,
