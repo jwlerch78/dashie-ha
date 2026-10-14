@@ -295,11 +295,13 @@ P._expandedCards = new Set();
 // the real `_renderAiDefaults()`. check-release-scope's leg G notes the hop it
 // does not walk; these are it. Keep them cross-referenced if either moves.
 //
-// 🔴 EVERY LEG ABOVE RUNS AS AN ALPHA ACCOUNT. The stub is
-// `shouldShow: () => true`, so legs 13/29/30 assert the Retrieve-pictures row
-// exists — true for alpha, and the opposite of what a standard user must see on
-// this release. A gate with one cohort hardcoded cannot notice a cohort gate at
-// all, which is how the row would have shipped with its per-search price.
+// 🔴 EVERY LEG ABOVE RUNS AS AN ALPHA ACCOUNT. The stub is `shouldShow: () => true`, so
+// legs 13/29/30 assert the Retrieve-pictures row exists. A gate with one cohort hardcoded
+// cannot notice a cohort gate at all, which is why this block drives BOTH cohorts.
+// ⚠️ Updated 2026-10-14: the row's presence is no longer cohort-dependent — the toggle is
+// un-gated and legs 13/29/30 are now true for everybody. What IS cohort-dependent is the
+// credits-priced Google option inside it (leg 32b). So the reason this block exists has
+// narrowed, not disappeared: it is the only place that proves the PAID half stays alpha.
 {
   const realShouldShow = sandbox.FeatureGate.shouldShow;
   sandbox.FeatureGate.shouldShow = (f) => f !== 'credits';
@@ -308,19 +310,34 @@ P._expandedCards = new Set();
   sandbox.FeatureGate.shouldShow = realShouldShow;
   const alpha = P._renderAiDefaults();
 
-  t('31 CONTROL: an ALPHA account still SEES Retrieve pictures',
-    alpha.includes('Retrieve pictures'),
-    'the row was deleted rather than cohort-gated — John asked for "alpha gated", and '
-    + 'leg 32 would then pass on an absence that is true for everybody');
-  t('32 a STANDARD account sees NO Retrieve pictures row',
-    !standard.includes('Retrieve pictures'),
-    'the row quotes a per-search price and the feature behind it bills credits through '
-    + "Dashie's own Serper key — both cut from this release. Switching it on would arm a "
-    + 'feature that cannot bill, and a picture that never arrives reads as a broken product');
-  t('33 …and the collapsed summary does not report a state for it either',
-    !/pictures (on|off)/.test(standard) && /pictures (on|off)/.test(alpha),
-    'the section summary still says "pictures off" for a control the standard user cannot '
-    + 'find — naming a setting that, for them, does not exist');
+  // 🔴 REWRITTEN 2026-10-14 (John: "agree - ungate the toggle"). These three legs used to
+  // assert the OPPOSITE: that a standard account sees no Retrieve-pictures row and no summary
+  // for it. That was right while the row quoted a per-search price and the feature billed
+  // credits. Pictures now default to a FREE source, the only priced choice is the Google
+  // option inside `_pictureSourceRow`, and that function gates itself on `credits`.
+  //
+  // ⚠️ The axis these legs defend is UNCHANGED — "no pay surface reaches a standard account".
+  // What moved is where the pay surface IS. So the assertions got STRONGER, not merely
+  // flipped: it is no longer enough that a standard account sees something, it must see the
+  // free control and NOT the paid option. A naive inversion (just `standard.includes(...)`)
+  // would have passed on a render that also offered Google Images to a cohort that cannot buy it.
+  t('31 CONTROL: an ALPHA account sees Retrieve pictures AND the paid source option',
+    alpha.includes('Retrieve pictures') && /Google Images/.test(alpha),
+    'alpha is the cohort that CAN buy; losing the Google option here would make leg 32 pass '
+    + 'on an absence that is true for everybody, which is how a deletion disguises itself as a gate');
+  t('32 a STANDARD account SEES Retrieve pictures (free pictures are not a pay surface)',
+    standard.includes('Retrieve pictures'),
+    'the toggle is credits-gated again. Pictures resolve free by default, so gating the toggle '
+    + 'hides a free feature: Cloud/Hybrid seed it TRUE, so the household gets pictures it can '
+    + 'neither see nor turn off, and Local/HA-Assist seed it FALSE and can never reach it');
+  t('32b …and NEVER the credits-priced Google option',
+    !/Google Images/.test(standard) && !/uses credits/.test(standard),
+    'the paid source leaked to a cohort that is sold no credits — this is the pay-surface '
+    + 'invariant leg 32 used to protect, and it now lives here');
+  t('33 …and the collapsed summary DOES report its state, for both cohorts',
+    /pictures (on|off)/.test(standard) && /pictures (on|off)/.test(alpha),
+    'the summary is still withheld from the standard cohort — the half of the old gating that '
+    + 'left Cloud/Hybrid households unable to see that pictures were on');
   t('33b CONTROL: the standard render is otherwise intact',
     standard.length > 500 && standard.includes('AI Model') && standard.includes('Voice &amp; LLM'),
     `${standard.length} chars — hiding the row broke the page, so 32/33 pass vacuously`);

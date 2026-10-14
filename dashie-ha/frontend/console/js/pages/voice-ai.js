@@ -1949,31 +1949,30 @@ const VoiceAiPage = {
         // Customize × agent mode × HA reachable) is the part most likely to break
         // silently, so it was deliberately not touched.
         const toolToggles = [
-            // 🔴 ALPHA-GATED for the HA first release (D3, 2026-10-09) — the same cohort
-            // shape as credits and scheduled actions, not a deletion.
+            // ✅ UN-GATED 2026-10-14 (John: "agree - ungate the toggle"). It was alpha-gated
+            // on 2026-10-09 (D3) and the gate was sound for its time: the row quoted a
+            // per-search price and the feature behind it billed credits through Dashie's own
+            // Serper key, so `credits` stood in for "this costs money".
             //
-            // This row is a PAY SURFACE whichever way you read it. Its own copy quotes a
-            // per-search price, and the thing behind it runs on DASHIE'S Serper key
-            // through a cloud gateway and bills credits — both of which the release
-            // removes. Leaving the row with the price stripped would be worse than
-            // either: the household would switch on a feature that silently cannot
-            // bill, and a picture that never appears reads as a broken product.
+            // 🔴 WHAT CHANGED IS THE FEATURE, NOT THE POLICY. Pictures now resolve through a
+            // FREE source by default (Wikipedia/Wikidata → Commons → Pexels, VH's round-3
+            // `free_image.ts`: 75/80 against Serper's 78/80 on 40 held-out queries, openly
+            // licensed). Nothing here costs credits unless the household picks Google, and
+            // that choice lives in `_pictureSourceRow`, which gates ITSELF on `credits` and
+            // carries the only price on the page. So the toggle no longer has a pay surface
+            // to hide and the gate had become the defect instead of the guard:
             //
-            // ⚠️ It is NOT replaced by "a household Serper key" yet, and that is the
-            // whole reason it waits rather than being rewired. Serper's manifest row is
-            // `adapter: 'pending'`: nothing on the box spends a stored Serper key,
-            // because the brain has no image-search hook to spend it through
-            // (`addon-io.js` says outright that image search has no hook and the core
-            // resolves it inline). John bumped Serper's priority on 2026-10-09 — when
-            // that hook lands and the adapter flips to shipped, this row comes back
-            // UNGATED and priced at the household's own key.
+            //   Cloud/Hybrid seeded it TRUE (see `_seedPresetDefaults`) while hiding the row
+            //   AND its summary — pictures were on, free, and the household could neither
+            //   turn them off nor see that they were on. Local/HA-Assist seeded it FALSE,
+            //   which with no row meant pictures could never be reached at all.
             //
-            // The stored key is untouched, exactly as with 'Always use AI for chores'
-            // (hidden 2026-10-04): an account that already chose it keeps its choice.
-            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
-                ? this._toggleRow('Retrieve pictures', 'Allow the AI to show pictures with its responses.', 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
-                  + (d['ai.retrievePicturesEnabled'] ? this._pictureSourceRow(d, O) : '')
-                : '',
+            // ⚠️ So do NOT re-gate this on `credits` to "be safe": that re-hides a free
+            // feature. The thing to gate is the PAID SOURCE, and it is already gated at its
+            // own site. check-voice-sections legs 31/32/33 pin both halves — standard sees
+            // the toggle, standard never sees the Google option.
+            this._toggleRow('Retrieve pictures', 'Allow the AI to show pictures with its responses.', 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                + (d['ai.retrievePicturesEnabled'] ? this._pictureSourceRow(d, O) : ''),
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
             // FeatureGate.shouldShow('promptForFeedback').
@@ -2011,11 +2010,13 @@ const VoiceAiPage = {
         const toolsSummary = [
             ...window.VoiceAiPromptSection.summary(promptSectionArgs),
             pipelineReal ? lbl(searchOptions, searchSelected) : '',
-            // Only summarised where the row is actually offered. A collapsed section
-            // reporting 'pictures off' for a control the user cannot find is naming a
-            // setting that, for them, does not exist.
-            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
-                ? (d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off') : '',
+            // Summarised wherever the row is offered — which, since the 10-14 un-gating, is
+            // everywhere. The rule it was expressing has not changed: a collapsed section
+            // reporting 'pictures off' for a control the user cannot find names a setting
+            // that, for them, does not exist. It is just that the control is now findable,
+            // and withholding the summary was the half that left Cloud/Hybrid households
+            // unable to see that pictures were on.
+            d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
         ].filter(Boolean).join(' · ');
 
         return `

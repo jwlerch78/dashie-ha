@@ -85,10 +85,16 @@
  * FUNCTION answers correctly; it does not prove the picker renders its answer
  * (`available(id)` is passed in by the page — one hop this gate does not walk).
  *
- * 📌 The OTHER pay surface on that page — the credit-priced "Retrieve pictures"
- * row — is cohort-gated the same way and asserted in **check-voice-sections legs
- * 31–33**, which lives there because that is the harness able to drive the real
- * `_renderAiDefaults()`. Keep the two cross-referenced if either moves.
+ * 📌 The OTHER pay surface on that page MOVED on 2026-10-14, and the note that used to
+ * sit here is now wrong in a way worth stating. It said the "Retrieve pictures" row was
+ * itself credit-priced and cohort-gated like the rest. It is not any more: John un-gated
+ * the toggle ("agree - ungate the toggle") once pictures began resolving through a FREE
+ * source by default, and the only priced thing is the Google option inside
+ * `_pictureSourceRow`, which gates itself. **So the pay surface is the SOURCE SELECT, not
+ * the toggle** — asserted in check-voice-sections legs 31/32/32b/33, still the harness
+ * able to drive the real `_renderAiDefaults()`. Keep the two cross-referenced if either
+ * moves, and do not "restore" a gate on the toggle: that hides a free feature, which is
+ * the defect those legs now catch.
  *
  * Exit 0 = every leg passes, 1 = a violation, 2 = cannot check.
  */
