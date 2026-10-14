@@ -609,7 +609,8 @@ const VoiceAiPage = {
         const stored = String(d['voice.pipelinePreset'] || '');
         if (stored) return stored;
         if (String(d['voice.controlMethod']) === 'voice_assistant') return 'ha_assist';
-        const localVoice = String(d['voice.ttsProvider']) !== 'dashie_cloud'
+        // Both cloud voices count as cloud (Gemini is the default, John 2026-10-14), else Gemini derives Hybrid.
+        const localVoice = !['dashie_cloud', 'gemini'].includes(String(d['voice.ttsProvider']))
             && String(d['voice.sttProvider']) !== 'dashie_cloud';
         if (String(d['ai.model']) === 'local' && localVoice) return 'local';
         if (localVoice) return 'hybrid';
@@ -950,7 +951,7 @@ const VoiceAiPage = {
         this.saveDefault('voice.pipelinePreset', preset);
         this.saveDefault('voice.controlMethod', preset === 'ha_assist' ? 'voice_assistant' : 'dashie_cloud');
         this.saveDefault('voice.sttProvider', String(d['voice.sttProvider'] || 'dashie_cloud'));
-        this.saveDefault('voice.ttsProvider', String(d['voice.ttsProvider'] || 'dashie_cloud'));
+        this.saveDefault('voice.ttsProvider', String(d['voice.ttsProvider'] || 'gemini'));
         if (String(d['ai.model'] || '')) this.saveDefault('ai.model', String(d['ai.model']));
 
         // Cloud/Hybrid ship the conversational defaults ON out of the box — but only
@@ -1013,7 +1014,7 @@ const VoiceAiPage = {
         const hasHaEngine = has('ha_engine');
 
         if (presetId === 'hybrid') {
-            const currentIsLocal = currentValid && current !== 'dashie_cloud';
+            const currentIsLocal = currentValid && !['dashie_cloud', 'gemini'].includes(current);
             if (currentIsLocal) return;   // deliberate local choice — keep it
             // Hybrid = cloud AI + on-device voice: default to the BUNDLED on-device engines
             // (sherpa STT / built-in device TTS), not HA Whisper/Piper (John 2026-07-28). The
@@ -1030,7 +1031,7 @@ const VoiceAiPage = {
             return;
         }
         if (currentValid) return;
-        const seed = presetId === 'cloud' ? 'dashie_cloud'
+        const seed = presetId === 'cloud' ? (stageKey === 'tts' ? 'gemini' : 'dashie_cloud')
             : presetId === 'ha_assist' ? 'va_default'   // the Assist pipeline itself
             : (hasHaEngine ? 'ha_engine' : 'android_voice');
         if (!has(seed)) return;
@@ -1829,7 +1830,7 @@ const VoiceAiPage = {
         // not "a key exists somewhere".
         const withLaneKey = (options, stageKey, selectedId) =>
             (O.laneKeyed(stageKey, this._lanes)
-                ? (options || []).map(o => (o && O._sameRow(o.id, selectedId) ? { ...o, keyed: true } : o))
+                ? (options || []).map(o => (o && O._sameRow(o.id, selectedId, stageKey) ? { ...o, keyed: true } : o))
                 : options);
         const card = (title, stageKey, options, selectedId) => withServesNote(VoiceAiCards.render({
             title, stageKey, options: withLaneKey(options, stageKey, selectedId), selectedId,

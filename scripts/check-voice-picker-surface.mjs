@@ -416,11 +416,9 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
 // always safe; adding to it needs a reason that names who decided.
 {
     const UNASSEMBLED = {
-        // John has not ruled on "ship Gemini STT in the console now, tablet half next
-        // release?" (asked 2026-10-08, still open 10-11). Wiring it would answer his
-        // question for him; leaving it undeclared would read as an oversight. So it is
-        // declared, and this entry is deleted the moment he says yes.
-        gemini: 'awaiting John: console-now vs tablet-next-release (asked 2026-10-08)',
+        // (`gemini` was declared here until 2026-10-14, when it became the TTS DEFAULT row and is
+        // assembled. ⚠️ This leg is a UNION across stages, so it no longer witnesses the STT `gemini`
+        // row on its own; that row is represented by the dashie_cloud alias, leg 13f2.)
     };
 
     setLocalMode(false);
@@ -521,15 +519,25 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
         `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', { tts: { serves: 'operator_url', rows: {} } }))}`,
         'without it the household reads a priced row as their voice while something else speaks — the card is the only place that disagreement is visible');
 
-    check('leg 13f2 — ⚖️ the ALIAS is EARNED: dashie_cloud/gemini are one row, so no disclosure',
-        O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS) === null
-        && O._sameRow('dashie_cloud', 'gemini') === true
-        && O._sameRow('dashie_cloud', 'operator_url') === false,
-        `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS))} `
-        + `sameRow(dc,gemini)=${O._sameRow('dashie_cloud', 'gemini')} sameRow(dc,operator)=${O._sameRow('dashie_cloud', 'operator_url')}`,
+    // 🔴 RE-AIMED 2026-10-14 to STT. TTS now has TWO real rows (`gemini` became the default voice, John
+    // 10-14), so on TTS the alias must NOT hold — leg 13f3 asserts the opposite there.
+    const STT_GEMINI_SERVES = { stt: { serves: 'gemini', rows: {} } };
+    check('leg 13f2 — ⚖️ the STT ALIAS is EARNED: dashie_cloud/gemini are one row, so no disclosure',
+        O.servesDisclosure('stt', 'dashie_cloud', STT_GEMINI_SERVES) === null
+        && O._sameRow('dashie_cloud', 'gemini', 'stt') === true
+        && O._sameRow('dashie_cloud', 'operator_url', 'stt') === false,
+        `disclosure=${JSON.stringify(O.servesDisclosure('stt', 'dashie_cloud', STT_GEMINI_SERVES))} `
+        + `sameRow(dc,gemini,stt)=${O._sameRow('dashie_cloud', 'gemini', 'stt')} sameRow(dc,operator,stt)=${O._sameRow('dashie_cloud', 'operator_url', 'stt')}`,
         'the suppression must be EARNED by a declared alias, not by the sentence quietly going missing. '
         + 'The second clause is the control: if _sameRow said yes to everything, this leg would still '
         + 'pass on the first clause while the picker had stopped disclosing anything at all');
+
+    check('leg 13f3 — on TTS, Gemini and Dashie Cloud are TWO rows: a Dashie-Cloud choice served by the Gemini key says so',
+        O._sameRow('dashie_cloud', 'gemini', 'tts') === false
+        && O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS) === 'Running on your Gemini key right now.',
+        `sameRow(dc,gemini,tts)=${O._sameRow('dashie_cloud', 'gemini', 'tts')} `
+        + `disclosure=${JSON.stringify(O.servesDisclosure('tts', 'dashie_cloud', KEYED_NO_CREDITS))}`,
+        'byok-tts resolveProvider speaks a Dashie-Cloud household on its Gemini key when it has no credits; with a separate Gemini row that is a different VOICE than the selected row, and the card is the only place the household can see it. Applying the STT alias here would hide it and put the key icon on both rows');
 
     check('leg 13g — ⚖️ NEGATIVE CONTROL: no disclosure when serves IS the selected row',
         O.servesDisclosure('tts', 'gemini', KEYED_NO_CREDITS) === null,
@@ -760,7 +768,7 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
             // Alias pairs are ONE row (dashie_cloud ≡ gemini), so there is no mismatch to
             // disclose. Skipped via the SAME predicate the picker uses — not a second list
             // here that could drift from it, and not a hard-coded pair.
-            if (serves === selected || O._sameRow(serves, selected)) continue;
+            if (serves === selected || O._sameRow(serves, selected, 'stt')) continue;
             const note = O.servesDisclosure('stt', selected, { stt: { serves, rows: {} } });
             const ok = labels[serves]
                 ? (!!note && note.includes(labels[serves]))     // labelled ⇒ must name it
@@ -886,6 +894,26 @@ console.log('');
             return asked === false;
         })(),
         'get_credit_rates was fetched for a cohort that may not be shown a rate — the margined numbers are then loaded and models() prefers them over the vendor catalog');
+}
+
+// ── 21: Gemini is the DEFAULT voice (John 2026-10-14: "we should change HA's console default voice to Gemini TTS") ──
+// Three writers decide what a fresh account speaks with: the DEFAULTS fill, the first-preset seed, and the Cloud
+// preset's reseed. One left on dashie_cloud is a household that never chose Dashie Cloud TTS getting it anyway.
+{
+    const api = readFileSync(join(CONSOLE, 'js', 'lib', 'voice-ai-api.js'), 'utf8');
+    const page = readFileSync(FILES.page, 'utf8');
+    const def = api.match(/'voice\.ttsProvider':\s*'([^']+)'/)?.[1];
+    const seed = page.match(/saveDefault\('voice\.ttsProvider', String\(d\['voice\.ttsProvider'\] \|\| '([^']+)'\)\)/)?.[1];
+    const cloud = page.match(/presetId === 'cloud' \? \(stageKey === 'tts' \? '([^']+)'/)?.[1];
+    check('leg 21a — every default-voice writer says gemini (DEFAULTS, first-preset seed, Cloud reseed)',
+        def === 'gemini' && seed === 'gemini' && cloud === 'gemini',
+        `DEFAULTS=${def} seed=${seed} cloudReseed=${cloud} (undefined = the pattern no longer finds the writer; update this leg)`,
+        'a writer left on dashie_cloud hands Dashie Cloud TTS to households that never picked it, and the one that missed is invisible until someone listens');
+    const t = O.ttsOptions(null, 'gemini');
+    check('leg 21b — the Gemini TTS row is OFFERED first and is cloud-located (so the Cloud preset keeps it)',
+        t[0] && t[0].id === 'gemini' && t[0].locality === 'cloud',
+        `first=${JSON.stringify(t[0] && { id: t[0].id, locality: t[0].locality })}`,
+        'presetFilter keeps only cloud rows under Cloud; a gemini row marked local would vanish from the very preset it is the default of');
 }
 
 if (failed) {

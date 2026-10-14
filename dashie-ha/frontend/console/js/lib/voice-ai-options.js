@@ -390,6 +390,13 @@ const VoiceAiOptions = {
     // labeled "Piper (Home Assistant)") is injected by ttsOptions() when
     // detection finds a Piper engine on HA.
     TTS: [
+        // The DEFAULT voice (John 2026-10-14: "we should change HA's console default voice to Gemini TTS").
+        // 🔴 The id `gemini` is a WIRE VALUE: Kotlin VoicePreferences.TTS_GEMINI is the naming source, the
+        // add-on's byok-tts.js reads it (choseGeminiVoice), and lint:voice-options gates the id + locality.
+        // Payer: the household's Gemini key, else Dashie credits (byok-tts resolveProvider is the one decider).
+        // No price (same reason as the Gemini STT row: a restated vendor price goes stale).
+        { id: 'gemini', label: 'Gemini', locality: 'cloud', cost: 'Your Gemini key',
+          description: 'Google Gemini voice, on the key stored in API Keys (Dashie credits pay when there is no key).' },
         // cost is a fallback estimate — applyLiveRates() overwrites the rate from
         // the server's margined rate card. Two engines behind one row: the
         // default Dashie voice runs on Inworld (~4× cheaper per character);
@@ -616,9 +623,10 @@ const VoiceAiOptions = {
     // null that is not declared — the same discipline as leg 12's UNASSEMBLED map,
     // because "no label" and "nobody got round to it" are indistinguishable otherwise.
     SERVES_LABEL_NONE: {
-        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: the selected row IS '
-            + 'dashie_cloud, so serves === selectedId and no disclosure is wanted. Revisit if a TTS '
-            + 'gemini row lands — then dashie_cloud serving a gemini selection NEEDS a sentence.',
+        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: either the selected row IS '
+            + 'dashie_cloud (serves === selectedId), or the Gemini row is selected and credits pay for the SAME '
+            + 'Gemini voice (byok-tts resolveProvider: a Gemini choice with no key → null → credits), which the '
+            + "Gemini row's own description already says. Neither needs a sentence.",
     },
 
     /**
@@ -677,18 +685,21 @@ const VoiceAiOptions = {
         // normal, correct case — which is what put *"Running on your Gemini key right
         // now."* under a row already labelled Gemini. Who PAYS is now the key icon's job
         // (`laneKeyed`); this sentence is for the lane serving a DIFFERENT engine.
-        if (this._sameRow(serves, selectedId)) return null;
+        if (this._sameRow(serves, selectedId, stage)) return null;
         const label = this.SERVES_LABELS[serves];
         if (!label) return null;
         return `Running on ${label} right now.`;
     },
 
-    /** The one place the stored-id/display-name alias is spelled out. */
+    /** The one place the stored-id/display-name alias is spelled out.
+     *  🔴 STT ONLY. TTS has two real rows, `gemini` and `dashie_cloud` (the Gemini default voice, John
+     *  2026-10-14); aliasing them there would put the key icon on both and hide a lane serving the other. */
     _ALIASES: [['dashie_cloud', 'gemini']],
 
-    _sameRow(a, b) {
+    _sameRow(a, b, stage) {
         const x = String(a || ''), y = String(b || '');
         if (x === y) return true;
+        if (stage !== 'stt') return false;
         return this._ALIASES.some(pair => pair.includes(x) && pair.includes(y));
     },
 
@@ -802,7 +813,7 @@ const VoiceAiOptions = {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
-        const out = [this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
+        const out = [base.gemini, this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
         return this.withStoredResidual('tts', this.withSavedEngines('tts', out.filter(Boolean), 'local_url'), currentId);
     },

@@ -139,7 +139,7 @@ const VoiceAiApi = {
         'voice.alwaysOpenDialog': false,
         'voice.customizePipeline': false,
         'voice.sttProvider': 'dashie_cloud',
-        'voice.ttsProvider': 'dashie_cloud',
+        'voice.ttsProvider': 'gemini',      // the default voice (John 2026-10-14)
         // ── AI Prompt & Tools (2026-10-04) ──────────────────────────────
         // 'dynamic' = Dashie builds the prompt per turn; 'freeform' = the user
         // writes it and Dashie adds only the switched-on tools as functions.
