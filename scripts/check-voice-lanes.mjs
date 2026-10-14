@@ -276,12 +276,80 @@ console.log('── mount: where the server SERVES it (the router alone cannot s
     check('mount parse control: the same parse finds the unrelated /api/keys mount', /app\.use\(\s*'\/api\/keys'\s*,\s*keysRouter\s*\)/.test(idx), 'parse found no /api/keys mount — the reader is broken, not the subject');
 }
 
+console.log('── disclosure: can the CONSOLE say every why this server emits? ──');
+// 🔴 THE GAP THIS CLOSES (B, 2026-10-14). The legs above prove the server DISCRIMINATES
+// three can't-serve causes with three different `why` values. Nothing proved the console
+// has a sentence for any of them — and it had none for three: `no_key_no_credits`,
+// `no_key_credits_unreadable`, `no_key_signed_out` were absent from LANE_WHY_COPY
+// entirely, so `applyLanes` stripped the price (right) and said nothing (the gap). The
+// household saw a row that would not serve, with no reason given.
+//
+// A two-end contract needs a leg that reads BOTH ends. This one drives the real server,
+// collects every `why` it actually emits alongside `can_serve: false`, and asks the real
+// `applyLanes` whether a household would be told anything.
+{
+    const OPT_FILE = join(HERE, '..', 'dashie-ha', 'frontend', 'console', 'js', 'lib', 'voice-ai-options.js');
+    // The console file is a browser global. Stub only what it reads from OUTSIDE itself —
+    // the lowest layer whose shape someone else owns (brand.js, auth) — never applyLanes.
+    const win = {};
+    new Function('window', 'BRAND', 'DashieAuth', readFileSync(OPT_FILE, 'utf8'))(
+        win, { cloudName: 'Dashie Cloud', assistantName: 'Dashie', build: 'published' },
+        { isLocalMode: false, isAddonMode: true });
+    const O = win.VoiceAiOptions;
+    // FLOOR: if the console did not load, every assertion below would pass vacuously.
+    check('disclosure reader: the console module loaded and exposes applyLanes (else every leg below is vacuous)',
+        !!O && typeof O.applyLanes === 'function' && !!O.LANE_WHY_COPY, `O=${!!O} applyLanes=${typeof O?.applyLanes}`);
+
+    /** Does a household get a SENTENCE for this why? Asks applyLanes, not the map. */
+    const tells = (why) => {
+        const row = { id: 'gemini', label: 'r', cost: 'X', description: 'BASE.' };
+        const out = O.applyLanes('stt', [row], { stt: { rows: { gemini: { can_serve: false, why } } } });
+        return out[0].description !== 'BASE.';
+    };
+    // Control that CAN fail: an invented why must NOT be tellable, or `tells` says yes to
+    // everything and the coverage leg below is an always-green.
+    check('disclosure control: an INVENTED why yields no sentence (so `tells` discriminates)',
+        tells('__not_a_real_why__') === false, 'tells() returned true for a why nobody defined');
+    check('disclosure control: a KNOWN why (no_credits) yields a sentence', tells('no_credits') === true,
+        'tells() returned false for no_credits — the reader is broken, not the subject');
+
+    // Sweep the box states that change the answer and collect every false+why the SERVER emits.
+    const emitted = new Map();   // why → first "stage/row" that emitted it
+    for (const box of [
+        {}, { signedIn: true, balance: 0 }, { signedIn: true, balance: 'unknown' },
+        { signedIn: true, balance: 5 }, { keys: { gemini: 1 } },
+        { signedIn: true, balance: 5, keys: { gemini: 1 } },
+        { keys: { gemini: 1, elevenlabs: 1 } },
+        { keys: { gemini: 1 }, options: { tts_url: 'http://operator.box:8880' } },
+        { signedIn: true, balance: 5, voice: { localTtsUrl: 'http://household.box:8880' } },
+    ]) {
+        setBox(box);
+        const body = answer(await lanes()).body;
+        for (const stage of ['tts', 'stt']) {
+            for (const [id, row] of Object.entries(body?.[stage]?.rows || {})) {
+                if (row && row.can_serve === false && row.why && !emitted.has(row.why)) emitted.set(row.why, `${stage}/${id}`);
+            }
+        }
+    }
+    // FLOOR on the COLLECTOR: a sweep that observed almost nothing would make coverage
+    // trivially complete. The server has at least this many distinct refusal causes.
+    check(`disclosure sweep: the sweep observed ≥6 distinct refusal causes (saw ${emitted.size}: ${[...emitted.keys()].sort().join(', ')})`,
+        emitted.size >= 6, `only ${emitted.size} — the sweep, not the console, is what this would be measuring`);
+
+    const mute = [...emitted].filter(([why]) => !tells(why));
+    check(`disclosure: the console has a sentence for EVERY why the server emits (${emitted.size} causes)`,
+        mute.length === 0,
+        mute.length ? `NO SENTENCE for: ${mute.map(([w, at]) => `${w} (${at})`).join(', ')} — add each to LANE_WHY_COPY in voice-ai-options.js` : '');
+}
+
 console.log('── auth ─────────────────────────────────────────────────────────');
 r = await lanes({});
 // status 0 = the route was not found at all; that must NOT read as "refused".
 check('no ingress user → refused 401/403 by the guard (not a missing route), no balance', (r.status === 401 || r.status === 403) && !(r.body && r.body.credits), `status=${r.status} body=${JSON.stringify(r.body)}`);
 
 console.log(`\n${passed} passed, ${failed} failed`);
-console.log('   (a green does NOT prove a household box is reachable — /lanes never probes it — nor anything about the console\'s OFFERING)');
+console.log('   (a green does NOT prove a household box is reachable — /lanes never probes it — nor anything about the console\'s OFFERING;');
+console.log('    the disclosure legs prove a sentence EXISTS for every why, never that it is the RIGHT sentence, and');
+console.log('    they sweep the box states listed here — a why only reachable from a state not swept is still invisible)');
 if (!failed) console.log('check-voice-lanes: ALL PASS');
 process.exit(failed ? 1 : 0);

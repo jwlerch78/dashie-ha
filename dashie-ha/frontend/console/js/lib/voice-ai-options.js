@@ -555,6 +555,26 @@ const VoiceAiOptions = {
         credits_unreadable:     'Credit balance unavailable.',
         signed_out:             'Needs a signed-in account.',
         no_key:                 'Needs a key in API Keys.',
+        // ── the THREE "no key AND ..." causes ────────────────────────────────
+        // 🔴 Added 2026-10-14 (B) because they were MISSING and the absence was silent to
+        // the household: `voice-routes.js` geminiSttRow has discriminated these three since
+        // 10-12 ("`why` names WHICH thing to fix, never a merged unavailable"), and
+        // check-voice-lanes asserted the SERVER emits three distinct values — while this map
+        // had a sentence for none of them. `applyLanes` therefore stripped the price (right)
+        // and said nothing (the gap): a row that cannot serve, with no reason given. The new
+        // disclosure leg in check-voice-lanes reads BOTH ends and is what keeps it closed.
+        //
+        // Each names the KEY first, because adding a key is the one fix available in all
+        // three, and keeps the server's distinction in the second clause.
+        // ⚠️ COPY NOT RULED BY JOHN. The credits clause points at the Credits page, which is
+        // `alpha-only` for the HA first release — so on that build it names something the
+        // household cannot reach. Left in for consistency with `no_credits` /
+        // `credits_unreadable` above, which already say "account"/"credits" in household
+        // copy. If credits must not be mentioned on the HA release, the fix is to drop the
+        // clause after the em-dash / comma in these three; nothing else reads them.
+        no_key_signed_out:         'Needs a key in API Keys, or a signed-in account.',
+        no_key_no_credits:         'Needs a key in API Keys, or credits on this account.',
+        no_key_credits_unreadable: 'Needs a key in API Keys — the credit balance is unavailable.',
         speech_key_present:     'A speech provider key is set, so that one is used.',
         account_pays:           'Your account credits pay for this while they last.',
         operator_url_overrides: "The add-on configuration points this lane at its own engine.",
