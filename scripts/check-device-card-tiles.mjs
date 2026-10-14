@@ -124,8 +124,32 @@ const line1 = (wide.match(/dtile-v">([^<]*)</) || [])[1] || '';
 const line2 = (wide.match(/dtile-v2">([^<]*)</) || [])[1] || '';
 t('12a row 1 is the profile and its pipeline, and ONLY that',
   /^Evenings \(Cloud, Gemini 2\.5 Flash\)$/.test(line1), JSON.stringify(line1));
-t('12b row 2 is the engines, muted and separate', /STT/.test(line2) && !/Evenings/.test(line2), JSON.stringify(line2));
-t('12c the engines are NOT also on row 1 (that was the one-line form)', !/STT/.test(line1), JSON.stringify(line1));
+// 🔴 RE-AIMED 2026-10-14 (B). Both legs used to key on the literal word "STT", which was a
+// PROXY for "the engines row" that held only while the STT engine was labelled "Dashie Cloud
+// STT". John's D6 rename (10-13) made that label "Gemini", and the two legs failed in OPPOSITE
+// and unequal ways: 12b went red on correct code, while **12c turned into an always-green** —
+// nothing on either row contains "STT" any more, so its assertion could no longer fail at all.
+// The red one is the cheap half; the silent one is the expensive half.
+//
+// So derive both labels from the REAL options module in this same context (it is already loaded
+// above for exactly this reason) and assert the PROPERTY — row 2 names both engines, row 1 names
+// neither — instead of a spelling. A future rename now moves the expectation with the subject.
+const lbl = (arr, id) => (vm.runInContext(`VoiceAiOptions.${arr}.find(o => o.id === '${id}')?.label || ''`, ctx) || '');
+const sttLabel = lbl('STT', ACCOUNT.voice.sttProvider);
+const ttsLabel = lbl('TTS', ACCOUNT.voice.ttsProvider);
+// FLOOR: an empty label would make every containment check below pass vacuously.
+t('12b-pre the fixture\'s engine labels are READABLE from the real options module',
+  !!sttLabel && !!ttsLabel && sttLabel !== ttsLabel, `stt=${JSON.stringify(sttLabel)} tts=${JSON.stringify(ttsLabel)}`);
+// ⚠️ Compare SEGMENTS, not substrings. Since the D6 rename the STT label is the bare word
+// "Gemini", which is a substring of the MODEL name "Gemini 2.5 Flash" on row 1 — a
+// `line1.includes(sttLabel)` check reds on correct code for that reason alone (measured here
+// before this was split out). Both rows are '·'-joined, so the segment IS the engine.
+const segs = (line) => line.split('·').map(x => x.trim()).filter(Boolean);
+t('12b row 2 is the engines, muted and separate',
+  segs(line2).includes(sttLabel) && segs(line2).includes(ttsLabel) && !/Evenings/.test(line2),
+  `line2=${JSON.stringify(line2)} want segments ${JSON.stringify(sttLabel)} + ${JSON.stringify(ttsLabel)}`);
+t('12c the engines are NOT also on row 1 (that was the one-line form)',
+  !segs(line1).includes(sttLabel) && !segs(line1).includes(ttsLabel), JSON.stringify(segs(line1)));
 
 // A device on DEFAULT says Default, not the profile's name.
 device.settings.voice = {};
