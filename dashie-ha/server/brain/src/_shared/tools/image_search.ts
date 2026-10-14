@@ -15,6 +15,7 @@
  */
 
 import type { ToolCard, ToolContext, ToolDef, ToolResult } from './types.ts';
+import { resolveFreeImage, type FreeImagePick } from './free_image.ts';
 
 // deno-lint-ignore no-explicit-any
 type SerperImage = Record<string, any>;
@@ -24,8 +25,9 @@ export interface ImageCard {
   url: string;             // full-res (hotlinked) image; renderer loads this
   thumbnail?: string;      // reliable Google-CDN fallback
   description?: string;    // result title / caption
-  source?: string;         // 'serper'
-  attribution?: { photographer?: string | null; photographerUrl?: string | null };
+  source?: string;         // 'serper' | 'wikimedia' | 'pexels' | 'dashie-official'
+  /** The credit a free source REQUIRES on screen (CC-BY: author + licence; Pexels: photographer + Pexels). */
+  attribution?: { photographer?: string | null; photographerUrl?: string | null; license?: string | null };
 }
 
 export interface ImageSynthesis {
@@ -71,6 +73,41 @@ export async function runImageSearch(
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(body.error || body.message || `HTTP ${resp.status}`);
   return { images: Array.isArray(body?.images) ? body.images : [] };
+}
+
+// ── which source serves the picture (John 10-13) ─────────────────────────────
+
+/** The household picks the picture source in Settings (ai.pictureSource): 'free' (the default; unset means free) or
+ *  'google'. Credits open up Google: chosen without credits, it DEGRADES to free (John: "yes - agree"), never to no
+ *  picture. Pure; the caller logs `degraded`. */
+export function choosePictureSource(pref: unknown, paidToolsOk: boolean): { source: 'free' | 'serper'; degraded: boolean } {
+  if (pref === 'google') return paidToolsOk ? { source: 'serper', degraded: false } : { source: 'free', degraded: true };
+  return { source: 'free', degraded: false };
+}
+
+/** A free pick → the standard ImageCard, with the credit its licence requires. */
+export function buildFreeImageCard(p: FreeImagePick): ImageCard {
+  const stock = p.route === 'pexels';
+  const description = p.route === 'commons'
+    ? p.title.replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, '').replace(/_/g, ' ')
+    : p.title;
+  return {
+    type: 'image',
+    url: p.url,
+    thumbnail: p.url,
+    description,
+    source: stock ? 'pexels' : 'wikimedia',
+    attribution: {
+      photographer: p.artist ?? (stock ? 'Pexels' : 'Wikimedia Commons'),
+      photographerUrl: stock ? ((p as { artistUrl?: string | null }).artistUrl ?? p.pageUrl) : p.pageUrl,
+      license: stock ? 'Pexels License' : ((p as { license?: string | null }).license ?? null),
+    },
+  };
+}
+
+/** What the model may say about where a free picture came from. */
+function freeSourceName(p: FreeImagePick): string {
+  return p.route === 'pexels' ? 'Pexels' : p.route === 'commons' ? 'Wikimedia Commons' : 'Wikipedia';
 }
 
 // ── official brand assets (short-circuit — no search, no billing) ────────────
@@ -140,7 +177,7 @@ export function buildImageCard(img: SerperImage): ImageCard {
 export async function synthesizeImage(
   query: string,
   criteria: string | undefined,
-  ctx?: { supabaseUrl?: string; anonKey?: string; jwt?: string; sessionId?: string | null },
+  ctx?: { supabaseUrl?: string; anonKey?: string; jwt?: string; sessionId?: string | null; source?: 'free' | 'serper' },
 ): Promise<ImageSynthesis> {
   // Official brand asset? Serve it directly — never web-search our own logo.
   const official = officialImage(query);
@@ -149,6 +186,16 @@ export async function synthesizeImage(
       result: { found: true, description: official.description, source: 'Dashie' },
       card: official,
     };
+  }
+  if (ctx?.source === 'free') {
+    const pick = await resolveFreeImage(query, {
+      supabaseUrl: ctx.supabaseUrl || envVar('SUPABASE_URL'),
+      anonKey: ctx.anonKey || envVar('SUPABASE_ANON_KEY'),
+      jwt: ctx.jwt,
+    });
+    if (!pick) return { result: { found: false }, card: null };
+    const card = buildFreeImageCard(pick);
+    return { result: { found: true, description: card.description, source: freeSourceName(pick) }, card };
   }
   const { images } = await runImageSearch(query, ctx);
   const picked = selectImage(images, criteria);
@@ -189,6 +236,7 @@ export const imageSearchTool: ToolDef = {
         anonKey: ctx.anonKey,
         jwt: ctx.jwt,
         sessionId: ctx.sessionId ?? null,
+        source: ctx.pictureSource,
       });
       return { result: synth.result, card: synth.card as ToolCard | null };
     } catch (e) {

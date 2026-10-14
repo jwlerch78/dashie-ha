@@ -49,7 +49,7 @@ import { modelLabel } from '../_shared/model-labels.ts';
 import { detectMutableEntity } from './force-search.ts';
 import { templateSports } from './synthesis/sports.ts';
 import { templateSlate } from './synthesis/sports.ts';
-import { synthesizeImage } from '../_shared/tools/image_search.ts';
+import { choosePictureSource, synthesizeImage } from '../_shared/tools/image_search.ts';
 // Re-exported for the Node add-on shell: sports is pure keyless fetch (ESPN), so
 // node-io binds it straight from the bundle instead of stubbing or an HTTP hop.
 export { runSports } from '../_shared/tools/sports.ts';
@@ -401,7 +401,7 @@ export interface OrchestratorIO {
   // T3: resolve the account's AI config (model + tool toggles)
   // from user_settings. OPTIONAL — absent IO (Node shell / tests) → all-null (request /
   // global-default behavior, unchanged). The account values are DEFAULTS the request can override.
-  readAccountAiConfig?: (supabase: unknown, userId: string) => Promise<{ model: string | null; webSearchEnabled: boolean | null; retrievePicturesEnabled: boolean | null; zipCode?: string | null; calendarWriteAccess?: string | null }>;
+  readAccountAiConfig?: (supabase: unknown, userId: string) => Promise<{ model: string | null; webSearchEnabled: boolean | null; retrievePicturesEnabled: boolean | null; pictureSource?: string | null; zipCode?: string | null; calendarWriteAccess?: string | null }>;
   // CR3: per-account rate-limit backstop. OPTIONAL — absent IO → always
   // allowed. Inert until `voice_rate_limit_enabled`. Atomic + fail-open (abuse guard only).
   checkRateLimit?: (supabase: unknown, userId: string) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
@@ -608,7 +608,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // T3 (§16.7 item 4): account AI config (model + tool toggles). Absent IO → all-null.
     io.readAccountAiConfig
       ? io.readAccountAiConfig(supabase, userId)
-      : Promise.resolve({ model: null, webSearchEnabled: null, retrievePicturesEnabled: null, zipCode: null, calendarWriteAccess: null }),
+      : Promise.resolve({ model: null, webSearchEnabled: null, retrievePicturesEnabled: null, pictureSource: null, zipCode: null, calendarWriteAccess: null }),
     // CR3: per-account rate-limit backstop. Absent IO → allowed. Inert until enabled.
     io.checkRateLimit
       ? io.checkRateLimit(supabase, userId)
@@ -675,8 +675,14 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // web search: ON unless the account explicitly disabled it (null/unset → ON, unchanged).
   // paidToolsOk gates the Dashie-funded tools on a BYOK out-of-credits turn.
   const webSearchAllowed = account.webSearchEnabled !== false && paidToolsOk;
-  // retrieve pictures: explicit request wins; else the account default; else off.
-  const retrievePictures = (req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false)) && paidToolsOk;
+  // retrieve pictures: explicit request wins; else the account default; else off. Credits no longer decide WHETHER a
+  // picture shows, only WHERE it comes from (John 10-13): the free source needs none, and Google (Serper, billed) is
+  // used only when the household chose it AND can spend. Chosen without credits it degrades to free, never to nothing.
+  const retrievePictures = req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false);
+  const picture = choosePictureSource(account.pictureSource, paidToolsOk);
+  if (retrievePictures && picture.degraded) {
+    console.warn('DROP: picture-source google → free (no credits to spend; John 10-13: degrade, not fail)');
+  }
   // Calendar-write VOICE gate (household policy, calendar.writeAccess). Voice may CUD calendar
   // entries only when the account chose 'voice' or 'both'. null/unset/'none'/'touch' → OFF (the
   // 'touch' default). Opt-in by construction so voice can't mutate a real family calendar until the
@@ -803,6 +809,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   const caps: CapsSnapshot = {
     web_search: webSearchAllowed,
     retrieve_pictures: retrievePictures,
+    picture_source: picture.source,
     grounding: geminiGrounds,
     multi: multiEnabled,
     tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
@@ -833,6 +840,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     // false → buildPrompt appends the image-unavailable instruction so the model can't
     // claim to show a picture the enrichment layer will drop.
     retrievePicturesEnabled: retrievePictures,
+    pictureSource: picture.source,
     // Room awareness (20260715): the HA area this device is in, so an unqualified command
     // ("turn off the lights") resolves to THIS room. Flows to both passes via `...context` in
     // buildPrompt → rendered as {{DEVICE_AREA}} in the home_assistant prompt. Absent → area-blind.
@@ -1089,7 +1097,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     if (effImageHint?.searchTerms && req.options?.force_image_fail === true) {
       console.warn(`DROP: image search SKIPPED by options.force_image_fail (debug) for "${effImageHint.searchTerms}"`);
     }
-    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn) : undefined;
+    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint } as unknown as ReturnType<typeof parseContent>, token, sessionId, io.toolConn, picture.source) : undefined;
     // The resolver returned nothing but the spoken line already promised a picture → walk the
     // promise back BEFORE logPass, so the persisted transcript matches what the user hears.
     let imagePromiseAmended = false;
@@ -1933,7 +1941,8 @@ async function secondPass(
       && parsed?.type === 'response'
       && imageHint?.searchTerms);
   const imageCard = imageWanted
-    ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn)
+    ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn,
+        (context as { pictureSource?: 'free' | 'serper' } | null)?.pictureSource ?? 'free')
     : undefined;
   // Same unkept-promise guard as the pass-1 site: a promise the resolver did not keep is a
   // spoken falsehood, so walk it back rather than leaving the user staring at a blank screen.
@@ -2039,15 +2048,16 @@ async function resolveImageHint(
   // io.toolConn — required on the Node add-on runtime (no Deno env to fall back to);
   // the cloud shell omits it and image_search reads its own env.
   conn?: { supabaseUrl: string; anonKey: string },
+  source: 'free' | 'serper' = 'free',
 ): Promise<unknown> {
   const hint = (parsed as { image?: { searchTerms?: string; criteria?: string; fallback?: string } } | null)?.image;
   if (!hint?.searchTerms) return undefined;
   try {
-    let synth = await synthesizeImage(hint.searchTerms, hint.criteria, { ...conn, jwt: token, sessionId });
+    let synth = await synthesizeImage(hint.searchTerms, hint.criteria, { ...conn, jwt: token, sessionId, source });
     // Robustness (README rule 4): retry with the model's generic fallback query
     // before giving up, rather than returning no card on a too-specific miss.
     if (!synth.card && hint.fallback && hint.fallback !== hint.searchTerms) {
-      synth = await synthesizeImage(hint.fallback, hint.criteria, { ...conn, jwt: token, sessionId });
+      synth = await synthesizeImage(hint.fallback, hint.criteria, { ...conn, jwt: token, sessionId, source });
     }
     return synth.card ?? undefined;
   } catch (_e) {

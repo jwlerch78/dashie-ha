@@ -46,6 +46,10 @@ export interface ToolContext {
   location?: string | { lat?: number; lng?: number };
   /** Conversation/turn id — billed tools forward it so usage rows group with the turn. */
   sessionId?: string | null;
+  /** Where show_image gets its picture (John 10-13): 'free' (Wikipedia/Commons/Pexels) or 'serper' (Google, billed).
+   *  Decided by image_search.choosePictureSource from the account's ai.pictureSource + credits. Unset = 'serper', the
+   *  pre-10-13 behaviour, so a caller that never learned this field is unchanged. */
+  pictureSource?: 'free' | 'serper';
 }
 
 /** Structured UI payload. `type` discriminates the renderer (e.g. "sports"). */
