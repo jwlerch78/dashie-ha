@@ -26,6 +26,29 @@ const VoiceAiCards = {
     },
 
     /** The BYO-key badge icon (Open Brain §5), sized to sit inline with row text. */
+    /**
+     * 🔴 THE ONLY PLACE AN OPTION ROW'S COST REACHES A SCREEN, which is why the rule lives
+     * here (John, 2026-10-14: *"I don't think we should be showing rates at all unless they
+     * are on the credits"*).
+     *
+     * ⚠️ It tests the STRING for a currency mark, not a list of row ids, and that is the
+     * point. Enumerating priced rows means the next priced row someone adds has to be
+     * remembered — the hand-mirror failure this repo keeps paying for. A currency test makes
+     * a NEW priced row inherit the rule for free, and it leaves the non-monetary cost labels
+     * alone, which are the useful half: 'Free', 'Your Gemini key', 'Included with Gemini',
+     * 'Free — not billed'. Those are provenance, not a price.
+     *
+     * 📌 Cohort is asked ONCE, via VoiceAiOptions.ratesVisible() (the `credits` gate). Fails
+     * CLOSED: no options module, no price.
+     */
+    _costText(x) {
+        const cost = String((x && x.cost) || '');
+        if (!cost) return '';
+        if (!/[$\u00A2]/.test(cost)) return cost;           // not a rate — provenance, keep it
+        const O = window.VoiceAiOptions;
+        return (O && typeof O.ratesVisible === 'function' && O.ratesVisible()) ? cost : '';
+    },
+
     _keyIcon() {
         return `<img src="assets/icons/icon-key.svg" alt="API key" title="Runs on your API key" style="width: 13px; height: 13px; opacity: 0.6; flex-shrink: 0;">`;
     },
@@ -204,7 +227,7 @@ const VoiceAiCards = {
                     <div style="display:flex; align-items:center; gap: 10px; flex-shrink: 0;">
                         ${x.keyed
                             ? `<span style="display:inline-flex; align-items:center; gap:5px; font-size: 11px; font-weight: 600; color: var(--text-muted);">${this._keyIcon()} API account</span>`
-                            : `<span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-muted);">${this._esc(x.cost || '')}</span>`}
+                            : `<span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-muted);">${this._esc(this._costText(x))}</span>`}
                         ${right}
                     </div>
                 </div>

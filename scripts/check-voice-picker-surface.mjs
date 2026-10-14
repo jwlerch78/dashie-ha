@@ -789,6 +789,105 @@ const setLocalMode = (v) => { sandbox.DashieAuth.isLocalMode = v; };
 }
 
 console.log('');
+// ── LEG 20 — NO RATES WITHOUT CREDITS (John, 2026-10-14) ────────────────────
+//
+// 🔴 *"I don't think we should be showing rates at all unless they are on the credits"*.
+// Credits are `alpha-only` for the HA first release, so a quoted rate reaches a cohort that
+// is sold nothing. VH's headless walkthrough found 14 model token prices doing exactly that.
+//
+// ⚠️ THIS LEG LIVES HERE AND NOT IN check-voice-sections, AND THE REASON IS THE WHOLE POINT.
+// I wrote it there first — it rendered both cohorts, so it looked like the natural home — and
+// it passed. It also passed with the rule REMOVED, and against a mutant whose `_costText`
+// ignored the cohort entirely. `_renderAiDefaults()` renders the AI Model card as a LABEL; the
+// option rows (and therefore every price) are never in its output. The only currency in that
+// harness was the pictures `<option>`, which is not a card and never reaches `_costText`.
+// ⇒ The leg was an always-green of exactly the shape traps 239 describes, and adding the real
+// model catalog there did not rescue it, because the subject was absent rather than unpriced.
+// So it sits where the subject IS: the rows, and the one function that renders their cost.
+//
+// ⚠️ Tests the STRING for a currency mark, not a list of row ids. An enumeration means the next
+// priced row has to be remembered; a currency test makes a new one inherit the rule for free,
+// and leaves the non-monetary labels alone — 'Free', 'Your Gemini key', 'Included with Gemini'
+// are provenance, not prices, and they are the useful half of that column.
+{
+    const catalog = join(CONSOLE, 'js', 'lib', 'ai-models-catalog.js');
+    const cards = join(CONSOLE, 'js', 'components', 'voice-ai-cards.js');
+    /** A context whose `credits` gate is set by the caller. Loads the REAL catalog and cards. */
+    const loadCohort = (creditsVisible) => {
+        const sb = {
+            console: { log() {}, warn() {}, error() {} },
+            document: { title: '', querySelector: () => null },
+            DashieAuth: { isAddonMode: true, isLocalMode: false },
+            FeatureGate: { shouldShow: (f) => (f === 'credits' ? creditsVisible : true) },
+        };
+        sb.window = sb; sb.globalThis = sb;
+        const c = vm.createContext(sb);
+        for (const f of [FILES.brand, catalog, FILES.options, cards]) {
+            vm.runInContext(readFileSync(f, 'utf8'), c, { filename: f });
+        }
+        return { O: sb.window.VoiceAiOptions, C: sb.window.VoiceAiCards };
+    };
+    const MONEY = /[$\u00A2]/;
+    const rowsOf = (O) => [
+        ...O.models(),
+        O.STT.find(o => o.id === 'dashie_cloud'), O.STT.find(o => o.id === 'gemini'),
+        O.STT.find(o => o.id === 'android_voice'), O.TTS.find(o => o.id === 'dashie_cloud'),
+        O.SEARCH.find(o => o.id === 'dashie'), O.SPORTS.find(o => o.id === 'espn'),
+    ].filter(Boolean);
+    const priced = ({ O, C }) => rowsOf(O).filter(r => MONEY.test(String(C._costText(r))));
+    const kept   = ({ O, C }) => rowsOf(O).map(r => String(C._costText(r))).filter(x => x && !MONEY.test(x));
+
+    const alpha = loadCohort(true);
+    const std   = loadCohort(false);
+
+    // FLOOR on the READER: if the rows carried no price to begin with, every assertion below is
+    // vacuous — which is precisely how the check-voice-sections version fooled me.
+    const alphaPriced = priced(alpha);
+    check(`leg 20-pre FLOOR — the rows DO carry prices for a credits cohort (${alphaPriced.length} priced)`,
+        alphaPriced.length >= 4,
+        `only ${alphaPriced.length} priced rows reached the reader — the catalog or the row set is not loaded, so leg 20 would be measuring nothing`,
+        'this is the failure that made the first version of this leg an always-green: absent prices are indistinguishable from suppressed ones');
+
+    const stdPriced = priced(std);
+    check('leg 20 — a cohort that cannot see credits is quoted NO rate',
+        stdPriced.length === 0,
+        `still priced: ${JSON.stringify(stdPriced.map(r => [r.label, r.cost]))}`,
+        'a rate reached a household that is sold no credits (John 10-14). The decision lives in VoiceAiCards._costText + VoiceAiOptions.ratesVisible()');
+
+    check('leg 20b — and the NON-monetary cost labels survive (provenance, not price)',
+        kept(std).length >= 3 && kept(std).some(x => /Free/.test(x)) && kept(std).some(x => /key/i.test(x)),
+        `kept: ${JSON.stringify(kept(std))}`,
+        'the suppression took the provenance column with it — "Free" and "Your Gemini key" are what tell a household who serves a lane');
+
+    check('leg 20c — ratesVisible() fails CLOSED with no FeatureGate loaded',
+        (() => {
+            const sb = { console: { log() {}, warn() {}, error() {} }, document: { title: '', querySelector: () => null },
+                         DashieAuth: { isAddonMode: true, isLocalMode: false } };
+            sb.window = sb; sb.globalThis = sb;
+            const c = vm.createContext(sb);
+            for (const f of [FILES.brand, catalog, FILES.options]) vm.runInContext(readFileSync(f, 'utf8'), c, { filename: f });
+            return sb.window.VoiceAiOptions.ratesVisible() === false;
+        })(),
+        'no gate loaded and ratesVisible() said true — a half-loaded console would quote prices to everyone');
+
+    // The margined rate card must not even be FETCHED: models() PREFERS it over the vendor
+    // catalog, so a loaded card silently upgrades every row from the vendor's published rate
+    // to ours. Suppressing only at the render would leave our numbers one careless read away.
+    check('leg 20d — applyLiveRates() is a no-op for a cohort that may not be shown rates',
+        (() => {
+            let asked = false;
+            const sb = { console: { log() {}, warn() {}, error() {} }, document: { title: '', querySelector: () => null },
+                         DashieAuth: { isAddonMode: true, isLocalMode: false, dbRequest: async () => { asked = true; return {}; } },
+                         FeatureGate: { shouldShow: (f) => f !== 'credits' } };
+            sb.window = sb; sb.globalThis = sb;
+            const c = vm.createContext(sb);
+            for (const f of [FILES.brand, catalog, FILES.options]) vm.runInContext(readFileSync(f, 'utf8'), c, { filename: f });
+            sb.window.VoiceAiOptions.applyLiveRates();
+            return asked === false;
+        })(),
+        'get_credit_rates was fetched for a cohort that may not be shown a rate — the margined numbers are then loaded and models() prefers them over the vendor catalog');
+}
+
 if (failed) {
     console.error(`❌ ${failed} leg(s) failed`);
     process.exit(1);

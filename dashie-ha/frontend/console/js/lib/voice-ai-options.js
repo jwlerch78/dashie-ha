@@ -525,6 +525,25 @@ const VoiceAiOptions = {
     },
 
     /**
+     * 🔴 MAY THIS HOUSEHOLD BE SHOWN A PRICE AT ALL? (John, 2026-10-14: *"I don't think we
+     * should be showing rates at all unless they are on the credits"*.)
+     *
+     * Credits are `alpha-only` for the HA first release, so most households are sold nothing
+     * — and a rate quoted to someone who cannot buy is a pay surface with no purchase behind
+     * it. VH's headless walkthrough found 14 model token prices reaching exactly that cohort.
+     *
+     * ⚠️ It is NOT "is this row free?" and not a brand check. It is the same cohort question
+     * `credits` already answers, asked once, in one place, so every priced row inherits it.
+     * Fails CLOSED: with no FeatureGate loaded, no price shows. That is the safe direction —
+     * a missing price is a cosmetic gap, a price shown to a cohort sold no credits is the
+     * thing John asked to remove.
+     */
+    ratesVisible() {
+        if (typeof FeatureGate === 'undefined') return false;
+        return FeatureGate.shouldShow('credits') === true;
+    },
+
+    /**
      * WHO SERVES A LANE, in household words — the console half of `/api/voice/lanes`.
      *
      * 🔴 TWO QUESTIONS, TWO ANSWERS, NEITHER INFERRED FROM THE OTHER. The server answers
@@ -1015,6 +1034,12 @@ const VoiceAiOptions = {
     _liveModelRates: null,   // { modelId: {input, output} } margined per 1M — read by models()
     async applyLiveRates() {
         if (this._liveRatesApplied) return;
+        // 🔴 The rate card is Dashie's MARGINED price list — what we would bill. Where no
+        // price may be shown, do not even ask for it: `models()` PREFERS `_liveModelRates`
+        // over the vendor catalog, so a fetched card silently upgrades every model row from
+        // the vendor's published rate to ours. Suppressing at the render alone would leave
+        // our numbers loaded and one careless read away from the screen. (John 10-14.)
+        if (!this.ratesVisible()) { this._liveRatesApplied = true; return; }
         try {
             // BARE DashieAuth (top-level const, not on window) — window.DashieAuth
             // is undefined, which silently no-op'd the live rate card (fell back to
