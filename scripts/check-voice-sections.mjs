@@ -338,6 +338,49 @@ P._expandedCards = new Set();
     /pictures (on|off)/.test(standard) && /pictures (on|off)/.test(alpha),
     'the summary is still withheld from the standard cohort — the half of the old gating that '
     + 'left Cloud/Hybrid households unable to see that pictures were on');
+  // ── 34 THE GEMINI VOICE ROW FOLLOWS THE VOICE, NOT THE LIVE ENGINE ───────────
+  //
+  // 🔴 THE DEFECT THIS PINS (B, 2026-10-14, found while building John's audition button):
+  // the row's condition was `isLive && !simple`, correct while `voice.liveVoiceName` only drove
+  // a Live session. The add-on now reads the SAME key for STRAIGHT Gemini TTS — `engines.js:366`
+  // calls it "the household's ONE Gemini voice". So a household on the `gemini` TTS engine
+  // without Live had the setting live and the control hidden: default voice, no way to change it.
+  //
+  // ⚠️ Leg 34c is the one that can fail for the right reason. Without it, "the row appears"
+  // is satisfiable by a row that appears ALWAYS — which is a different bug with the same green.
+  {
+    const saved = { ...P._defaults };
+    const render = (tts, agentMode) => {
+      P._defaults = { ...saved, 'voice.ttsProvider': tts, 'voice.agentMode': agentMode,
+                      'voice.liveVoiceName': 'Kore',
+                      'voice.conversationModel': 'gemini-2.5-flash-native-audio-preview-12-2025' };
+      try { return P._renderAiDefaults(); } catch (e) { return `THREW ${e.message}`; }
+    };
+    const live = render('dashie_cloud', 'live');
+    const gem = render('gemini', 'dialog');
+    const other = render('dashie_cloud', 'dialog');
+    P._defaults = saved;
+
+    t('34-pre FLOOR: all three renders ran (a throw would make 34abc vacuous)',
+      ![live, gem, other].some(h => /^THREW/.test(h)),
+      [live, gem, other].find(h => /^THREW/.test(h)) || '');
+    t('34 the Gemini voice row reaches STRAIGHT Gemini TTS, with no Live',
+      /Gemini voice/.test(gem),
+      'a household that picked the gemini TTS engine cannot choose its voice — the setting drives '
+      + 'their TTS and the control is hidden, so they are stuck on the default');
+    t('34b CONTROL: it still reaches LIVE mode',
+      /Gemini voice/.test(live), 'the fix traded one unreachable case for another');
+    t('34c CONTROL: and stays away from a non-Gemini engine (so 34 can fail)',
+      !/Gemini voice/.test(other),
+      'the row renders for every engine — "it appears" is then true of everything and leg 34 proves nothing');
+    t('34d the row carries the ▶ audition button in add-on mode',
+      /previewGeminiVoice/.test(gem) && /previewGeminiVoice/.test(live),
+      'John 10-14 asked for this to listen to voices and map them to personalities');
+    t('34e the label is no longer the Live-only "Live voice"',
+      !/Live voice/.test(gem) && !/Live voice/.test(live),
+      'the label still says Live while the setting also drives straight Gemini TTS');
+  }
+
   t('33b CONTROL: the standard render is otherwise intact',
     standard.length > 500 && standard.includes('AI Model') && standard.includes('Voice &amp; LLM'),
     `${standard.length} chars — hiding the row broke the page, so 32/33 pass vacuously`);

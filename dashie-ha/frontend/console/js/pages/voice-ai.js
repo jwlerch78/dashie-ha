@@ -1911,7 +1911,16 @@ const VoiceAiPage = {
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
                 S.full([
-                    isLive && !simple ? this._renderLiveVoiceRow(d) : '',
+                    // 🔴 REACHABILITY FIX (B, 2026-10-14, found while building the preview John
+                    // asked for). This condition was `isLive && !simple`, which was right while
+                    // `voice.liveVoiceName` only drove a Live session. It no longer does: the add-on
+                    // reads the SAME key for STRAIGHT Gemini TTS — `engines.js:366` calls it "the
+                    // household's ONE Gemini voice", and `gemini-tts-lane.js:3` says "always the SAME
+                    // voice … the key decides who pays, never which voice speaks".
+                    // ⇒ A household that picked the `gemini` TTS engine without Live had NO way to
+                    // choose its voice: the setting was live and the control was hidden, so they got
+                    // the default (Aoede) and no control. Same defect as the pictures toggle.
+                    (isLive || ttsSelectedId === 'gemini') && !simple ? this._renderGeminiVoiceRow(d) : '',
                     showStt && isLive ? this._renderLiveSttNote() : '',
                     showPipeline ? this._renderEngineDetectionRow() : '',
                     showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
@@ -2073,18 +2082,86 @@ const VoiceAiPage = {
      *  Live mode, styled as the standard voice row (icon + label + select) so it
      *  matches the other pipeline dropdowns. The cascade voice follows the
      *  personality's TTS voice, set elsewhere. */
-    _renderLiveVoiceRow(d) {
+    _renderGeminiVoiceRow(d) {
         const D = window.VoiceAiDefaultsCards;
         const cur = String(d['voice.liveVoiceName'] || '') || 'Aoede';
         const opts = this.CONVERSATION_VOICES.map(([id, label]) =>
             `<option value="${this._escape(id)}" ${id === cur ? 'selected' : ''}>${this._escape(label)}</option>`).join('');
+        // ▶ Hear it (John 2026-10-14: *"mainly for me to listen to the voices and determine which
+        // can map to personalities"*). Add-on only, like the own-box preview: the synthesis is
+        // proxied by the box, which is where the Gemini key lives.
+        // ⚠️ Same flex warning as the own-box row: `flex-shrink: 0` and a fixed width, or it steals
+        // the select's `flex: 1` and squeezes it to an unclickable sliver.
+        const preview = DashieAuth.isAddonMode
+            ? `<button id="gemini-voice-preview-btn" title="Hear this voice"
+                   onclick="event.stopPropagation(); VoiceAiPage.previewGeminiVoice(this)"
+                   style="flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border, #d1d5db);
+                          background: var(--bg-card, #fff); color: var(--text-primary); cursor: pointer; font-size: 11px; line-height: 1;
+                          display: inline-flex; align-items: center; justify-content: center;">\u25B6</button>`
+            : '';
         return D.renderControlRow({
-            label: 'Live voice',
+            // 🔴 WAS "Live voice", which became false when the same key started driving straight
+            // Gemini TTS. The partition id stays `live-voice` (voice-ai-mode.js) on purpose: that
+            // id is an internal handle the Simple/Advanced gate keys on, and renaming it would
+            // churn the gate for no household-visible gain. The LABEL is the part users read.
+            label: 'Gemini voice',
             icon: 'icon-voice',
             saving: this._savingKey === 'voice.liveVoiceName',
-            controlHtml: `<select style="${D.SELECT_STYLE}" onchange="VoiceAiPage.saveLocalField('voice.liveVoiceName', this.value)">${opts}</select>`,
+            controlHtml: `<select id="gemini-voice-select" style="${D.SELECT_STYLE}" onchange="VoiceAiPage.saveLocalField('voice.liveVoiceName', this.value)">${opts}</select>`
+                + preview,
             caret: true,
         });
+    },
+
+    /**
+     * Play a sample in the Gemini voice currently SHOWN in the dropdown.
+     *
+     * 🔴 Reads the live `<select>` value, not `_defaults`, deliberately: auditioning means
+     * changing the dropdown repeatedly, and the stored value lags a save round-trip. Reading the
+     * DOM plays what the user is looking at. (It also means the sample is right even if the save
+     * failed — the button answers "what does this voice sound like", not "what is saved".)
+     *
+     * Funding is the SERVER's decision, not this button's (`/api/voice/preview` engine:'gemini'):
+     * stored key first, then account credits (John 10-14), else a 409 naming what to fix.
+     */
+    async previewGeminiVoice(btn) {
+        // Already playing → this is a stop button. Covers a double-click and switching voices
+        // mid-sample: never two voices at once, which is the one thing that makes auditioning useless.
+        if (this._geminiPreviewAudio) {
+            this._geminiPreviewAudio.pause();
+            URL.revokeObjectURL(this._geminiPreviewAudio.src);
+            this._geminiPreviewAudio = null;
+            if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; }
+            return;
+        }
+        const sel = document.getElementById('gemini-voice-select');
+        const voice = String(sel?.value || VoiceAiPage._defaults?.['voice.liveVoiceName'] || 'Aoede');
+        const restore = () => { if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; } };
+        if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+        try {
+            const r = await fetch(DashieAuth._addonUrl('/api/voice/preview'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engine: 'gemini', voice }),
+            });
+            if (!r.ok) {
+                // 404 = an add-on older than this arm. Say that rather than blaming the voice.
+                if (r.status === 404) { Toast.error(`Update the ${BRAND.productName} add-on to preview Gemini voices.`); restore(); return; }
+                const err = await r.json().catch(() => ({}));
+                Toast.error(err.message || `Couldn't play a sample — HTTP ${r.status}`);
+                restore();
+                return;
+            }
+            const audio = new Audio(URL.createObjectURL(await r.blob()));
+            this._geminiPreviewAudio = audio;
+            audio.onended = () => { URL.revokeObjectURL(audio.src); if (this._geminiPreviewAudio === audio) this._geminiPreviewAudio = null; restore(); };
+            audio.onerror = () => { Toast.error("Couldn't play the sample."); restore(); };
+            await audio.play();
+            if (btn) btn.textContent = '\u23F8';
+        } catch (e) {
+            Toast.error(`Couldn't play a sample — ${e?.message || e}`);
+            restore();
+        }
     },
 
     /** The voice-id field to render as the Voice row under Text-to-speech, for whatever
