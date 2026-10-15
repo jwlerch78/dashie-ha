@@ -329,6 +329,9 @@ export interface PromptContext {
   // image field, so an ungated model said "Here's a picture of Oslo" while the
   // enrichment layer dropped the hint (BYOK add-on brain, 2026-07-13).
   retrievePicturesEnabled?: boolean;
+  // Where a picture comes from on this turn (image_search.choosePictureSource): 'free' or 'serper'. Read by the pass-2
+  // image site; never rendered into a prompt.
+  pictureSource?: 'free' | 'serper';
   // `client_fulfilled_tools` from the request — what this caller can actually run locally.
   // Device-only tools (music, video_feeds) it doesn't claim are OMITTED from the offered
   // tools list: a model told about a capability the device lacks will call it, get declined,
@@ -352,6 +355,7 @@ export interface PromptContext {
 export interface CapsSnapshot {
   web_search: boolean;         // resolved account toggle (webSearchAllowed)
   retrieve_pictures: boolean;  // resolved request/account toggle
+  picture_source?: 'free' | 'serper';  // where a picture would come from this turn (John 10-13); absent on older rows
   grounding: boolean;          // Gemini native grounding fulfills web search on pass-1
   multi?: boolean;             // caller declared the `multi` capability → multi-emission offered
   tools: string[];             // tool names actually offered to pass-1 (post-filter)

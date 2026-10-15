@@ -108,8 +108,77 @@ router.post('/probe', express.json(), async (req, res) => {
 const PREVIEW_TEXT = "Hi, I'm your Dashie voice. Tomorrow looks sunny with a high of seventy five.";
 const PREVIEW_TIMEOUT_MS = 20000;   // a cold high-quality voice can take a few seconds
 
+/**
+ * The GEMINI arm of /preview (John 2026-10-14: *"let's build it now that we have straight TTS for
+ * Gemini instead of just live"* / *"If they have credits we can play it too"*).
+ *
+ * 🔴 WHY IT IS AN ARM AND NOT A SECOND ENDPOINT: the client already has working play/stop/404
+ * handling for a preview; a second endpoint would mean a second copy of it. The ONLY thing Gemini
+ * changes is where the audio comes from — there is no engine URL, because Google is the engine.
+ *
+ * Funding, in this order, and it matters:
+ *   1. the household's stored Gemini KEY — free to us, and the MVP's only path (credits are
+ *      alpha-only for the HA first release).
+ *   2. account CREDITS, explicitly allowed by John above. A preview is ~1 short sentence.
+ *   3. neither → 409 naming which one to fix. NEVER a silent no-op: an audition button that does
+ *      nothing is indistinguishable from a voice that will not load.
+ */
+async function previewGemini(res, { voice, text }) {
+    const geminiTts = require('../gemini-tts');
+    const geminiLane = require('../gemini-tts-lane');
+    const keyStore = require('../key-store');
+    const body = String(text || PREVIEW_TEXT).slice(0, 300);
+
+    let key = '';
+    try { key = keyStore.readKeys().gemini?.key || ''; } catch { key = ''; }
+    if (key) {
+        const r = await geminiTts.adapter.synth({
+            key, text: body, voice: String(voice || ''), model: geminiTts.DEFAULT_MODEL,
+        });
+        if (r.ok && r.audio) {
+            res.set('Content-Type', r.contentType || 'audio/wav');
+            res.set('Cache-Control', 'no-store');
+            return res.send(r.audio);
+        }
+        // A refused KEY must not silently become a credit spend — say so and let the household
+        // decide. (Ruling A, 10-12: credits never cover someone else's outage.)
+        console.warn(`DROP: preview-gemini key-refused status=${r.status}`);
+        return res.status(502).json({ error: 'key_failed', message: `Gemini refused the stored key (HTTP ${r.status})` });
+    }
+
+    const jwt = (() => { try { return auth.readStoredJwt()?.jwt || ''; } catch { return ''; } })();
+    if (!jwt) {
+        return res.status(409).json({
+            error: 'no_source',
+            message: 'Add a Gemini key in API Keys to hear this voice (or sign in, if you have credits).',
+        });
+    }
+    const c = await geminiLane.creditsBuffered({ text: body, voice: String(voice || ''), jwt });
+    if (c.ok && c.audio) {
+        res.set('Content-Type', c.contentType || 'audio/wav');
+        res.set('Cache-Control', 'no-store');
+        return res.send(c.audio);
+    }
+    const noCredits = c.status === 402;
+    console.warn(`DROP: preview-gemini credits-failed status=${c.status}`);
+    return res.status(noCredits ? 409 : 502).json({
+        error: noCredits ? 'no_credits' : 'engine_error',
+        message: noCredits ? 'No credits on this account — add a Gemini key in API Keys to hear voices.'
+                           : `Couldn't synthesize the sample (HTTP ${c.status})`,
+    });
+}
+
 router.post('/preview', express.json(), async (req, res) => {
-    const { url, voice, text } = req.body || {};
+    const { url, voice, text, engine } = req.body || {};
+    // Gemini FIRST: it is the one engine with no URL to validate, so the url check below would
+    // reject it before it was ever considered.
+    if (String(engine || '') === 'gemini') {
+        try { return await previewGemini(res, { voice, text }); }
+        catch (e) {
+            console.warn(`DROP: preview-gemini threw — ${e?.message || e}`);
+            return res.status(502).json({ error: 'engine_error', message: e?.message || 'preview failed' });
+        }
+    }
     if (!/^https?:\/\//i.test(String(url || ''))) {
         return res.status(400).json({ error: 'bad_url', message: 'enter a full http:// URL (with port)' });
     }

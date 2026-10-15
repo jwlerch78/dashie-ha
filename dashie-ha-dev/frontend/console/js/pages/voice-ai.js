@@ -609,7 +609,8 @@ const VoiceAiPage = {
         const stored = String(d['voice.pipelinePreset'] || '');
         if (stored) return stored;
         if (String(d['voice.controlMethod']) === 'voice_assistant') return 'ha_assist';
-        const localVoice = String(d['voice.ttsProvider']) !== 'dashie_cloud'
+        // Both cloud voices count as cloud (Gemini is the default, John 2026-10-14), else Gemini derives Hybrid.
+        const localVoice = !['dashie_cloud', 'gemini'].includes(String(d['voice.ttsProvider']))
             && String(d['voice.sttProvider']) !== 'dashie_cloud';
         if (String(d['ai.model']) === 'local' && localVoice) return 'local';
         if (localVoice) return 'hybrid';
@@ -950,7 +951,7 @@ const VoiceAiPage = {
         this.saveDefault('voice.pipelinePreset', preset);
         this.saveDefault('voice.controlMethod', preset === 'ha_assist' ? 'voice_assistant' : 'dashie_cloud');
         this.saveDefault('voice.sttProvider', String(d['voice.sttProvider'] || 'dashie_cloud'));
-        this.saveDefault('voice.ttsProvider', String(d['voice.ttsProvider'] || 'dashie_cloud'));
+        this.saveDefault('voice.ttsProvider', String(d['voice.ttsProvider'] || 'gemini'));
         if (String(d['ai.model'] || '')) this.saveDefault('ai.model', String(d['ai.model']));
 
         // Cloud/Hybrid ship the conversational defaults ON out of the box — but only
@@ -1013,7 +1014,7 @@ const VoiceAiPage = {
         const hasHaEngine = has('ha_engine');
 
         if (presetId === 'hybrid') {
-            const currentIsLocal = currentValid && current !== 'dashie_cloud';
+            const currentIsLocal = currentValid && !['dashie_cloud', 'gemini'].includes(current);
             if (currentIsLocal) return;   // deliberate local choice — keep it
             // Hybrid = cloud AI + on-device voice: default to the BUNDLED on-device engines
             // (sherpa STT / built-in device TTS), not HA Whisper/Piper (John 2026-07-28). The
@@ -1030,7 +1031,7 @@ const VoiceAiPage = {
             return;
         }
         if (currentValid) return;
-        const seed = presetId === 'cloud' ? 'dashie_cloud'
+        const seed = presetId === 'cloud' ? (stageKey === 'tts' ? 'gemini' : 'dashie_cloud')
             : presetId === 'ha_assist' ? 'va_default'   // the Assist pipeline itself
             : (hasHaEngine ? 'ha_engine' : 'android_voice');
         if (!has(seed)) return;
@@ -1776,14 +1777,21 @@ const VoiceAiPage = {
         // hide a control. It must never hide a value.
         const simple = window.VoiceAiMode?.isSimple?.() === true;
         const pipelineReal = customPipeline && !isLive;
-        const showPipeline = pipelineReal && !simple;
+        // 🔴 Simple now SHOWS stt/tts/wake word (John 2026-10-13 — Hybrid and Local
+        // open a choice rather than fixing an engine, so hiding the cards left those
+        // households unable to reach the setting their preset exists to configure).
+        // `showTts` is split OUT of `showPipeline` deliberately: text-to-speech joins
+        // Simple, while the web-search source and entity scope stay Advanced-only.
+        // Collapsing them again would quietly drag two more cards into Simple.
+        const showPipeline = pipelineReal && !simple;   // search + entities + voice row + engine detection
+        const showTts = pipelineReal;                   // the TTS card itself: both modes
         // STT shows whenever the pipeline is customized — in cascade (with TTS/search) AND
         // in Live mode (on its own, below Live Voice). In Live it's the engine that
         // transcribes the FIRST wake command for the local-vs-Live routing decision; the
         // rest of the pipeline stays hidden (Live speaks its own voice, grounds via the
         // model). Gated on the Customize-pipeline toggle so it's opt-in. Asterisked in Live.
         const sttReal = customPipeline;
-        const showStt = sttReal && !simple;
+        const showStt = sttReal;                        // both modes (see showTts above)
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
@@ -1796,8 +1804,8 @@ const VoiceAiPage = {
         // off, preset switch, Live hiding the pipeline). A stale entry keeps
         // anyExpanded true and dims every visible card indefinitely.
         const visibleStages = new Set(isHaAssist
-            ? (showPipeline ? ['tts', 'stt'] : [])
-            : ['model', ...(showStt ? ['stt'] : []), ...(showPipeline ? ['tts', 'search'] : []), ...(showEntities ? ['entities'] : [])]);
+            ? [...(showTts ? ['tts'] : []), ...(showStt ? ['stt'] : [])]
+            : ['model', ...(showStt ? ['stt'] : []), ...(showTts ? ['tts'] : []), ...(showPipeline ? ['search'] : []), ...(showEntities ? ['entities'] : [])]);
         for (const k of [...this._expandedCards]) {
             if (!visibleStages.has(k)) this._expandedCards.delete(k);
         }
@@ -1816,8 +1824,16 @@ const VoiceAiPage = {
             if (!note) return html;
             return html + `<div style="font-size: 12px; color: var(--text-muted); margin: 2px 4px 10px; line-height: 1.45;">${this._escape(note)}</div>`;
         };
+        // The key icon on STT/TTS, from the LANE's `payer` — the same badge the AI Model
+        // row already shows, which is what John asked for in place of the sentence.
+        // Marks only the SELECTED row: the badge means "this is what is paying right now",
+        // not "a key exists somewhere".
+        const withLaneKey = (options, stageKey, selectedId) =>
+            (O.laneKeyed(stageKey, this._lanes)
+                ? (options || []).map(o => (o && O._sameRow(o.id, selectedId, stageKey) ? { ...o, keyed: true } : o))
+                : options);
         const card = (title, stageKey, options, selectedId) => withServesNote(VoiceAiCards.render({
-            title, stageKey, options, selectedId,
+            title, stageKey, options: withLaneKey(options, stageKey, selectedId), selectedId,
             icon: CARD_ICONS[stageKey] || '',
             expanded: this._expandedCards.has(stageKey),
             anyExpanded: this._expandedCards.size > 0,  // dim the other cards while one is open
@@ -1870,15 +1886,15 @@ const VoiceAiPage = {
         // (model/personality/search) since HA owns the conversation agent.
         const body = isHaAssist ? `
             ${P.renderHaAssistCard()}
-            ${showPipeline ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
-            ${showPipeline ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
+            ${showStt ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
+            ${showTts ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
             ${S.grid([
                 gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
                 // Wake word is Advanced (D8): one choice, set once, and 'Hey Dashie'
                 // is right for nearly every household. Its VALUE is not lost — a
                 // non-default wake word is named in the section summary below.
-                simple ? '' : D.renderWakeWordCard({
+                D.renderWakeWordCard({
                     currentId: String(d['ai.defaultWakeWord'] || VoiceAiApi.defaultWakeWord()),
                     saving: this._savingKey === 'ai.defaultWakeWord',
                     compact: true,
@@ -1890,15 +1906,31 @@ const VoiceAiPage = {
                     compact: true,
                 }),
                 showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : '',
-                showPipeline ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
+                showTts ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
                 // Full-width: these are notes and sub-rows that belong under the grid,
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
                 S.full([
-                    isLive && !simple ? this._renderLiveVoiceRow(d) : '',
+                    // 🔴 REACHABILITY FIX (B, 2026-10-14, found while building the preview John
+                    // asked for). This condition was `isLive && !simple`, which was right while
+                    // `voice.liveVoiceName` only drove a Live session. It no longer does: the add-on
+                    // reads the SAME key for STRAIGHT Gemini TTS — `engines.js:366` calls it "the
+                    // household's ONE Gemini voice", and `gemini-tts-lane.js:3` says "always the SAME
+                    // voice … the key decides who pays, never which voice speaks".
+                    // ⇒ A household that picked the `gemini` TTS engine without Live had NO way to
+                    // choose its voice: the setting was live and the control was hidden, so they got
+                    // the default (Aoede) and no control. Same defect as the pictures toggle.
+                    (isLive || ttsSelectedId === 'gemini') && !simple ? this._renderGeminiVoiceRow(d) : '',
                     showStt && isLive ? this._renderLiveSttNote() : '',
                     showPipeline ? this._renderEngineDetectionRow() : '',
                     showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : '',
+                    // 🔴 MOVED here from AI Prompt & Tools (John, 2026-10-13: *"let's move
+                    // conversation dialog into the Voice & LLM section"*). It belongs with how the
+                    // assistant LISTENS, not with what it may reach for — and the move has a second
+                    // effect worth keeping: the tools section is hidden entirely in Simple, so while
+                    // this row lived there a Simple household could neither set dialog nor see its
+                    // value. Here it is visible in both modes.
+                    !isLive ? this._renderDialogRows(d, agentMode) : '',
                 ].filter(Boolean).join('')),
             ].filter(Boolean))}
             ${window.VoiceAiMode?.renderFooter?.() || ''}
@@ -1927,31 +1959,30 @@ const VoiceAiPage = {
         // Customize × agent mode × HA reachable) is the part most likely to break
         // silently, so it was deliberately not touched.
         const toolToggles = [
-            !isLive ? this._renderDialogRows(d, agentMode) : '',
-            // 🔴 ALPHA-GATED for the HA first release (D3, 2026-10-09) — the same cohort
-            // shape as credits and scheduled actions, not a deletion.
+            // ✅ UN-GATED 2026-10-14 (John: "agree - ungate the toggle"). It was alpha-gated
+            // on 2026-10-09 (D3) and the gate was sound for its time: the row quoted a
+            // per-search price and the feature behind it billed credits through Dashie's own
+            // Serper key, so `credits` stood in for "this costs money".
             //
-            // This row is a PAY SURFACE whichever way you read it. Its own copy quotes a
-            // per-search price, and the thing behind it runs on DASHIE'S Serper key
-            // through a cloud gateway and bills credits — both of which the release
-            // removes. Leaving the row with the price stripped would be worse than
-            // either: the household would switch on a feature that silently cannot
-            // bill, and a picture that never appears reads as a broken product.
+            // 🔴 WHAT CHANGED IS THE FEATURE, NOT THE POLICY. Pictures now resolve through a
+            // FREE source by default (Wikipedia/Wikidata → Commons → Pexels, VH's round-3
+            // `free_image.ts`: 75/80 against Serper's 78/80 on 40 held-out queries, openly
+            // licensed). Nothing here costs credits unless the household picks Google, and
+            // that choice lives in `_pictureSourceRow`, which gates ITSELF on `credits` and
+            // carries the only price on the page. So the toggle no longer has a pay surface
+            // to hide and the gate had become the defect instead of the guard:
             //
-            // ⚠️ It is NOT replaced by "a household Serper key" yet, and that is the
-            // whole reason it waits rather than being rewired. Serper's manifest row is
-            // `adapter: 'pending'`: nothing on the box spends a stored Serper key,
-            // because the brain has no image-search hook to spend it through
-            // (`addon-io.js` says outright that image search has no hook and the core
-            // resolves it inline). John bumped Serper's priority on 2026-10-09 — when
-            // that hook lands and the adapter flips to shipped, this row comes back
-            // UNGATED and priced at the household's own key.
+            //   Cloud/Hybrid seeded it TRUE (see `_seedPresetDefaults`) while hiding the row
+            //   AND its summary — pictures were on, free, and the household could neither
+            //   turn them off nor see that they were on. Local/HA-Assist seeded it FALSE,
+            //   which with no row meant pictures could never be reached at all.
             //
-            // The stored key is untouched, exactly as with 'Always use AI for chores'
-            // (hidden 2026-10-04): an account that already chose it keeps its choice.
-            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
-                ? this._toggleRow('Retrieve pictures', `Allow the AI to show pictures with its responses. Uses web image search (${O.imageSearchCost}/search).`, 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
-                : '',
+            // ⚠️ So do NOT re-gate this on `credits` to "be safe": that re-hides a free
+            // feature. The thing to gate is the PAID SOURCE, and it is already gated at its
+            // own site. check-voice-sections legs 31/32/33 pin both halves — standard sees
+            // the toggle, standard never sees the Google option.
+            this._toggleRow('Retrieve pictures', 'Allow the AI to show pictures with its responses.', 'ai.retrievePicturesEnabled', d['ai.retrievePicturesEnabled'])
+                + (d['ai.retrievePicturesEnabled'] ? this._pictureSourceRow(d, O) : ''),
             // 'Prompt for feedback' HIDDEN 2026-07-17 — not implemented on the tablet
             // (no thumbs up/down ships the feedback). Restore via
             // FeatureGate.shouldShow('promptForFeedback').
@@ -1981,19 +2012,21 @@ const VoiceAiPage = {
             isHaAssist ? '' : lbl(this._modelOptions(preset), this._selectedModelId(agentMode)),
             sttReal ? lbl(O.sttOptions(this._engines, d['voice.sttProvider']), sttSelectedId) : '',
             pipelineReal ? lbl(ttsAll, ttsSelectedId) : '',
+            // Follows the ROW, which moved here 2026-10-13. John, 2026-09-23, on why it is
+            // summarised at all: it is the one setting that changes how every single turn
+            // behaves, so a collapsed section omitting it hid the most consequential row.
+            isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
         ].filter(Boolean).join(' · ');
         const toolsSummary = [
             ...window.VoiceAiPromptSection.summary(promptSectionArgs),
             pipelineReal ? lbl(searchOptions, searchSelected) : '',
-            // John, 2026-09-23: the summary must capture conversation mode. It is the
-            // one setting in here that changes how every single turn behaves, so a
-            // collapsed section that omitted it was hiding the most consequential row.
-            isLive ? 'live conversation' : (agentMode === 'dialog' ? 'conversation on' : 'conversation off'),
-            // Only summarised where the row is actually offered. A collapsed section
-            // reporting 'pictures off' for a control the user cannot find is naming a
-            // setting that, for them, does not exist.
-            (typeof FeatureGate !== 'undefined' && FeatureGate.shouldShow('credits'))
-                ? (d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off') : '',
+            // Summarised wherever the row is offered — which, since the 10-14 un-gating, is
+            // everywhere. The rule it was expressing has not changed: a collapsed section
+            // reporting 'pictures off' for a control the user cannot find names a setting
+            // that, for them, does not exist. It is just that the control is now findable,
+            // and withholding the summary was the half that left Cloud/Hybrid households
+            // unable to see that pictures were on.
+            d['ai.retrievePicturesEnabled'] ? 'pictures on' : 'pictures off',
         ].filter(Boolean).join(' · ');
 
         return `
@@ -2049,18 +2082,86 @@ const VoiceAiPage = {
      *  Live mode, styled as the standard voice row (icon + label + select) so it
      *  matches the other pipeline dropdowns. The cascade voice follows the
      *  personality's TTS voice, set elsewhere. */
-    _renderLiveVoiceRow(d) {
+    _renderGeminiVoiceRow(d) {
         const D = window.VoiceAiDefaultsCards;
         const cur = String(d['voice.liveVoiceName'] || '') || 'Aoede';
         const opts = this.CONVERSATION_VOICES.map(([id, label]) =>
             `<option value="${this._escape(id)}" ${id === cur ? 'selected' : ''}>${this._escape(label)}</option>`).join('');
+        // ▶ Hear it (John 2026-10-14: *"mainly for me to listen to the voices and determine which
+        // can map to personalities"*). Add-on only, like the own-box preview: the synthesis is
+        // proxied by the box, which is where the Gemini key lives.
+        // ⚠️ Same flex warning as the own-box row: `flex-shrink: 0` and a fixed width, or it steals
+        // the select's `flex: 1` and squeezes it to an unclickable sliver.
+        const preview = DashieAuth.isAddonMode
+            ? `<button id="gemini-voice-preview-btn" title="Hear this voice"
+                   onclick="event.stopPropagation(); VoiceAiPage.previewGeminiVoice(this)"
+                   style="flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border, #d1d5db);
+                          background: var(--bg-card, #fff); color: var(--text-primary); cursor: pointer; font-size: 11px; line-height: 1;
+                          display: inline-flex; align-items: center; justify-content: center;">\u25B6</button>`
+            : '';
         return D.renderControlRow({
-            label: 'Live voice',
+            // 🔴 WAS "Live voice", which became false when the same key started driving straight
+            // Gemini TTS. The partition id stays `live-voice` (voice-ai-mode.js) on purpose: that
+            // id is an internal handle the Simple/Advanced gate keys on, and renaming it would
+            // churn the gate for no household-visible gain. The LABEL is the part users read.
+            label: 'Gemini voice',
             icon: 'icon-voice',
             saving: this._savingKey === 'voice.liveVoiceName',
-            controlHtml: `<select style="${D.SELECT_STYLE}" onchange="VoiceAiPage.saveLocalField('voice.liveVoiceName', this.value)">${opts}</select>`,
+            controlHtml: `<select id="gemini-voice-select" style="${D.SELECT_STYLE}" onchange="VoiceAiPage.saveLocalField('voice.liveVoiceName', this.value)">${opts}</select>`
+                + preview,
             caret: true,
         });
+    },
+
+    /**
+     * Play a sample in the Gemini voice currently SHOWN in the dropdown.
+     *
+     * 🔴 Reads the live `<select>` value, not `_defaults`, deliberately: auditioning means
+     * changing the dropdown repeatedly, and the stored value lags a save round-trip. Reading the
+     * DOM plays what the user is looking at. (It also means the sample is right even if the save
+     * failed — the button answers "what does this voice sound like", not "what is saved".)
+     *
+     * Funding is the SERVER's decision, not this button's (`/api/voice/preview` engine:'gemini'):
+     * stored key first, then account credits (John 10-14), else a 409 naming what to fix.
+     */
+    async previewGeminiVoice(btn) {
+        // Already playing → this is a stop button. Covers a double-click and switching voices
+        // mid-sample: never two voices at once, which is the one thing that makes auditioning useless.
+        if (this._geminiPreviewAudio) {
+            this._geminiPreviewAudio.pause();
+            URL.revokeObjectURL(this._geminiPreviewAudio.src);
+            this._geminiPreviewAudio = null;
+            if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; }
+            return;
+        }
+        const sel = document.getElementById('gemini-voice-select');
+        const voice = String(sel?.value || VoiceAiPage._defaults?.['voice.liveVoiceName'] || 'Aoede');
+        const restore = () => { if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; } };
+        if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+        try {
+            const r = await fetch(DashieAuth._addonUrl('/api/voice/preview'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engine: 'gemini', voice }),
+            });
+            if (!r.ok) {
+                // 404 = an add-on older than this arm. Say that rather than blaming the voice.
+                if (r.status === 404) { Toast.error(`Update the ${BRAND.productName} add-on to preview Gemini voices.`); restore(); return; }
+                const err = await r.json().catch(() => ({}));
+                Toast.error(err.message || `Couldn't play a sample — HTTP ${r.status}`);
+                restore();
+                return;
+            }
+            const audio = new Audio(URL.createObjectURL(await r.blob()));
+            this._geminiPreviewAudio = audio;
+            audio.onended = () => { URL.revokeObjectURL(audio.src); if (this._geminiPreviewAudio === audio) this._geminiPreviewAudio = null; restore(); };
+            audio.onerror = () => { Toast.error("Couldn't play the sample."); restore(); };
+            await audio.play();
+            if (btn) btn.textContent = '\u23F8';
+        } catch (e) {
+            Toast.error(`Couldn't play a sample — ${e?.message || e}`);
+            restore();
+        }
     },
 
     /** The voice-id field to render as the Voice row under Text-to-speech, for whatever
@@ -2650,6 +2751,30 @@ const VoiceAiPage = {
             <div class="form-group">
                 <label class="form-label">AI model ${saving ? '<span style="color: var(--text-muted); font-weight: 400;">· saving…</span>' : ''}</label>
                 <select class="form-select" onchange="VoiceAiPage.saveDefault('ai.model', this.value)">${groups}</select>
+            </div>
+        `;
+    },
+
+    /** Picture source (John 10-13: "the user should select the source here with credits opening up the availability
+     *  of serper"). Free is always there. Google Images is billed, so: no row at all when this account doesn't see
+     *  credits (the HA MVP sells none, John 10-14 — a greyed paid option would advertise what isn't sold); greyed with
+     *  the reason when it sees credits but has none. The price lives HERE, on the Google option only, never on Free.
+     *  The brain re-checks and falls back to free with no credits, so a stale choice can't bill. */
+    _pictureSourceRow(d, O) {
+        if (typeof FeatureGate !== 'undefined' && !FeatureGate.shouldShow('credits')) return '';
+        const bal = window.CreditsService?.balance();
+        const local = typeof DashieAuth !== 'undefined' && DashieAuth.isLocalMode;
+        const googleOk = !local && (!bal || typeof bal.balance !== 'number' || bal.balance > 0);   // loading → optimistic
+        const current = d['ai.pictureSource'] === 'google' ? 'google' : 'free';
+        const saving = this._savingKey === 'ai.pictureSource';
+        const google = `Google Images — uses credits (${this._escape(O.imageSearchCost)}/picture)`;
+        return `
+            <div class="form-group">
+                <label class="form-label">Picture source ${saving ? '<span style="color: var(--text-muted); font-weight: 400;">· saving…</span>' : ''}</label>
+                <select class="form-select" onchange="VoiceAiPage.saveDefault('ai.pictureSource', this.value)">
+                    <option value="free" ${current === 'free' ? 'selected' : ''}>Free (Wikipedia &amp; stock photos)</option>
+                    <option value="google" ${current === 'google' ? 'selected' : ''} ${googleOk ? '' : 'disabled'}>${google}${googleOk ? '' : ' — needs credits'}</option>
+                </select>
             </div>
         `;
     },

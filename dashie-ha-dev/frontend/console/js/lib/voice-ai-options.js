@@ -60,10 +60,13 @@ const VoiceAiOptions = {
     // ⚠️ Still NOT in the LABEL. The label is the product ("Dashie Cloud STT"); the
     // vendor is an implementation detail that can change, and a label is what a stored
     // value renders as on every other screen.
-    CLOUD_SUPPLIERS: [
-        { stage: 'Speech-to-text', vendors: 'Deepgram' },
-        { stage: 'Text-to-speech', vendors: 'ElevenLabs and Inworld' },
-    ],
+    // 🔴 CLOUD_SUPPLIERS DELETED 2026-10-13. Its last READER was the STT row's description,
+    // and that row now names Gemini outright (John's 10-13 rename), so the structure became
+    // write-only: a value computed from the server on every load and displayed nowhere.
+    // It also still said **'Deepgram'** for a lane that has been Gemini since 10-12 — a stale
+    // claim that survived precisely because nothing rendered it, so no one could see it was
+    // wrong. The TTS half was unread too (that row's copy is a literal).
+    // ⇒ Deleted with its writer rather than left as a holder nothing consumes.
 
     // ── pipeline presets (Open Brain plan §6) ─────────────────
     // The top-level Voice & AI selector: three Dashie Intelligence presets
@@ -328,12 +331,21 @@ const VoiceAiOptions = {
         // suppliers note under the preset picker; that note is gone, and a comment that
         // still named it would send the next reader looking for a paragraph that no
         // longer renders.
+        // 🔴 NAMED "Gemini", not "<cloud> STT" (John, 2026-10-13: *"we are now calling out Gemini by
+        // name rather than Dashie Cloud"*; his 10-12 ruling was *"we'll call it Gemini and retire
+        // dashie cloud"*). The console was the LAGGING surface — the tablet already shows one
+        // "Gemini" row (VoiceAiOptions.kt `oneGeminiRow`), so the two disagreed on screen.
+        //
+        // ⚠️ The STORED id stays `dashie_cloud`. John ruled display-and-comments-only, no migration:
+        // the value is persisted in SharedPreferences, Supabase and this console, so renaming the wire
+        // value would need a read-both-keys window on three surfaces and would strand every household
+        // that has one stored today. Display changes; storage does not.
+        //
+        // Copy is John's D6, verbatim, and is the same sentence the tablet shows.
         { id: 'dashie_cloud',
-          label: `${BRAND.cloudName} STT`,
+          label: 'Gemini',
           locality: 'cloud', cost: '$0.036/min · ~0.3¢/command',
-          // D5(i), John 2026-10-08: "Streaming" dropped (false under batch Gemini), and the vendor now reads
-          // from CLOUD_SUPPLIERS — the single holder the comment above names — instead of a hard-coded copy.
-          get description() { return `Premium accuracy, provided by ${VoiceAiOptions.CLOUD_SUPPLIERS[0].vendors}.`; } },
+          description: 'Your key if you\u2019ve added one, otherwise your Dashie credits. Audio goes to Google.' },
         { id: 'local_stt_url', label: 'Local Whisper (your box)', locality: 'local', cost: 'Free',
           description: 'Whisper server on your own box (OpenAI-compatible, LAN, direct).',
           configFields: [
@@ -378,6 +390,13 @@ const VoiceAiOptions = {
     // labeled "Piper (Home Assistant)") is injected by ttsOptions() when
     // detection finds a Piper engine on HA.
     TTS: [
+        // The DEFAULT voice (John 2026-10-14: "we should change HA's console default voice to Gemini TTS").
+        // 🔴 The id `gemini` is a WIRE VALUE: Kotlin VoicePreferences.TTS_GEMINI is the naming source, the
+        // add-on's byok-tts.js reads it (choseGeminiVoice), and lint:voice-options gates the id + locality.
+        // Payer: the household's Gemini key, else Dashie credits (byok-tts resolveProvider is the one decider).
+        // No price (same reason as the Gemini STT row: a restated vendor price goes stale).
+        { id: 'gemini', label: 'Gemini', locality: 'cloud', cost: 'Your Gemini key',
+          description: 'Google Gemini voice, on the key stored in API Keys (Dashie credits pay when there is no key).' },
         // cost is a fallback estimate — applyLiveRates() overwrites the rate from
         // the server's margined rate card. Two engines behind one row: the
         // default Dashie voice runs on Inworld (~4× cheaper per character);
@@ -513,6 +532,25 @@ const VoiceAiOptions = {
     },
 
     /**
+     * 🔴 MAY THIS HOUSEHOLD BE SHOWN A PRICE AT ALL? (John, 2026-10-14: *"I don't think we
+     * should be showing rates at all unless they are on the credits"*.)
+     *
+     * Credits are `alpha-only` for the HA first release, so most households are sold nothing
+     * — and a rate quoted to someone who cannot buy is a pay surface with no purchase behind
+     * it. VH's headless walkthrough found 14 model token prices reaching exactly that cohort.
+     *
+     * ⚠️ It is NOT "is this row free?" and not a brand check. It is the same cohort question
+     * `credits` already answers, asked once, in one place, so every priced row inherits it.
+     * Fails CLOSED: with no FeatureGate loaded, no price shows. That is the safe direction —
+     * a missing price is a cosmetic gap, a price shown to a cohort sold no credits is the
+     * thing John asked to remove.
+     */
+    ratesVisible() {
+        if (typeof FeatureGate === 'undefined') return false;
+        return FeatureGate.shouldShow('credits') === true;
+    },
+
+    /**
      * WHO SERVES A LANE, in household words — the console half of `/api/voice/lanes`.
      *
      * 🔴 TWO QUESTIONS, TWO ANSWERS, NEITHER INFERRED FROM THE OTHER. The server answers
@@ -543,6 +581,26 @@ const VoiceAiOptions = {
         credits_unreadable:     'Credit balance unavailable.',
         signed_out:             'Needs a signed-in account.',
         no_key:                 'Needs a key in API Keys.',
+        // ── the THREE "no key AND ..." causes ────────────────────────────────
+        // 🔴 Added 2026-10-14 (B) because they were MISSING and the absence was silent to
+        // the household: `voice-routes.js` geminiSttRow has discriminated these three since
+        // 10-12 ("`why` names WHICH thing to fix, never a merged unavailable"), and
+        // check-voice-lanes asserted the SERVER emits three distinct values — while this map
+        // had a sentence for none of them. `applyLanes` therefore stripped the price (right)
+        // and said nothing (the gap): a row that cannot serve, with no reason given. The new
+        // disclosure leg in check-voice-lanes reads BOTH ends and is what keeps it closed.
+        //
+        // Each names the KEY first, because adding a key is the one fix available in all
+        // three, and keeps the server's distinction in the second clause.
+        // ⚠️ COPY NOT RULED BY JOHN. The credits clause points at the Credits page, which is
+        // `alpha-only` for the HA first release — so on that build it names something the
+        // household cannot reach. Left in for consistency with `no_credits` /
+        // `credits_unreadable` above, which already say "account"/"credits" in household
+        // copy. If credits must not be mentioned on the HA release, the fix is to drop the
+        // clause after the em-dash / comma in these three; nothing else reads them.
+        no_key_signed_out:         'Needs a key in API Keys, or a signed-in account.',
+        no_key_no_credits:         'Needs a key in API Keys, or credits on this account.',
+        no_key_credits_unreadable: 'Needs a key in API Keys — the credit balance is unavailable.',
         speech_key_present:     'A speech provider key is set, so that one is used.',
         account_pays:           'Your account credits pay for this while they last.',
         operator_url_overrides: "The add-on configuration points this lane at its own engine.",
@@ -565,9 +623,10 @@ const VoiceAiOptions = {
     // null that is not declared — the same discipline as leg 12's UNASSEMBLED map,
     // because "no label" and "nobody got round to it" are indistinguishable otherwise.
     SERVES_LABEL_NONE: {
-        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: the selected row IS '
-            + 'dashie_cloud, so serves === selectedId and no disclosure is wanted. Revisit if a TTS '
-            + 'gemini row lands — then dashie_cloud serving a gemini selection NEEDS a sentence.',
+        dashie_cloud: 'STT: retired (John 10-12), so stt never reports it. TTS: either the selected row IS '
+            + 'dashie_cloud (serves === selectedId), or the Gemini row is selected and credits pay for the SAME '
+            + 'Gemini voice (byok-tts resolveProvider: a Gemini choice with no key → null → credits), which the '
+            + "Gemini row's own description already says. Neither needs a sentence.",
     },
 
     /**
@@ -619,9 +678,47 @@ const VoiceAiOptions = {
         if (!lane) return null;
         const serves = lane.serves;
         if (!serves || String(serves) === String(selectedId || '')) return null;
+        // 🔴 ALIAS: `dashie_cloud` and `gemini` are ONE row (the stored id stayed
+        // `dashie_cloud` when the row was renamed to "Gemini" — John ruled display-only,
+        // no migration). Without this the lane serving `gemini` against a stored
+        // `dashie_cloud` reads as "serving something else" and fires a disclosure on the
+        // normal, correct case — which is what put *"Running on your Gemini key right
+        // now."* under a row already labelled Gemini. Who PAYS is now the key icon's job
+        // (`laneKeyed`); this sentence is for the lane serving a DIFFERENT engine.
+        if (this._sameRow(serves, selectedId, stage)) return null;
         const label = this.SERVES_LABELS[serves];
         if (!label) return null;
         return `Running on ${label} right now.`;
+    },
+
+    /** The one place the stored-id/display-name alias is spelled out.
+     *  🔴 STT ONLY. TTS has two real rows, `gemini` and `dashie_cloud` (the Gemini default voice, John
+     *  2026-10-14); aliasing them there would put the key icon on both and hide a lane serving the other. */
+    _ALIASES: [['dashie_cloud', 'gemini']],
+
+    _sameRow(a, b, stage) {
+        const x = String(a || ''), y = String(b || '');
+        if (x === y) return true;
+        if (stage !== 'stt') return false;
+        return this._ALIASES.some(pair => pair.includes(x) && pair.includes(y));
+    },
+
+    /**
+     * Is this lane being paid for by the HOUSEHOLD'S OWN KEY right now?
+     *
+     * John, 2026-10-13: *"It says running on your gemini key right now in the Voice &
+     * LLM box, but it should just show the key icon next to AI, TTS, and STT"* — the
+     * same signal the AI Model row already carries, instead of a sentence under one card.
+     *
+     * 🔴 Read from the LANE (`payer`), never from "is a key stored". A stored key that
+     * cannot serve must not put a key icon on a row that credits are actually paying
+     * for — that is the lying-card class this file exists to prevent. `payer` is set
+     * only when the row both serves AND can_serve (voice-routes.js:160-163), so an
+     * absent or unprobed lane yields false and shows nothing.
+     */
+    laneKeyed(stage, lanes) {
+        const lane = lanes && lanes[stage] ? lanes[stage] : null;
+        return !!lane && lane.payer === 'key';
     },
 
     /**
@@ -716,7 +813,7 @@ const VoiceAiOptions = {
         const base = Object.fromEntries(this.TTS.map(o => [o.id, o]));
         // Order mirrors STT: cloud → On-Device → HA → +Add local voice (bottom). local_url is
         // the inline "+ Add a local voice" row, so putting it last lands the Add row at the bottom.
-        const out = [this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
+        const out = [base.gemini, this._managedCloudRow(base.dashie_cloud, currentId), base.android_voice, this._piperOption(detection),
                      base.va_default, this._localUrlOption(base.local_url, detection)];
         return this.withStoredResidual('tts', this.withSavedEngines('tts', out.filter(Boolean), 'local_url'), currentId);
     },
@@ -948,6 +1045,12 @@ const VoiceAiOptions = {
     _liveModelRates: null,   // { modelId: {input, output} } margined per 1M — read by models()
     async applyLiveRates() {
         if (this._liveRatesApplied) return;
+        // 🔴 The rate card is Dashie's MARGINED price list — what we would bill. Where no
+        // price may be shown, do not even ask for it: `models()` PREFERS `_liveModelRates`
+        // over the vendor catalog, so a fetched card silently upgrades every model row from
+        // the vendor's published rate to ours. Suppressing at the render alone would leave
+        // our numbers loaded and one careless read away from the screen. (John 10-14.)
+        if (!this.ratesVisible()) { this._liveRatesApplied = true; return; }
         try {
             // BARE DashieAuth (top-level const, not on window) — window.DashieAuth
             // is undefined, which silently no-op'd the live rate card (fell back to
@@ -986,11 +1089,6 @@ const VoiceAiOptions = {
                 const stt = this.STT.find(o => o.id === 'dashie_cloud');
                 if (stt) stt.cost = `$${cr.stt.per_min.toFixed(3)}/min · ${perCmd}/command`;
             }
-            // D5(i), John 2026-10-08: the Cloud STT description names the vendor that ACTUALLY runs, from
-            // the server knob carried on this same payload. Absent (older server) → keep the default.
-            const sttVendor = { deepgram: 'Deepgram', gemini: 'Google' }[res?.cloud_stt_provider];
-            if (sttVendor) this.CLOUD_SUPPLIERS[0].vendors = sttVendor;
-            else if (res?.cloud_stt_provider) console.warn(`DROP: cloud-stt-vendor-unknown '${res.cloud_stt_provider}' — keeping '${this.CLOUD_SUPPLIERS[0].vendors}'`);
             if (typeof cr?.image_search?.per_unit === 'number') {
                 this.imageSearchCost = this._usd(cr.image_search.per_unit);
             } else {

@@ -10,7 +10,7 @@ import type { LogData } from './io-contracts.ts';
 import type { WeatherResult } from './weather.ts';
 import type { VoiceRequest } from './types.ts';
 
-function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: boolean; model?: string; spendable?: boolean; rateLimited?: boolean; weather?: WeatherResult | 'throw'; sportsGames?: Array<Record<string, unknown>>; account?: { model?: string | null; webSearchEnabled?: boolean | null; retrievePicturesEnabled?: boolean | null; zipCode?: string | null; calendarWriteAccess?: string | null } } = {}) {
+function makeIO(responses: string[], opts: { gatewayFails?: boolean; retain?: boolean; model?: string; spendable?: boolean; rateLimited?: boolean; weather?: WeatherResult | 'throw'; sportsGames?: Array<Record<string, unknown>>; account?: { model?: string | null; webSearchEnabled?: boolean | null; retrievePicturesEnabled?: boolean | null; pictureSource?: string | null; zipCode?: string | null; calendarWriteAccess?: string | null } } = {}) {
   let calls = 0;
   let searches = 0;
   let lastGrounding = false;
@@ -379,16 +379,34 @@ Deno.test('image salvage: a plain answer with no promise does NOT trigger an ima
 // search on a box with no account — it missed us only because that shell's toolConn is
 // empty, making the URL relative so fetch threw. Off by rule now; these pin it.
 
-Deno.test('I4: paidTools:false → request retrieve_pictures:true CANNOT re-enable image search', async () => {
-  const m = makeIO(['{"type":"response","voice":"Here is a picture of a chickadee for you."}']);
+Deno.test('I4 (revised John 10-13): paidTools:false → pictures stay on, but ONLY from the free source; no Dashie-funded search', async () => {
+  // Was "CANNOT re-enable image search": credits used to decide WHETHER a picture shows. They now decide only WHERE it
+  // comes from, so a box with no account still shows free pictures and still can never reach the billed Serper search.
+  const m = makeIO(['{"type":"response","voice":"Here is a picture of a chickadee for you."}'], { account: { pictureSource: 'google' } });
   const io: OrchestratorIO = { ...m.io, billing: 'byok', paidTools: false };
   await runOrchestration(deps({ retrieve_pictures: true }), io);
-  const log = m.logs.at(-1)!;
-  const caps = (log.tool_trace as { caps?: { web_search: boolean; retrieve_pictures: boolean } }).caps!;
-  assertEquals(caps.retrieve_pictures, false);   // the request override does NOT win here
-  assertEquals(caps.web_search, false);          // same gate covers the other funded tool
-  assertEquals(log.tool_used, null);             // and no image search was even attempted
+  const caps = (m.logs.at(-1)!.tool_trace as { caps?: { web_search: boolean; retrieve_pictures: boolean; picture_source: string } }).caps!;
+  assertEquals(caps.retrieve_pictures, true);
+  assertEquals(caps.picture_source, 'free', 'Google was chosen, but nothing may be billed here: free');
+  assertEquals(caps.web_search, false);          // the other funded tool is still gated
 });
+
+// ── picture source (John 10-13: the household picks; credits open up Google) ──
+for (const [name, opts, want] of [
+  ['unset, with credits → free (the default)', { spendable: true, account: {} }, 'free'],
+  ['google, with credits → serper', { spendable: true, account: { pictureSource: 'google' } }, 'serper'],
+  // No credits only reaches a turn at all on the household's own AI key (BYOK); otherwise CR1 refuses the turn.
+  ['google, NO credits (BYOK) → free (degrade, not fail)', { spendable: false, account: { pictureSource: 'google' }, byok: true }, 'free'],
+  ['free, with credits → free (credits never force Google)', { spendable: true, account: { pictureSource: 'free' } }, 'free'],
+] as const) {
+  Deno.test(`picture source: ${name}`, async () => {
+    const m = makeIO(['{"type":"response","voice":"hi"}'], opts as Parameters<typeof makeIO>[1]);
+    const io: OrchestratorIO = (opts as unknown as { byok?: boolean }).byok ? { ...m.io, billing: 'byok' } : m.io;
+    await runOrchestration(deps({ retrieve_pictures: true }), io);
+    const caps = (m.logs.at(-1)!.tool_trace as { caps?: { retrieve_pictures: boolean; picture_source: string } }).caps!;
+    assertEquals([caps.retrieve_pictures, caps.picture_source], [true, want]);
+  });
+}
 
 Deno.test('I4: paidTools absent (cloud shell) leaves the request override working', async () => {
   // Guards the fix against over-reach: the metered cloud path is unchanged.

@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 54914f5fbdb277863a4d59bc1fa5cece697384d5
+   Source git SHA: 1b6dfbea31d97c74675b37649408077093eefca3
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -2197,18 +2197,18 @@ function trimPass2Tools(rendered) {
   return rendered.slice(0, start) + "\n(The routing decision was already made on the previous pass; no tool list is needed here.)\n\n" + rendered.slice(end);
 }
 function toolsListFor(context) {
-  const drop = [];
-  if (context.webSearchEnabled === false) drop.push("- web_search:");
-  if (context.announcement === true) drop.push("- schedule_action:");
-  if (context.calendarWriteEnabled === false) drop.push("- calendar_write:");
+  const drop2 = [];
+  if (context.webSearchEnabled === false) drop2.push("- web_search:");
+  if (context.announcement === true) drop2.push("- schedule_action:");
+  if (context.calendarWriteEnabled === false) drop2.push("- calendar_write:");
   if (Array.isArray(context.clientTools)) {
     for (const tool of DEVICE_ONLY_TOOLS) {
-      if (!context.clientTools.includes(tool)) drop.push(`- ${tool}:`);
+      if (!context.clientTools.includes(tool)) drop2.push(`- ${tool}:`);
     }
-    if (!context.clientTools.includes("calendar_write")) drop.push("- calendar_write:");
+    if (!context.clientTools.includes("calendar_write")) drop2.push("- calendar_write:");
   }
-  if (drop.length === 0) return AVAILABLE_TOOLS_LIST;
-  return AVAILABLE_TOOLS_LIST.split("\n").filter((l) => !drop.some((d) => l.trimStart().startsWith(d))).join("\n");
+  if (drop2.length === 0) return AVAILABLE_TOOLS_LIST;
+  return AVAILABLE_TOOLS_LIST.split("\n").filter((l) => !drop2.some((d) => l.trimStart().startsWith(d))).join("\n");
 }
 function offeredToolNames(context) {
   const names = [];
@@ -3368,6 +3368,174 @@ function templateSports(result, query, opts) {
   return { voice, text, structured_data: card(game, state, tz) };
 }
 
+// supabase/functions/_shared/tools/wiki_image.ts
+var WIKI_API = "https://en.wikipedia.org/w/api.php";
+var WIKIDATA_API = "https://www.wikidata.org/w/api.php";
+var COMMONS_API = "https://commons.wikimedia.org/w/api.php";
+var UA = "DashieVoiceAssistant/1.0 (https://dashieapp.com; support@dashieapp.com)";
+var THUMB_PX = 1280;
+var MIN_SIDE_PX = 400;
+var PENALISED_TITLE = /\b(logo|icon|map|diagram|flag|coat of arms|crest|seal|emblem|chart|graph|signature)\b/i;
+async function getJson(fetchFn, url) {
+  const resp = await fetchFn(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(1e4) });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return await resp.json();
+}
+function qs(params) {
+  return new URLSearchParams({ format: "json", ...params }).toString();
+}
+function isTopicIllustration(file) {
+  return !!file && (/\.svg$/i.test(file) || PENALISED_TITLE.test(file.replace(/_/g, " ")));
+}
+async function commonsFile(file, title, route, fetchFn) {
+  const body = await getJson(fetchFn, `${COMMONS_API}?${qs({
+    action: "query",
+    titles: `File:${file}`,
+    prop: "imageinfo",
+    iiprop: "url|size|mime|extmetadata",
+    iiurlwidth: String(THUMB_PX),
+    iiextmetadatafilter: "Artist|LicenseShortName"
+  })}`);
+  const page = Object.values(body?.query?.pages ?? {})[0];
+  const ii = page?.imageinfo?.[0];
+  if (!ii?.url) return null;
+  const meta = ii.extmetadata ?? {};
+  return {
+    url: ii.thumburl ?? ii.url,
+    original: ii.url,
+    title,
+    route,
+    pageUrl: ii.descriptionurl ?? `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(file)}`,
+    artist: stripHtml(meta.Artist?.value),
+    license: stripHtml(meta.LicenseShortName?.value)
+  };
+}
+async function wikidataFacts(qid, fetchFn) {
+  const body = await getJson(fetchFn, `${WIKIDATA_API}?${qs({ action: "wbgetentities", ids: qid, props: "claims" })}`);
+  const claims = body?.entities?.[qid]?.claims ?? {};
+  const v = claims.P18?.[0]?.mainsnak?.datavalue?.value;
+  return { p18: typeof v === "string" && v ? v : null, taxon: Array.isArray(claims.P105) && claims.P105.length > 0 };
+}
+async function articleImage(query, fetchFn = fetch) {
+  const body = await getJson(fetchFn, `${WIKI_API}?${qs({
+    action: "query",
+    titles: query,
+    redirects: "1",
+    prop: "pageimages|pageprops",
+    piprop: "name",
+    ppprop: "disambiguation|wikibase_item"
+  })}`);
+  const page = Object.values(body?.query?.pages ?? {})[0];
+  if (!page || "missing" in page || "invalid" in page) return { exists: false, image: null };
+  if (page.pageprops && "disambiguation" in page.pageprops) return { exists: false, image: null };
+  const title = String(page.title);
+  const qid = page.pageprops?.wikibase_item;
+  const lead = page.pageimage;
+  const facts = qid ? await wikidataFacts(qid, fetchFn).catch(() => ({ p18: null, taxon: false })) : { p18: null, taxon: false };
+  const p18 = facts.p18;
+  const leadFirst = facts.taxon;
+  const candidates = leadFirst ? [[lead, "article"], [p18, "wikidata"]] : [[p18, "wikidata"], [lead, "article"]];
+  for (const [file, route] of candidates) {
+    if (!file || isTopicIllustration(file)) continue;
+    const pick = await commonsFile(file, title, route, fetchFn);
+    if (pick) return { exists: true, title, image: pick };
+  }
+  return { exists: true, title, image: null };
+}
+function commonsRankScore(p) {
+  let s = p.index ?? 99;
+  if (PENALISED_TITLE.test(p.title ?? "")) s += 100;
+  if (p.mime === "image/svg+xml" || /\.svg$/i.test(p.title ?? "")) s += 100;
+  if ((p.width ?? 0) < MIN_SIDE_PX || (p.height ?? 0) < MIN_SIDE_PX) s += 50;
+  return s;
+}
+function stripHtml(s) {
+  const t = typeof s === "string" ? s.replace(/<[^>]*>/g, "").trim() : "";
+  return t || null;
+}
+async function commonsSearchImage(query, fetchFn = fetch) {
+  const body = await getJson(fetchFn, `${COMMONS_API}?${qs({
+    action: "query",
+    generator: "search",
+    gsrsearch: `${query} filetype:bitmap`,
+    gsrnamespace: "6",
+    gsrlimit: "10",
+    prop: "imageinfo",
+    iiprop: "url|size|mime|extmetadata",
+    iiurlwidth: String(THUMB_PX),
+    iiextmetadatafilter: "Artist|LicenseShortName"
+  })}`);
+  const pages = Object.values(body?.query?.pages ?? {});
+  const ranked = pages.filter((p) => p?.imageinfo?.[0]?.url).map((p) => {
+    const ii = p.imageinfo[0];
+    return { p, ii, score: commonsRankScore({ index: p.index, title: p.title, width: ii.width, height: ii.height, mime: ii.mime }) };
+  }).sort((a, b) => a.score - b.score);
+  const best = ranked[0];
+  if (!best) return null;
+  const meta = best.ii.extmetadata ?? {};
+  return {
+    url: best.ii.thumburl ?? best.ii.url,
+    original: best.ii.url,
+    title: best.p.title,
+    route: "commons",
+    pageUrl: best.ii.descriptionurl ?? `https://commons.wikimedia.org/wiki/${encodeURIComponent(best.p.title)}`,
+    artist: stripHtml(meta.Artist?.value),
+    license: stripHtml(meta.LicenseShortName?.value)
+  };
+}
+
+// supabase/functions/_shared/tools/stock_image.ts
+async function pexelsImage(query, ctx, fetchFn = fetch) {
+  const resp = await fetchFn(`${ctx.supabaseUrl}/functions/v1/pexels-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: ctx.anonKey, Authorization: `Bearer ${ctx.jwt || ctx.anonKey}` },
+    body: JSON.stringify({ query, orientation: "landscape", perPage: 5 }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!resp.ok) throw new Error(`pexels-search HTTP ${resp.status}`);
+  const body = await resp.json();
+  const p = (Array.isArray(body?.photos) ? body.photos : []).find((x) => x?.src?.large2x || x?.src?.large);
+  if (!p) return null;
+  return {
+    url: p.src.large2x ?? p.src.large,
+    title: String(p.alt ?? ""),
+    route: "pexels",
+    pageUrl: String(p.url ?? "https://www.pexels.com"),
+    artist: p.photographer ?? null,
+    artistUrl: p.photographer_url ?? null
+  };
+}
+
+// supabase/functions/_shared/tools/free_image.ts
+function hasProperNoun(q) {
+  return q.trim().split(/\s+/).slice(1).some((w) => /^[A-Z][a-z]/.test(w)) || /^[A-Z][a-z]+\s+[A-Z]/.test(q.trim());
+}
+function drop(step, q, e) {
+  console.warn(`DROP: free_image ${step} FAILED for "${q.slice(0, 60)}" (${e?.message ?? e}) \u2192 next source`);
+}
+async function resolveFreeImage(query, ctx, fetchFn = fetch) {
+  const q = query.trim();
+  if (!q) return null;
+  let named = false;
+  try {
+    const hit = await articleImage(q, fetchFn);
+    if (hit.image) return hit.image;
+    named = hit.exists;
+  } catch (e) {
+    drop("article lookup", q, e);
+  }
+  const order = named || hasProperNoun(q) ? [() => commonsSearchImage(q, fetchFn), () => pexelsImage(q, ctx, fetchFn)] : [() => pexelsImage(q, ctx, fetchFn), () => commonsSearchImage(q, fetchFn)];
+  for (const step of order) {
+    try {
+      const pick = await step();
+      if (pick) return pick;
+    } catch (e) {
+      drop("search", q, e);
+    }
+  }
+  return null;
+}
+
 // supabase/functions/_shared/tools/image_search.ts
 function envVar2(key) {
   try {
@@ -3393,6 +3561,29 @@ async function runImageSearch(query, ctx) {
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(body.error || body.message || `HTTP ${resp.status}`);
   return { images: Array.isArray(body?.images) ? body.images : [] };
+}
+function choosePictureSource(pref, paidToolsOk) {
+  if (pref === "google") return paidToolsOk ? { source: "serper", degraded: false } : { source: "free", degraded: true };
+  return { source: "free", degraded: false };
+}
+function buildFreeImageCard(p) {
+  const stock = p.route === "pexels";
+  const description = p.route === "commons" ? p.title.replace(/^File:/, "").replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ") : p.title;
+  return {
+    type: "image",
+    url: p.url,
+    thumbnail: p.url,
+    description,
+    source: stock ? "pexels" : "wikimedia",
+    attribution: {
+      photographer: p.artist ?? (stock ? "Pexels" : "Wikimedia Commons"),
+      photographerUrl: stock ? p.artistUrl ?? p.pageUrl : p.pageUrl,
+      license: stock ? "Pexels License" : p.license ?? null
+    }
+  };
+}
+function freeSourceName(p) {
+  return p.route === "pexels" ? "Pexels" : p.route === "commons" ? "Wikimedia Commons" : "Wikipedia";
 }
 var OFFICIAL_LOGO_URL = "https://dashieapp.com/artwork/Dashie_Full_Logo_Orange_Transparent.png";
 function officialImage(query) {
@@ -3448,6 +3639,16 @@ async function synthesizeImage(query, criteria, ctx) {
       result: { found: true, description: official.description, source: "Dashie" },
       card: official
     };
+  }
+  if (ctx?.source === "free") {
+    const pick = await resolveFreeImage(query, {
+      supabaseUrl: ctx.supabaseUrl || envVar2("SUPABASE_URL"),
+      anonKey: ctx.anonKey || envVar2("SUPABASE_ANON_KEY"),
+      jwt: ctx.jwt
+    });
+    if (!pick) return { result: { found: false }, card: null };
+    const card3 = buildFreeImageCard(pick);
+    return { result: { found: true, description: card3.description, source: freeSourceName(pick) }, card: card3 };
   }
   const { images } = await runImageSearch(query, ctx);
   const picked = selectImage(images, criteria);
@@ -4639,7 +4840,7 @@ var convertUnitsTool = {
 
 // supabase/functions/_shared/tools/wikipedia.ts
 var API = "https://en.wikipedia.org/w/api.php";
-var UA = "DashieVoiceAssistant/1.0 (https://dashieapp.com; support@dashieapp.com)";
+var UA2 = "DashieVoiceAssistant/1.0 (https://dashieapp.com; support@dashieapp.com)";
 function trimForSpeech(extract, maxSentences = 2, maxChars = 400) {
   const clean = extract.replace(/\s+/g, " ").trim();
   if (!clean) return "";
@@ -4666,7 +4867,7 @@ var wikipediaTool = {
     if (!query) return { result: { found: false } };
     const url = `${API}?action=query&format=json&origin=*&redirects=1&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=extracts&exintro=1&explaintext=1`;
     const resp = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "application/json" },
+      headers: { "User-Agent": UA2, Accept: "application/json" },
       signal: AbortSignal.timeout(1e4)
     }).catch((e) => ({ ok: false, status: 0, _e: String(e) }));
     if (!resp.ok) {
@@ -5188,7 +5389,7 @@ async function orchestrate(deps, io, voiceCtx) {
     // `voice_credit_enforce` flag is on for this env.
     io.checkSpendable ? io.checkSpendable(supabase, userId) : Promise.resolve({ spendable: true, balance: Number.POSITIVE_INFINITY, floor: 0, low: false }),
     // T3 (§16.7 item 4): account AI config (model + tool toggles). Absent IO → all-null.
-    io.readAccountAiConfig ? io.readAccountAiConfig(supabase, userId) : Promise.resolve({ model: null, webSearchEnabled: null, retrievePicturesEnabled: null, zipCode: null, calendarWriteAccess: null }),
+    io.readAccountAiConfig ? io.readAccountAiConfig(supabase, userId) : Promise.resolve({ model: null, webSearchEnabled: null, retrievePicturesEnabled: null, pictureSource: null, zipCode: null, calendarWriteAccess: null }),
     // CR3: per-account rate-limit backstop. Absent IO → allowed. Inert until enabled.
     io.checkRateLimit ? io.checkRateLimit(supabase, userId) : Promise.resolve({ allowed: true, retryAfterSeconds: 0 })
   ]));
@@ -5214,7 +5415,11 @@ async function orchestrate(deps, io, voiceCtx) {
   const modelId = req.options?.model || account.model || await timed("prep_model", prep, () => io.getDefaultModel(supabase));
   const provider = providerForModel(modelId);
   const webSearchAllowed = account.webSearchEnabled !== false && paidToolsOk;
-  const retrievePictures = (req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false)) && paidToolsOk;
+  const retrievePictures = req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false);
+  const picture = choosePictureSource(account.pictureSource, paidToolsOk);
+  if (retrievePictures && picture.degraded) {
+    console.warn("DROP: picture-source google \u2192 free (no credits to spend; John 10-13: degrade, not fail)");
+  }
   const voiceCalendarWrites = account.calendarWriteAccess === "voice" || account.calendarWriteAccess === "both";
   const callerMode = req.options?.retain_mode === "caller";
   const retain = {
@@ -5242,6 +5447,7 @@ async function orchestrate(deps, io, voiceCtx) {
   const caps = {
     web_search: webSearchAllowed,
     retrieve_pictures: retrievePictures,
+    picture_source: picture.source,
     grounding: geminiGrounds,
     multi: multiEnabled,
     tools: offeredToolNames({ webSearchEnabled: promptWebSearch, announcement: isAnnouncement, clientTools, calendarWriteEnabled: voiceCalendarWrites }),
@@ -5277,6 +5483,7 @@ async function orchestrate(deps, io, voiceCtx) {
     // false → buildPrompt appends the image-unavailable instruction so the model can't
     // claim to show a picture the enrichment layer will drop.
     retrievePicturesEnabled: retrievePictures,
+    pictureSource: picture.source,
     // Room awareness (20260715): the HA area this device is in, so an unqualified command
     // ("turn off the lights") resolves to THIS room. Flows to both passes via `...context` in
     // buildPrompt → rendered as {{DEVICE_AREA}} in the home_assistant prompt. Absent → area-blind.
@@ -5423,7 +5630,7 @@ ${p1PromptBase}` : p1PromptBase;
     if (effImageHint?.searchTerms && req.options?.force_image_fail === true) {
       console.warn(`DROP: image search SKIPPED by options.force_image_fail (debug) for "${effImageHint.searchTerms}"`);
     }
-    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn) : void 0;
+    const imageCard = effImageHint?.searchTerms && req.options?.force_image_fail !== true ? await resolveImageHint({ image: effImageHint }, token, sessionId, io.toolConn, picture.source) : void 0;
     let imagePromiseAmended = false;
     if (earlySent && !imageCard) {
       console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" AFTER the early answer was sent \u2014 tablet shows the fallback`);
@@ -6171,7 +6378,13 @@ ${promptBase}` : promptBase;
   }
   const imageHint = parsed?.image;
   const imageWanted = !!(inquiryType === "web-search" && context?.retrievePicturesEnabled !== false && parsed?.type === "response" && imageHint?.searchTerms);
-  const imageCard = imageWanted ? await resolveImageHint(parsed, deps.token, sessionId, io.toolConn) : void 0;
+  const imageCard = imageWanted ? await resolveImageHint(
+    parsed,
+    deps.token,
+    sessionId,
+    io.toolConn,
+    context?.pictureSource ?? "free"
+  ) : void 0;
   if (imageWanted && !imageCard) {
     const amended = amendUnkeptPicturePromise(parsed?.voice);
     if (amended) {
@@ -6224,13 +6437,13 @@ function promisedPictureQuery(voice, userText) {
   subject = subject.replace(/\b(?:please|for me|right now)\b/gi, "").replace(/\s+/g, " ").trim();
   return subject && subject.length >= 2 ? subject : null;
 }
-async function resolveImageHint(parsed, token, sessionId, conn) {
+async function resolveImageHint(parsed, token, sessionId, conn, source = "free") {
   const hint = parsed?.image;
   if (!hint?.searchTerms) return void 0;
   try {
-    let synth = await synthesizeImage(hint.searchTerms, hint.criteria, { ...conn, jwt: token, sessionId });
+    let synth = await synthesizeImage(hint.searchTerms, hint.criteria, { ...conn, jwt: token, sessionId, source });
     if (!synth.card && hint.fallback && hint.fallback !== hint.searchTerms) {
-      synth = await synthesizeImage(hint.fallback, hint.criteria, { ...conn, jwt: token, sessionId });
+      synth = await synthesizeImage(hint.fallback, hint.criteria, { ...conn, jwt: token, sessionId, source });
     }
     return synth.card ?? void 0;
   } catch (_e) {
@@ -6503,4 +6716,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "54914f5fbdb277863a4d59bc1fa5cece697384d5";
+module.exports.BRAIN_SOURCE_SHA = "1b6dfbea31d97c74675b37649408077093eefca3";

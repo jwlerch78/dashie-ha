@@ -56,6 +56,7 @@ const VoiceAiApi = {
         ['voice', 'haSttEngineId'],
         ['ai', 'webSearchEnabled'],
         ['ai', 'retrievePicturesEnabled'],
+        ['ai', 'pictureSource'],          // John 10-13: 'free' | 'google' (the Picture source row writes it)
         ['ai', 'promptForFeedback'],
         ['ai', 'conversationContextEnabled'],
         ['ai', 'conversationTimeout'],
@@ -138,7 +139,7 @@ const VoiceAiApi = {
         'voice.alwaysOpenDialog': false,
         'voice.customizePipeline': false,
         'voice.sttProvider': 'dashie_cloud',
-        'voice.ttsProvider': 'dashie_cloud',
+        'voice.ttsProvider': 'gemini',      // the default voice (John 2026-10-14)
         // ── AI Prompt & Tools (2026-10-04) ──────────────────────────────
         // 'dynamic' = Dashie builds the prompt per turn; 'freeform' = the user
         // writes it and Dashie adds only the switched-on tools as functions.
@@ -159,6 +160,8 @@ const VoiceAiApi = {
         'ai.toolsEnabled': 'home_assistant,live_context,calendar,weather,chores,music,answer',
         'ai.webSearchEnabled': true,
         'ai.retrievePicturesEnabled': false,
+        // Where pictures come from (John 10-13). 'free' = Wikipedia/Commons/Pexels; unset means free in the brain too.
+        'ai.pictureSource': 'free',
         // Defaults ON, matching the native settings page (getPromptForFeedbackEnabled
         // treats an unset value as enabled — !== false).
         'ai.promptForFeedback': true,
