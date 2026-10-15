@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 1b6dfbea31d97c74675b37649408077093eefca3
+   Source git SHA: 22d08a1428f8459559d3e9536c07c1efd7dfcadb
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5316,6 +5316,8 @@ async function restampVoiceForSwitch(io, supabase, voiceCtx, row) {
     if (v?.voiceId) {
       voiceCtx.voiceId = v.voiceId;
       voiceCtx.voiceProvider = v.provider;
+      voiceCtx.voiceAltId = v.altVoiceId ?? null;
+      voiceCtx.voiceAltProvider = v.altProvider ?? null;
     }
   } catch (e) {
     console.warn("set_personality voice restamp failed (turn keeps the prior voice):", e);
@@ -5334,6 +5336,10 @@ async function runOrchestration(deps, io) {
 function stampTurn(turn, deps, voiceCtx) {
   if (turn.voice_id === void 0 && voiceCtx.voiceId) turn.voice_id = voiceCtx.voiceId;
   if (turn.voice_provider === void 0 && voiceCtx.voiceProvider) turn.voice_provider = voiceCtx.voiceProvider;
+  if (turn.voice_alt_id === void 0 && voiceCtx.voiceId && voiceCtx.voiceAltId && voiceCtx.voiceAltProvider) {
+    turn.voice_alt_id = voiceCtx.voiceAltId;
+    turn.voice_alt_provider = voiceCtx.voiceAltProvider;
+  }
   if (classifyMiss(turn.route, turn.voice).miss) {
     const isFirstTurn = !deps.req.history || deps.req.history.length === 0;
     turn.metadata = { ...turn.metadata ?? {}, miss: true };
@@ -5397,6 +5403,8 @@ async function orchestrate(deps, io, voiceCtx) {
   const resolvedVoice = io.resolveVoiceId ? await timed("prep_voice_id", prep, () => io.resolveVoiceId(supabase, voiceKey)) : null;
   voiceCtx.voiceId = resolvedVoice?.voiceId ?? null;
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
+  voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
+  voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
   if (io.checkSpendable) {
     voiceCtx.credit = {
       balance: Number.isFinite(spend.balance) ? spend.balance : null,
@@ -6716,4 +6724,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "1b6dfbea31d97c74675b37649408077093eefca3";
+module.exports.BRAIN_SOURCE_SHA = "22d08a1428f8459559d3e9536c07c1efd7dfcadb";

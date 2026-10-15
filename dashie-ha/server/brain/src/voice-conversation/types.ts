@@ -263,6 +263,11 @@ export interface Turn {
   // 'inworld'. Native routes cloud TTS to this vendor; absent/null → client default vendor.
   // Additive/nullable (§13.16) — old clients ignore it.
   voice_provider?: string | null;
+  // The voice's ALTERNATE (tts_voices.alt_provider_voice_id / alt_provider), e.g. an ElevenLabs
+  // voice for an Inworld personality: what the household's OWN key speaks when the primary vendor
+  // cannot (John 2026-10-15). Present only as a pair, only beside voice_id. Additive/nullable.
+  voice_alt_id?: string | null;
+  voice_alt_provider?: string | null;
   text: string | null;
   action: ParsedResponse['action'];
   parsed_ok: boolean;

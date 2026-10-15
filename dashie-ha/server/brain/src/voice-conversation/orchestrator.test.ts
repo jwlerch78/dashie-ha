@@ -2152,3 +2152,49 @@ Deno.test('freeform: a tool request from the household prompt still routes and r
   assertEquals(m.gatewayCalls(), 2, 'pass 2 never ran — tool routing was lost');
   assertEquals(m.kinds(), ['decide', 'narrate']);
 });
+
+// ── Alternate voice (tts_voices.alt_*, John 2026-10-15): what the household's own key speaks ──
+
+Deno.test('alternate voice: the default voice stamps voice_alt_id + voice_alt_provider beside voice_id', async () => {
+  const { io } = makeIO(['{"type":"conversation","voice":"Hi there.","text":null}']);
+  const asked: (string | null | undefined)[] = [];
+  io.resolveVoiceId = (_s, key) => {
+    asked.push(key);
+    return Promise.resolve(key === 'ASHLEY'
+      ? { voiceId: 'Ashley', provider: 'inworld', altVoiceId: 'EXAVITQu4vr4xnSDxMaL', altProvider: 'elevenlabs' }
+      : { voiceId: null, provider: null });
+  };
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(asked, ['ASHLEY']);   // control: the default voice key was the one resolved
+  assertEquals(turn.voice_id, 'Ashley');
+  assertEquals(turn.voice_provider, 'inworld');
+  assertEquals(turn.voice_alt_id, 'EXAVITQu4vr4xnSDxMaL');
+  assertEquals(turn.voice_alt_provider, 'elevenlabs');
+});
+
+Deno.test('alternate voice: a row with no alternate stamps neither field (and a half pair is never stamped)', async () => {
+  for (const alt of [{}, { altVoiceId: 'x' }, { altProvider: 'elevenlabs' }]) {
+    const { io } = makeIO(['{"type":"conversation","voice":"Hi there.","text":null}']);
+    io.resolveVoiceId = () => Promise.resolve({ voiceId: 'Hana', provider: 'inworld', ...alt });
+    const turn = await runOrchestration(deps(), io);
+    assertEquals(turn.voice_id, 'Hana');   // control: the primary WAS stamped
+    assertEquals(turn.voice_alt_id, undefined);
+    assertEquals(turn.voice_alt_provider, undefined);
+  }
+});
+
+Deno.test('alternate voice: a personality switch replaces the alternate too (no trailing ElevenLabs voice)', async () => {
+  const { io } = makeIO([
+    '{"type":"action","voice":"Switching now.","text":null,"action":{"category":"personality","command":"set_personality","parameters":{"key":"princess","name":"Princess"}}}',
+  ]);
+  io.listPersonalities = () => Promise.resolve([
+    { key: 'princess', name: 'Princess', description: 'royal', voice_mode: 'fixed', voice: 'HANA', greeting_fallback: 'Greetings!' },
+  ]);
+  io.resolveVoiceId = (_s, key) => Promise.resolve(key === 'HANA'
+    ? { voiceId: 'Hana', provider: 'inworld', altVoiceId: null, altProvider: null }
+    : { voiceId: 'Clive', provider: 'inworld', altVoiceId: 'cwo4ramDmreHdb4b1Jxz', altProvider: 'elevenlabs' });
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.voice_id, 'Hana');   // control: the switch restamp ran
+  assertEquals(turn.voice_alt_id, undefined);
+  assertEquals(turn.voice_alt_provider, undefined);
+});
