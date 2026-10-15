@@ -52,6 +52,12 @@ const { CLOUD } = require('./config');
 const { readOptions } = require('./options');
 const byokTts = require('./byok-tts');
 const geminiLane = require('./gemini-tts-lane');
+const elevenLabsLane = require('./elevenlabs-tts-lane');
+
+// The tablet's household-key lanes (path K), keyed by the brain's `voice_provider` value. One producer
+// for these literals: the tts_voices provider CHECK (JS_KOTLIN_CONTRACTS row "voice_provider", gated by
+// staging lint:voice-options). Absent voice_provider = the Gemini voice (every tablet before 2026-10-15).
+const KEY_LANES = { elevenlabs: elevenLabsLane };
 const keyHealth = require('./key-health');
 const sttUsage = require('./stt-usage');
 // The per-consumer-CLASS tier this file's header called an open design question
@@ -369,6 +375,18 @@ async function handleTts(req, res, sendJson) {
     // when Gemini will speak this turn.
     const householdVoiceName = await householdGeminiVoice();
     if (payload.stream === true) {
+        const vp = payload.voice_provider;
+        if (vp !== undefined && vp !== null && vp !== '') {
+            const lane = Object.prototype.hasOwnProperty.call(KEY_LANES, vp) ? KEY_LANES[vp] : null;
+            if (!lane) {
+                // Never fall to Gemini for a voice that is not Gemini's: that speaks the wrong voice.
+                console.warn(`DROP: tts stream voice_provider '${String(vp).slice(0, 30)}' has no key lane → 409 no_key`);
+                sendJson(res, 409, { reason: 'no_key', provider: String(vp).slice(0, 30) });
+                return;
+            }
+            await lane.streamWithKey(res, { text, voice: payload.voice });
+            return;
+        }
         await geminiLane.streamWithKey(res, { text, voice: payload.voice || householdVoiceName });
         return;
     }

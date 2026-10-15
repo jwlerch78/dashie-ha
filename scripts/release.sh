@@ -147,6 +147,10 @@ node "$ADDON_ROOT/scripts/check-byok-tts.mjs"
 # precedence, WAV passthrough / L16 wrapped at the mimeType's rate, billed-on-2xx.
 echo "==> Checking the Gemini speech adapter (precedence · WAV proven by the box's own parser · billed on 2xx)"
 node "$ADDON_ROOT/scripts/check-gemini-tts.mjs"
+# A tablet's ElevenLabs voice on the household key (John 2026-10-15): routing on voice_provider, the
+# stream's headers/bytes, and the no_key / key_failed (row first) / provider_failed refusals.
+echo "==> Checking the ElevenLabs household-key lane (routing · stream · refusals)"
+node "$ADDON_ROOT/scripts/check-elevenlabs-tts-lane.mjs"
 # The lane on each usage row: backfilled when absent, null (sticky) when two lanes share a key.
 echo "==> Checking the usage-row lane (sticky null after a mismatch, asserted on the raw file)"
 node "$ADDON_ROOT/scripts/check-usage-lane.mjs"
