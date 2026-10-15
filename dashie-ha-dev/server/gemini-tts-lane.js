@@ -86,7 +86,9 @@ async function streamWithKey(res, { text, voice }) {
     // From here Google has accepted the request and bills it; the 200 is committed.
     res.writeHead(200, {
         'Content-Type': 'audio/pcm', 'X-Audio-Format': 'pcm_24000', 'X-Streaming': '1',
-        'X-Tts-Payer': 'key', 'Cache-Control': 'no-store',
+        // X-Tts-Provider: the tablet checks the lane that answered is the one it asked for (an older add-on
+        // ignores voice_provider and would answer an ElevenLabs request in the Gemini voice).
+        'X-Tts-Payer': 'key', 'X-Tts-Provider': 'gemini', 'Cache-Control': 'no-store',
     });
     let firstAt = null, bytes = 0, usage = null;
     const pcm = Readable.fromWeb(resp.body.pipeThrough(sseToPcm({

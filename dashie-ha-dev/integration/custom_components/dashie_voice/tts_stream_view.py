@@ -2,7 +2,12 @@
 """Path K: a tablet's Gemini voice, streamed THROUGH Home Assistant from the add-on.
 
 POST /api/dashie_voice/voice/tts-stream   (HA-token auth, any HA user: see voice_view._actor)
-    body  {"text": str, "voice": str?}    voice = the household's Gemini voice name (voice.liveVoiceName)
+    body  {"text": str, "voice": str?, "voice_provider": str?}
+          voice          = the voice to speak in: the household's Gemini voice name, or a personality's
+                           ElevenLabs voice id (John 2026-10-15)
+          voice_provider = which household-key lane: absent = Gemini (every tablet before 10-15),
+                           'elevenlabs' = the add-on's ElevenLabs lane. Forwarded as-is; the add-on
+                           refuses a provider it has no lane for (409 no_key), never the Gemini voice.
     200   audio/pcm, pcm_24000, streamed as the add-on produces it   (paid by the household's KEY)
     409   {"reason": "no_key"} | {"reason": "key_failed", "provider", "status"}   passed through verbatim
     503   {"reason": "addon_unavailable"}
@@ -36,7 +41,12 @@ _LOGGER = logging.getLogger(__name__)
 TTS_STREAM_URL = "/api/dashie_voice/voice/tts-stream"
 MAX_CHARS = 5000
 #: Headers that describe the audio, copied from the add-on's 200. Nothing else crosses.
-PASS_HEADERS = ("Content-Type", "X-Audio-Format", "X-Streaming", "X-Tts-Payer")
+#: 🔴 X-Tts-Provider is LOAD-BEARING: it names the lane that actually spoke ('gemini' / 'elevenlabs'), and the
+#: tablet REFUSES an ElevenLabs request whose 200 lacks `X-Tts-Provider: elevenlabs` (VH's tablet ladder),
+#: because an older add-on ignores voice_provider and would answer in the Gemini voice. That guard is only
+#: as good as this pass-through: drop the header here and an ElevenLabs request is refused even when the
+#: add-on served it correctly. The tablet fails closed; this list is what lets it see the truth.
+PASS_HEADERS = ("Content-Type", "X-Audio-Format", "X-Streaming", "X-Tts-Payer", "X-Tts-Provider")
 
 
 class DashieVoiceTtsStreamView(HomeAssistantView):
@@ -56,9 +66,12 @@ class DashieVoiceTtsStreamView(HomeAssistantView):
         if not isinstance(text, str) or not text.strip():
             return web.json_response({"reason": "bad_request", "error": "text_required"}, status=400)
         voice = (body or {}).get("voice")
+        voice_provider = (body or {}).get("voice_provider")
         payload = {"text": text[:MAX_CHARS], "stream": True}
         if isinstance(voice, str) and voice:
             payload["voice"] = voice
+        if isinstance(voice_provider, str) and voice_provider:
+            payload["voice_provider"] = voice_provider
 
         try:
             async with stream_addon(hass, ADDON_TTS_PATH, payload) as resp:

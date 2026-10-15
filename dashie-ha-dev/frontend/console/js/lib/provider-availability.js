@@ -282,7 +282,55 @@
         window.HaEngines._loaded = true;
     }
 
+    /**
+     * 🔴 CAN THIS HOUSEHOLD SPEAK AS THIS PERSONALITY — the ONE answer, for both the
+     * catalog list and the Personality picker.
+     *
+     * It lives here, beside `resolveVoice`, because two surfaces ask it and a second
+     * implementation is the hand-mirror the seam rule forbids. The catalog dims a row;
+     * the picker disables an option; both must agree, every time, or a household sees
+     * a personality it is invited to choose and then told it cannot have.
+     *
+     * John, 2026-10-15: *"we require an elevenlabs key or dashie credits (needed for
+     * our own custom voices) … with personalities greyed out when they aren't
+     * available"*, and — asked directly — **"unselectable"**.
+     *
+     * ⚠️ THIS SUPERSEDES THE EARLIER RULE, which was the opposite and was right for its
+     * premise. `renderPersonalityCard` used to argue that a personality whose voice
+     * cannot be spoken "is still a working personality — persona and prompt intact",
+     * so disabling it would "degrade the whole feature over a missing key, when only
+     * the voice actually failed." The premise that changed is what a BUILT-IN is:
+     * `personality-templates.js` says it plainly — *"for Butler the voice IS the
+     * character"*. A Butler that does not sound like Butler is not a degraded Butler,
+     * it is the standard assistant wearing his name. So for Dashie's OWN cast, the
+     * voice is not a decoration on the feature; it is the feature.
+     *
+     * The old reasoning still holds for a CUSTOM personality, and that is exactly where
+     * it still applies: those are never locked.
+     *
+     * @param {Array}   voices    the personality's ordered preference list
+     * @param {boolean} isCustom  household-authored → never locked
+     * @returns {{locked:boolean, why?:string}}
+     */
+    function personalityLock(voices, isCustom) {
+        if (isCustom) return { locked: false };
+        const list = Array.isArray(voices) ? voices : [];
+        // An empty list is the STANDARD voice — nothing to resolve, nothing to miss.
+        // (The default personality declares this deliberately; see personality-templates.js.)
+        if (!list.length) return { locked: false };
+        // 🔴 NEVER LOCK ON AN UNREADABLE ANSWER. Key status not loaded is the first-paint
+        // state of every visit, and an absent answer is not a negative one. Locking here
+        // would grey the entire list for a moment on every page load, which reads to a
+        // household as "my personalities are gone" — a worse failure than a late lock.
+        if (!window.ProviderManifest) return { locked: false };
+        if (resolveVoice(list)) return { locked: false };
+        // voiceUpgradeHint is null when no named provider is actionable (an adapter that
+        // stores a key and spends nothing). There is then no honest instruction, so say
+        // the fact and stop: naming a key that would change nothing is worse than silence.
+        return { locked: true, why: voiceUpgradeHint(list) || 'This voice is not available on this box.' };
+    }
+
     window.ProviderAvailability = { refresh, hasKey, isAvailable, resolveVoice,
-                                    describeVoice, voiceUpgradeHint,
+                                    describeVoice, voiceUpgradeHint, personalityLock,
                                     _setKeyStatusForTest, _setEnginesForTest };
 })();

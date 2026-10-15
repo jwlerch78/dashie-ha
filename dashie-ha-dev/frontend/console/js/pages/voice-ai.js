@@ -401,6 +401,55 @@ const VoiceAiPage = {
         return { kind: 'degraded', hint: A.voiceUpgradeHint?.(list) || null };
     },
 
+    /**
+     * Is this personality one the household can actually speak as?
+     *
+     * 🔴 DELEGATES — the rule, John's ruling that set it, and the earlier rule it
+     * supersedes all live in `ProviderAvailability.personalityLock`. The Personality
+     * PICKER asks the same question, and two implementations of "can this household
+     * have this personality" would eventually disagree: the catalog would dim a row the
+     * picker still offered, or the reverse. One decider, two callers.
+     *
+     * What this surface does with the answer: dim the row, disable its actions, and
+     * KEEP the ▶ (John: *"we should make them all previewable"*) — hearing what a key
+     * would buy is the argument for buying one.
+     */
+    _personalityLock(p, isCustom) {
+        const A = window.ProviderAvailability;
+        if (!A || typeof A.personalityLock !== 'function') return { locked: false };
+        return A.personalityLock(p?.voices, isCustom);
+    },
+
+    /** Hear a personality. Recorded sample first; live synth ONLY for a custom
+     *  personality, whose voice is the household's own pick and cannot have been
+     *  recorded by us. A locked built-in still previews — that is the point of it. */
+    async previewPersonality(btn, key, isCustom) {
+        if (!window.VoiceSamples || !window.VoiceSamplePlayer) return;
+        await VoiceSamples.load();
+        const plan = VoiceSamples.playbackPlan({ personality: key, allowLive: !!isCustom });
+        await VoiceSamplePlayer.toggle(btn, plan, { liveSynth: (ref) => this._synthPreview(ref) });
+    },
+
+    /** POST one preview to the add-on and hand back audio. The ONE place the console
+     *  asks for live speech, so the cost of doing so is countable in one spot. */
+    async _synthPreview(ref) {
+        const s = String(ref || '');
+        const i = s.indexOf(':');
+        const engine = i < 0 ? 'gemini' : s.slice(0, i);
+        const voice = i < 0 ? s : s.slice(i + 1);
+        const r = await fetch(DashieAuth._addonUrl('/api/voice/preview'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engine, voice }),
+        });
+        if (!r.ok) {
+            if (r.status === 404) throw new Error(`Update the ${BRAND.productName} add-on to preview voices.`);
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.message || `HTTP ${r.status}`);
+        }
+        return await r.blob();
+    },
+
     /** Fetch local voice engine detection (GET /api/voice/engines). Add-on mode
      *  only — a cloud console has no direct line to the user's HA (decision §11.4),
      *  so detection is empty there and the picker shows URL-based local_* rows only.
@@ -2683,6 +2732,7 @@ const VoiceAiPage = {
         const id = this._escape(key);
         const notes = isCustom ? '' : this.overrideNotes(key);
         const v = this._voiceStateFor(p);
+        const lock = this._personalityLock(p, isCustom);
         const I = window.PersonalityIcons;
 
         // One line, three states that read differently. 'standard' and 'unknown' both
@@ -2693,19 +2743,41 @@ const VoiceAiPage = {
             ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-secondary);">
                    ${dot('var(--status-success, #16a34a)')}<span>Speaks as ${this._escape(v.label)}</span>
                </div>`
-            : v.kind === 'degraded'
+            : (v.kind === 'degraded' && !lock.locked)
                 ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-muted);">
                        ${dot('var(--text-muted, #999)')}<span>Voice not available — speaks in your standard voice</span>
                    </div>`
                 : '';
+        // 🔴 A LOCKED ROW MUST NOT SAY "speaks in your standard voice". That sentence is
+        // true of a DEGRADED personality — one you can still pick, which simply sounds
+        // ordinary. A locked one cannot be picked at all, so the old copy would describe
+        // a thing that no longer happens. Same state, two different consequences; the
+        // sentence has to follow the consequence, not the state.
+        const lockLine = lock.locked
+            ? `<div class="voice-lock-reason">🔒 <span>${this._escape(lock.why)}</span></div>`
+            : '';
         // The upgrade line is SEPARATE from the status line on purpose: the status is
         // a fact about this box, the hint is an action, and a user scanning for "what
         // do I do" should not have to parse one sentence for both.
-        const hint = (v.kind === 'degraded' && v.hint)
+        // Not rendered when locked: `lock.why` already IS this sentence, and printing it
+        // twice reads as two different problems.
+        const hint = (v.kind === 'degraded' && v.hint && !lock.locked)
             ? `<div style="margin-top:3px; font-size:12px; color: var(--accent);">${this._escape(v.hint)}</div>`
             : '';
         const notesLine = notes
             ? `<div style="margin-top:3px; font-size:12px; color: var(--text-muted);">✏️ Family notes set</div>`
+            : '';
+
+        // Previewable even when locked (John 2026-10-15: "we should make them all
+        // previewable"). It is rendered OUTSIDE the dimmed content and exempted from the
+        // locked row's pointer-events rule, so the one control a locked row keeps is the
+        // one that says what the lock is costing the household.
+        const preview = (window.VoiceSamplePlayer)
+            ? VoiceSamplePlayer.button({
+                  key: `personality:${key}`,
+                  onclick: `VoiceAiPage.previewPersonality(this, '${id}', ${isCustom ? 'true' : 'false'})`,
+                  title: `Hear ${p.name}`,
+              })
             : '';
 
         const actions = isCustom
@@ -2714,7 +2786,7 @@ const VoiceAiPage = {
             : `<button class="btn btn-ghost btn-sm" onclick="VoiceAiPersonalityEdit.openOverride('${id}')">Family notes</button>`;
 
         return `
-            <div class="list-item" style="border-top: 1px solid var(--border, #e5e7eb);">
+            <div class="list-item${lock.locked ? ' is-voice-locked' : ''}" style="border-top: 1px solid var(--border, #e5e7eb);">
                 <div class="list-item-content">
                     <div class="list-item-title" style="display:flex; align-items:center; gap:8px;">
                         ${I ? I.img(key, 16) : ''}
@@ -2723,9 +2795,11 @@ const VoiceAiPage = {
                     </div>
                     ${p.description ? `<div style="margin-top:3px; font-size:12.5px; color: var(--text-muted); line-height:1.45;">${this._escape(p.description)}</div>` : ''}
                     ${status}
+                    ${lockLine}
                     ${hint}
                     ${notesLine}
                 </div>
+                ${preview}
                 ${actions}
             </div>
         `;

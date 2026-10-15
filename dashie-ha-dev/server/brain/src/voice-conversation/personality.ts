@@ -220,21 +220,33 @@ export async function resolveEffectiveVoiceKey(
  * no separately-synced voiceId. Returns null (→ client default voice) when the key is unknown
  * or unset (e.g. base 'dashie' → no personality → default).
  */
+/** A resolved voice + its optional alternate (both null when the row has none). */
+export interface ResolvedVoice {
+  voiceId: string | null;
+  provider: string | null;
+  altVoiceId?: string | null;
+  altProvider?: string | null;
+}
+
 export async function resolveVoiceId(
   supabase: Supa,
   voiceKey?: string | null,
-): Promise<{ voiceId: string | null; provider: string | null }> {
-  if (!voiceKey) return { voiceId: null, provider: null };
+): Promise<ResolvedVoice> {
+  if (!voiceKey) return { voiceId: null, provider: null, altVoiceId: null, altProvider: null };
   // Read the row's OWN provider (no longer elevenlabs-only) so a personality mapped to an
   // Inworld voice returns provider='inworld' → the native client routes to Inworld.
+  // alt_*: the voice the household's own key speaks when the row's vendor cannot
+  // (202610151900_tts_voices_alternate.sql; John 2026-10-15).
   const { data } = await supabase
     .from('tts_voices')
-    .select('provider_voice_id, provider')
+    .select('provider_voice_id, provider, alt_provider_voice_id, alt_provider')
     .eq('key', voiceKey)
     .eq('is_available', true)
     .maybeSingle();
   return {
     voiceId: (data?.provider_voice_id as string | undefined) || null,
     provider: (data?.provider as string | undefined) || null,
+    altVoiceId: (data?.alt_provider_voice_id as string | undefined) || null,
+    altProvider: (data?.alt_provider as string | undefined) || null,
   };
 }

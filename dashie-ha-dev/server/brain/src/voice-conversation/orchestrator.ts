@@ -339,6 +339,8 @@ async function restampVoiceForSwitch(
     if (v?.voiceId) {
       voiceCtx.voiceId = v.voiceId;
       voiceCtx.voiceProvider = v.provider;
+      voiceCtx.voiceAltId = v.altVoiceId ?? null;
+      voiceCtx.voiceAltProvider = v.altProvider ?? null;
     }
   } catch (e) {
     console.warn('set_personality voice restamp failed (turn keeps the prior voice):', e);
@@ -375,7 +377,7 @@ export interface OrchestratorIO {
   // D3 (voice follows personality): resolve the personality's voiceKey → concrete TTS voice id
   // returned in the Turn. OPTIONAL — absent IO (Node shell / older tests) → no voice_id (client
   // default voice, unchanged).
-  resolveVoiceId?: (supabase: unknown, voiceKey?: string | null) => Promise<{ voiceId: string | null; provider: string | null }>;
+  resolveVoiceId?: (supabase: unknown, voiceKey?: string | null) => Promise<{ voiceId: string | null; provider: string | null; altVoiceId?: string | null; altProvider?: string | null }>;
   // WS-G Round B (§13.2): effective voice key = fixed-personality lock → device
   // aiVoice.voiceKey → account ai.defaultVoiceKey → personality's preferred voice.
   // OPTIONAL — absent IO falls back to the pre-WS-G `personality.voice` behavior.
@@ -481,6 +483,12 @@ function stampTurn(turn: Turn, deps: OrchestrationDeps, voiceCtx: OrchestrateCtx
   // voice_provider follows the resolved voice's catalog provider so native routes to the
   // right vendor. Additive/nullable (§13.16) — absent → client falls back to its default.
   if (turn.voice_provider === undefined && voiceCtx.voiceProvider) turn.voice_provider = voiceCtx.voiceProvider;
+  // The voice's ALTERNATE (tts_voices.alt_*): what the household's own key speaks when the
+  // primary vendor cannot (John 2026-10-15). Stamped only beside a primary voice, and only as a pair.
+  if (turn.voice_alt_id === undefined && voiceCtx.voiceId && voiceCtx.voiceAltId && voiceCtx.voiceAltProvider) {
+    turn.voice_alt_id = voiceCtx.voiceAltId;
+    turn.voice_alt_provider = voiceCtx.voiceAltProvider;
+  }
   // Unified dialog policy (20260707): tag a no-intent turn (`miss`) and decide the first-turn
   // give-up (`end_conversation`) HERE, so every surface just renders it (silent notice / close)
   // instead of each loop running its own miss-cap. A miss = the noise short-circuit OR the model
@@ -519,6 +527,9 @@ function stampTurn(turn: Turn, deps: OrchestrationDeps, voiceCtx: OrchestrateCtx
 interface OrchestrateCtx {
   voiceId: string | null;
   voiceProvider: string | null;
+  /** The voice's alternate (tts_voices.alt_*), spoken on the household's own key. */
+  voiceAltId?: string | null;
+  voiceAltProvider?: string | null;
   credit?: { balance: number | null; spendable: boolean; low: boolean };
   /** The web-capability block mode ACTUALLY APPLIED this turn (bench echo). Left undefined on any
    *  turn that short-circuited before a prompt was built (credits, noise, rate limit) — there is
@@ -634,6 +645,8 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     : null;
   voiceCtx.voiceId = resolvedVoice?.voiceId ?? null;
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
+  voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
+  voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
 
   // CR2/CR4: expose the credit snapshot for the wrapper's metadata stamp (only when the
   // shell actually did the read — absent IO / Node shell stays metadata-silent).
