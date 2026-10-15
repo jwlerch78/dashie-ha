@@ -270,6 +270,15 @@ node "$ADDON_ROOT/scripts/check-voice-picker-surface.mjs"
 echo "==> Checking personalities (roster · availability join · voice degradation)"
 node "$ADDON_ROOT/scripts/check-personalities.mjs"
 
+# Personality LOCK (John 2026-10-15 "unselectable"): a built-in the household cannot
+# speak as is disabled, a custom one never is, and an unreadable key status locks
+# nothing. Separate from check-personalities on purpose — that gate owns the roster
+# and the degradation rule, this one owns the rule that REPLACED part of it. The
+# previous policy ("every personality stays SELECTABLE") was a comment with no leg,
+# so its reversal passed all six existing gates green; this is the leg it never had.
+echo "==> Checking the personality lock (built-in disabled · custom never · unknown locks nothing)"
+node "$ADDON_ROOT/scripts/check-personality-lock.mjs"
+
 # Device setup: Layout/Orientation are gated on the ACCOUNT seam, not the build
 # seam — and the signed-in rows must survive, because the easy wrong fix passes
 # the removal leg and quietly reverses a documented decision.

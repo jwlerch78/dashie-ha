@@ -92,26 +92,45 @@ const VoiceAiDefaultsCards = {
      */
     renderPersonalityCard(o) {
         const groups = [];
-        // 🔴 The degraded state is shown ON THE OPTION, and every personality
-        // stays SELECTABLE. A personality whose preferred voices cannot be
-        // spoken here is still a working personality — persona and prompt
-        // intact, speech falling back to the standard voice. Disabling or
-        // hiding it would degrade the whole feature over a missing key, when
-        // only the voice actually failed.
+        // 🔴 A BUILT-IN THE HOUSEHOLD CANNOT SPEAK AS IS DISABLED HERE, NOT MERELY
+        // ANNOTATED (John 2026-10-15, asked directly: **"unselectable"**).
         //
-        // ⚠️ Computed at render from live key status and stored NOWHERE. The
-        // suffix is a UI state; persisting it would freeze a fact that stops
-        // being true the moment a key is added.
+        // ⚠️ THIS REVERSES WHAT THIS COMMENT USED TO SAY, and the old text is kept
+        // here because it was right for its premise and the premise is what moved.
+        // It argued: a personality whose preferred voices cannot be spoken "is still
+        // a working personality — persona and prompt intact, speech falling back to
+        // the standard voice. Disabling or hiding it would degrade the whole feature
+        // over a missing key, when only the voice actually failed."
+        //
+        // What changed is what a BUILT-IN is. `personality-templates.js` says it
+        // plainly — "for Butler the voice IS the character". A Butler that does not
+        // sound like Butler is not a degraded Butler; it is the standard assistant
+        // wearing his name. So offering it and then not delivering it is the worse
+        // failure. The old reasoning still holds for a CUSTOM personality, which is
+        // exactly where it still applies: `personalityLock` never locks those.
+        //
+        // 🔴 THE SELECTED OPTION IS STILL RENDERED WHEN LOCKED. Dropping it would
+        // leave the <select> showing some OTHER personality while the stored value is
+        // unchanged — a picker lying about what this household is set to. Disabled and
+        // selected is the honest shape: this is what you have, and you cannot re-pick it.
+        //
+        // ⚠️ Computed at render from live key status and stored NOWHERE. Lock state is
+        // a UI state; persisting it would freeze a fact that stops being true the
+        // moment a key is added.
         const A = window.ProviderAvailability;
-        const suffix = (p) => {
-            const list = Array.isArray(p?.voices) ? p.voices : [];
-            if (!list.length || !A) return '';
-            return A.resolveVoice(list) ? '' : ' — (voice not available)';
+        const lockOf = (p, isCustom) => (A && typeof A.personalityLock === 'function')
+            ? A.personalityLock(p?.voices, isCustom)
+            : { locked: false };
+        const opt = (v, l, lock) => {
+            const sel = String(v) === String(o.currentId);
+            const label = l + (lock.locked ? ' — (voice not available)' : '');
+            return `<option value="${this._esc(v)}" ${sel ? 'selected' : ''} ${lock.locked ? 'disabled' : ''}>${this._esc(label)}</option>`;
         };
-        const opt = (v, l) => `<option value="${this._esc(v)}" ${String(v) === String(o.currentId) ? 'selected' : ''}>${this._esc(l)}</option>`;
-        const customOpts = (o.custom || []).map(c => opt(c.id, (c.name || 'Custom personality') + suffix(c))).join('');
+        const customOpts = (o.custom || [])
+            .map(c => opt(c.id, c.name || 'Custom personality', lockOf(c, true))).join('');
         if (customOpts) groups.push(`<optgroup label="Custom">${customOpts}</optgroup>`);
-        const templateOpts = (o.templates || []).map(t => opt(t.key || t.id, (t.name || t.key) + suffix(t))).join('');
+        const templateOpts = (o.templates || [])
+            .map(t => opt(t.key || t.id, t.name || t.key, lockOf(t, false))).join('');
         groups.push(`<optgroup label="Built-in">${templateOpts}</optgroup>`);
         return this.renderControlRow({
             label: 'Personality',

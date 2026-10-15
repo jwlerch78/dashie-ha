@@ -402,41 +402,22 @@ const VoiceAiPage = {
     },
 
     /**
-     * 🔴 BUILT-IN PERSONALITIES THE HOUSEHOLD CANNOT SPEAK AS ARE SHOWN, DIMMED AND
-     * UNSELECTABLE — never hidden (John 2026-10-15: *"personalities greyed out when
-     * they aren't available … but we should make them all previewable"*).
+     * Is this personality one the household can actually speak as?
      *
-     * The two halves of that are a single decision: a row that VANISHES teaches the
-     * household nothing and reads as a missing feature, while a row that is visible,
-     * explained and audible is an argument for the key that would unlock it. So the
-     * lock removes the ACTIONS and keeps the ▶.
+     * 🔴 DELEGATES — the rule, John's ruling that set it, and the earlier rule it
+     * supersedes all live in `ProviderAvailability.personalityLock`. The Personality
+     * PICKER asks the same question, and two implementations of "can this household
+     * have this personality" would eventually disagree: the catalog would dim a row the
+     * picker still offered, or the reverse. One decider, two callers.
      *
-     * Why built-in and custom differ, and it is not a tier:
-     *   · a BUILT-IN speaks in one of Dashie's own cast voices (Santa, Butler, …),
-     *     which live behind ElevenLabs/Inworld. Without that provider there is no
-     *     such voice to speak in — the character is the voice.
-     *   · a CUSTOM one is the household's own, mixed with any provider they have
-     *     configured or their own TTS (John, same ruling), so there is nothing for
-     *     us to gate. It is never locked here.
-     *
-     * 🔴 `unknown` AND `active` BOTH STAY UNLOCKED, for different reasons, and
-     * collapsing either into "locked" is the failure this guards:
-     *   · `unknown` means ProviderAvailability has not loaded. An unreadable answer
-     *     is not a negative one, and this state renders on first paint of EVERY
-     *     visit — locking on it would grey the whole list for a moment on every
-     *     page load, which reads as "my personalities are gone".
-     *   · `standard` has no voice that could be missing (empty preference list).
+     * What this surface does with the answer: dim the row, disable its actions, and
+     * KEEP the ▶ (John: *"we should make them all previewable"*) — hearing what a key
+     * would buy is the argument for buying one.
      */
-    _personalityLock(p, isCustom, v) {
-        if (isCustom) return { locked: false };
-        if (v.kind !== 'degraded') return { locked: false };
-        // `v.hint` is ProviderAvailability's "the ONE thing you could do" sentence,
-        // reused rather than re-derived — a second copy of that reasoning would drift.
-        // It is deliberately null for a provider whose adapter is not shipped (an
-        // Inworld-only character today), and in that case there IS no honest action to
-        // name, so the row says the fact and stops. Naming a key that would change
-        // nothing is worse than naming nothing.
-        return { locked: true, why: v.hint || 'This voice is not available on this box.' };
+    _personalityLock(p, isCustom) {
+        const A = window.ProviderAvailability;
+        if (!A || typeof A.personalityLock !== 'function') return { locked: false };
+        return A.personalityLock(p?.voices, isCustom);
     },
 
     /** Hear a personality. Recorded sample first; live synth ONLY for a custom
@@ -2751,7 +2732,7 @@ const VoiceAiPage = {
         const id = this._escape(key);
         const notes = isCustom ? '' : this.overrideNotes(key);
         const v = this._voiceStateFor(p);
-        const lock = this._personalityLock(p, isCustom, v);
+        const lock = this._personalityLock(p, isCustom);
         const I = window.PersonalityIcons;
 
         // One line, three states that read differently. 'standard' and 'unknown' both
