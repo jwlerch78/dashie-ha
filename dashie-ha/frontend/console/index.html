@@ -110,6 +110,12 @@
          Must load AFTER voice-ai-options.js: haOption() reads window.VoiceAiOptions. -->
     <script src="js/lib/ha-engines.js?v=20260920a"></script>
     <script src="js/components/voice-ai-cards.js?v=20260923a"></script>
+    <!-- Pre-recorded voice samples (John 2026-10-15: previewing must not bill per press).
+         voice-samples.js holds the manifest + the one playback decider; the player is the
+         single <audio> every ▶ in the console shares. No ordering dependency on the
+         option tables - both are read at click time, not at load. -->
+    <script src="js/lib/voice-samples.js?v=20261015a"></script>
+    <script src="js/components/voice-sample-player.js?v=20261015a"></script>
     <script src="js/components/voice-ai-profile-switcher.js?v=20261009a"></script>
     <script src="js/components/voice-ai-preset-picker.js?v=20261009a"></script>
     <script src="js/components/voice-ai-defaults-cards.js?v=20260925a"></script>

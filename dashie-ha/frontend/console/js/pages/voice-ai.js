@@ -401,6 +401,74 @@ const VoiceAiPage = {
         return { kind: 'degraded', hint: A.voiceUpgradeHint?.(list) || null };
     },
 
+    /**
+     * 🔴 BUILT-IN PERSONALITIES THE HOUSEHOLD CANNOT SPEAK AS ARE SHOWN, DIMMED AND
+     * UNSELECTABLE — never hidden (John 2026-10-15: *"personalities greyed out when
+     * they aren't available … but we should make them all previewable"*).
+     *
+     * The two halves of that are a single decision: a row that VANISHES teaches the
+     * household nothing and reads as a missing feature, while a row that is visible,
+     * explained and audible is an argument for the key that would unlock it. So the
+     * lock removes the ACTIONS and keeps the ▶.
+     *
+     * Why built-in and custom differ, and it is not a tier:
+     *   · a BUILT-IN speaks in one of Dashie's own cast voices (Santa, Butler, …),
+     *     which live behind ElevenLabs/Inworld. Without that provider there is no
+     *     such voice to speak in — the character is the voice.
+     *   · a CUSTOM one is the household's own, mixed with any provider they have
+     *     configured or their own TTS (John, same ruling), so there is nothing for
+     *     us to gate. It is never locked here.
+     *
+     * 🔴 `unknown` AND `active` BOTH STAY UNLOCKED, for different reasons, and
+     * collapsing either into "locked" is the failure this guards:
+     *   · `unknown` means ProviderAvailability has not loaded. An unreadable answer
+     *     is not a negative one, and this state renders on first paint of EVERY
+     *     visit — locking on it would grey the whole list for a moment on every
+     *     page load, which reads as "my personalities are gone".
+     *   · `standard` has no voice that could be missing (empty preference list).
+     */
+    _personalityLock(p, isCustom, v) {
+        if (isCustom) return { locked: false };
+        if (v.kind !== 'degraded') return { locked: false };
+        // `v.hint` is ProviderAvailability's "the ONE thing you could do" sentence,
+        // reused rather than re-derived — a second copy of that reasoning would drift.
+        // It is deliberately null for a provider whose adapter is not shipped (an
+        // Inworld-only character today), and in that case there IS no honest action to
+        // name, so the row says the fact and stops. Naming a key that would change
+        // nothing is worse than naming nothing.
+        return { locked: true, why: v.hint || 'This voice is not available on this box.' };
+    },
+
+    /** Hear a personality. Recorded sample first; live synth ONLY for a custom
+     *  personality, whose voice is the household's own pick and cannot have been
+     *  recorded by us. A locked built-in still previews — that is the point of it. */
+    async previewPersonality(btn, key, isCustom) {
+        if (!window.VoiceSamples || !window.VoiceSamplePlayer) return;
+        await VoiceSamples.load();
+        const plan = VoiceSamples.playbackPlan({ personality: key, allowLive: !!isCustom });
+        await VoiceSamplePlayer.toggle(btn, plan, { liveSynth: (ref) => this._synthPreview(ref) });
+    },
+
+    /** POST one preview to the add-on and hand back audio. The ONE place the console
+     *  asks for live speech, so the cost of doing so is countable in one spot. */
+    async _synthPreview(ref) {
+        const s = String(ref || '');
+        const i = s.indexOf(':');
+        const engine = i < 0 ? 'gemini' : s.slice(0, i);
+        const voice = i < 0 ? s : s.slice(i + 1);
+        const r = await fetch(DashieAuth._addonUrl('/api/voice/preview'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engine, voice }),
+        });
+        if (!r.ok) {
+            if (r.status === 404) throw new Error(`Update the ${BRAND.productName} add-on to preview voices.`);
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.message || `HTTP ${r.status}`);
+        }
+        return await r.blob();
+    },
+
     /** Fetch local voice engine detection (GET /api/voice/engines). Add-on mode
      *  only — a cloud console has no direct line to the user's HA (decision §11.4),
      *  so detection is empty there and the picker shows URL-based local_* rows only.
@@ -2683,6 +2751,7 @@ const VoiceAiPage = {
         const id = this._escape(key);
         const notes = isCustom ? '' : this.overrideNotes(key);
         const v = this._voiceStateFor(p);
+        const lock = this._personalityLock(p, isCustom, v);
         const I = window.PersonalityIcons;
 
         // One line, three states that read differently. 'standard' and 'unknown' both
@@ -2693,19 +2762,41 @@ const VoiceAiPage = {
             ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-secondary);">
                    ${dot('var(--status-success, #16a34a)')}<span>Speaks as ${this._escape(v.label)}</span>
                </div>`
-            : v.kind === 'degraded'
+            : (v.kind === 'degraded' && !lock.locked)
                 ? `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; color: var(--text-muted);">
                        ${dot('var(--text-muted, #999)')}<span>Voice not available — speaks in your standard voice</span>
                    </div>`
                 : '';
+        // 🔴 A LOCKED ROW MUST NOT SAY "speaks in your standard voice". That sentence is
+        // true of a DEGRADED personality — one you can still pick, which simply sounds
+        // ordinary. A locked one cannot be picked at all, so the old copy would describe
+        // a thing that no longer happens. Same state, two different consequences; the
+        // sentence has to follow the consequence, not the state.
+        const lockLine = lock.locked
+            ? `<div class="voice-lock-reason">🔒 <span>${this._escape(lock.why)}</span></div>`
+            : '';
         // The upgrade line is SEPARATE from the status line on purpose: the status is
         // a fact about this box, the hint is an action, and a user scanning for "what
         // do I do" should not have to parse one sentence for both.
-        const hint = (v.kind === 'degraded' && v.hint)
+        // Not rendered when locked: `lock.why` already IS this sentence, and printing it
+        // twice reads as two different problems.
+        const hint = (v.kind === 'degraded' && v.hint && !lock.locked)
             ? `<div style="margin-top:3px; font-size:12px; color: var(--accent);">${this._escape(v.hint)}</div>`
             : '';
         const notesLine = notes
             ? `<div style="margin-top:3px; font-size:12px; color: var(--text-muted);">✏️ Family notes set</div>`
+            : '';
+
+        // Previewable even when locked (John 2026-10-15: "we should make them all
+        // previewable"). It is rendered OUTSIDE the dimmed content and exempted from the
+        // locked row's pointer-events rule, so the one control a locked row keeps is the
+        // one that says what the lock is costing the household.
+        const preview = (window.VoiceSamplePlayer)
+            ? VoiceSamplePlayer.button({
+                  key: `personality:${key}`,
+                  onclick: `VoiceAiPage.previewPersonality(this, '${id}', ${isCustom ? 'true' : 'false'})`,
+                  title: `Hear ${p.name}`,
+              })
             : '';
 
         const actions = isCustom
@@ -2714,7 +2805,7 @@ const VoiceAiPage = {
             : `<button class="btn btn-ghost btn-sm" onclick="VoiceAiPersonalityEdit.openOverride('${id}')">Family notes</button>`;
 
         return `
-            <div class="list-item" style="border-top: 1px solid var(--border, #e5e7eb);">
+            <div class="list-item${lock.locked ? ' is-voice-locked' : ''}" style="border-top: 1px solid var(--border, #e5e7eb);">
                 <div class="list-item-content">
                     <div class="list-item-title" style="display:flex; align-items:center; gap:8px;">
                         ${I ? I.img(key, 16) : ''}
@@ -2723,9 +2814,11 @@ const VoiceAiPage = {
                     </div>
                     ${p.description ? `<div style="margin-top:3px; font-size:12.5px; color: var(--text-muted); line-height:1.45;">${this._escape(p.description)}</div>` : ''}
                     ${status}
+                    ${lockLine}
                     ${hint}
                     ${notesLine}
                 </div>
+                ${preview}
                 ${actions}
             </div>
         `;

@@ -2309,3 +2309,48 @@
 .also-save { padding: 10px 16px 12px; display: flex; justify-content: flex-end;
              border-top: 1px solid var(--border-2, #eff0f2); }
 @media (max-width: 420px) { .also-now { display: none; } }
+
+/* ── Voice sample preview ────────────────────────────────────────────────
+   The ▶ that hears a voice. Deliberately available on a LOCKED personality
+   row too (John 2026-10-15: "we should make them all previewable") — hearing
+   what a key would buy is the whole argument for buying one, so the control
+   a locked row keeps is the one that explains it. */
+.voice-sample-btn {
+    flex: 0 0 auto;
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 50%;
+    background: var(--bg-surface, #fff);
+    color: var(--text-secondary, #555);
+    font-size: 11px; line-height: 1;
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.voice-sample-btn:hover:not(:disabled) {
+    border-color: var(--accent, #e8793a);
+    color: var(--accent, #e8793a);
+}
+.voice-sample-btn.is-playing {
+    border-color: var(--accent, #e8793a);
+    background: var(--accent, #e8793a);
+    color: #fff;
+}
+.voice-sample-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── A personality this household cannot speak as ────────────────────────
+   Dimmed and unselectable (John 2026-10-15: "unselectable"), never removed:
+   a row that vanishes teaches nothing, and the reason + the ▶ are the two
+   things that make the lock legible rather than a bug. The dimming is on the
+   CONTENT only, so the preview button keeps full contrast. */
+.list-item.is-voice-locked .list-item-content { opacity: .55; }
+.list-item.is-voice-locked .list-item-title { color: var(--text-muted, #999); }
+.list-item.is-voice-locked .btn:not(.voice-sample-btn) {
+    opacity: .45; pointer-events: none;
+}
+.voice-lock-reason {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-muted, #999);
+    display: flex; align-items: center; gap: 6px;
+}
