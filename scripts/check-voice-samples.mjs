@@ -29,6 +29,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import vm from 'node:vm';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -119,6 +120,56 @@ if (existsSync(SOURCES) && existsSync(LINES)) {
     t('leg 7b — …and every one of them has a line (a key mismatch silently drops one)',
       noLine.length === 0,
       `no line for: ${noLine.join(', ')}. This fired for real: the lines file said 'standard', the database says 'dashie'`);
+}
+
+// ── 8 🔴 — THE CONSUMER. Every manifest id must RESOLVE through the real lookup. ──
+//
+// This leg exists because its absence shipped. 0.9.61 rendered all 30 Gemini samples
+// correctly, wrote all 30 manifest rows, served them over HTTP as audio/mpeg — and the
+// console answered "No recorded sample for this voice yet" for every single one. The
+// manifest ids carry the vendor's capitalisation (`voice:gemini:Aoede`) while every
+// lookup normalises (`voice:gemini:aoede`), so nothing matched.
+//
+// ⚠️ EVERY LEG ABOVE WAS GREEN THROUGHOUT, and correctly so: the files existed, the
+// manifest agreed with the directory, the containers were playable. They test the
+// ARTEFACT. Not one of them ran the code that READS the artefact. A producer and a
+// consumer that are each verified alone can still fail to meet.
+//
+// 🔴 And the personality rows worked the whole time, which is what made it survive a
+// device test: their ids were already lower-case, so John heard Butler, Santa and the
+// pirate play and reasonably reported the feature as working. A partial success is a
+// worse signal than a total failure.
+{
+    const sandbox = { console: { warn: () => {}, log: () => {} } };
+    sandbox.window = sandbox; sandbox.globalThis = sandbox;
+    sandbox.fetch = async () => ({ ok: true, json: async () => manifest });
+    const ctx = vm.createContext(sandbox);
+    const libPath = join(HERE, '..', 'dashie-ha', 'frontend', 'console', 'js', 'lib', 'voice-samples.js');
+    if (!existsSync(libPath)) {
+        t('leg 8 — voice-samples.js is readable', false, `missing at ${libPath}`);
+    } else {
+        vm.runInContext(readFileSync(libPath, 'utf8'), ctx, { filename: libPath });
+        await sandbox.VoiceSamples.load();
+        const unresolved = [];
+        for (const id of Object.keys(samples)) {
+            const [kind, ...rest] = id.split(':');
+            const plan = kind === 'personality'
+                ? sandbox.VoiceSamples.playbackPlan({ personality: rest.join(':') })
+                : sandbox.VoiceSamples.playbackPlan({ ref: rest.join(':') });
+            if (plan.mode !== 'sample') unresolved.push(`${id} → ${plan.mode}${plan.why ? ` (${plan.why})` : ''}`);
+        }
+        t('leg 8 🔴 — EVERY manifest id resolves through the real playbackPlan() to mode:sample',
+          unresolved.length === 0,
+          `rendered, shipped and unreachable — the console says "no recorded sample" for these:\n      ${unresolved.slice(0, 6).join('\n      ')}${unresolved.length > 6 ? `\n      …and ${unresolved.length - 6} more` : ''}`);
+
+        // ⚖️ The control that keeps leg 8 honest: a voice that genuinely has no sample
+        // must NOT resolve. Without this, a lookup that returned the first entry for
+        // everything would pass leg 8 perfectly.
+        const bogus = sandbox.VoiceSamples.playbackPlan({ ref: 'gemini:NotARealVoiceName' });
+        t('leg 8b ⚖️ CONTROL — a voice with no recording does NOT resolve to a sample',
+          bogus.mode !== 'sample',
+          'the lookup matches anything, so leg 8 proves nothing');
+    }
 }
 
 const total = Object.values(samples).reduce((n, s) => n + (s.bytes || 0), 0);
