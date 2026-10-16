@@ -286,6 +286,15 @@ node "$ADDON_ROOT/scripts/check-personality-lock.mjs"
 echo "==> Checking the ElevenLabs key test (bad key fails · scoped key is cannot-verify)"
 node "$ADDON_ROOT/scripts/check-key-test-elevenlabs.mjs"
 
+# Voice samples: the pre-recorded previews must be files a browser will PLAY. Gemini's
+# TTS answers with raw PCM and no container while ElevenLabs/Inworld answer real MP3 —
+# the paths look identical and diverge only in the bytes, so 30 unplayable files once
+# passed counting, listing and resolution with a ▶ that did nothing. Leg 4 reads the
+# first bytes, which is the only thing that can see it. Exits 0 when no samples exist
+# (the previews ship inert until the generator runs).
+echo "==> Checking the voice samples (playable container · manifest agrees · every built-in has one)"
+node "$ADDON_ROOT/scripts/check-voice-samples.mjs"
+
 # Device setup: Layout/Orientation are gated on the ACCOUNT seam, not the build
 # seam — and the signed-in rows must survive, because the easy wrong fix passes
 # the removal leg and quietly reverses a documented decision.

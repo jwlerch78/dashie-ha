@@ -1,0 +1,201 @@
+{
+ "_comment": [
+  "SNAPSHOT of the cloud voice catalog, read-only from staging on 2026-10-15. This is the",
+  "generator's input: which real provider voice each personality speaks in.",
+  "",
+  "🔴 WHY A SNAPSHOT AND NOT A LIVE QUERY. The generator runs on a laptop with database",
+  "credentials; the thing it produces is committed into a PUBLIC repo. Pinning the input",
+  "means the audio files and the mapping that produced them land in the same commit, so",
+  "anyone can see which voice a sample claims to be without database access. A live query",
+  "would make the output unreproducible and the provenance unreadable.",
+  "",
+  "⚠️ IT GOES STALE SILENTLY. Nothing here notices when the catalog changes. Refresh with",
+  "the query in scripts/gen-voice-samples.mjs's header and re-run the generator; the",
+  "manifest records the date so a sample's age is always legible.",
+  "",
+  "MEASURED, and the reason John's ruling needed its second half: the cast is SPLIT across",
+  "two providers. 7 personalities are ElevenLabs, 3 are Inworld (butler/pirate/princess),",
+  "so an ElevenLabs key alone unlocks neither Butler nor Pirate nor Princess until each has",
+  "an ElevenLabs alternate (tts_voices.alt_provider, migration 202610151900, VH).",
+  "",
+  "'dashie' is voice_mode=preferred, not fixed - the household's own TTS choice outranks it.",
+  "Its sample therefore demonstrates ONE voice (RACHEL) and must be labelled as the default",
+  "Dashie voice, never as 'what Standard sounds like'."
+ ],
+ "readAt": "2026-10-15",
+ "source": "staging cwglbtosingboqepsmjk, BEGIN TRANSACTION READ ONLY",
+ "catalogVoices": [
+  {
+   "key": "RACHEL",
+   "name": "Rachel",
+   "provider": "elevenlabs",
+   "providerVoiceId": "21m00Tcm4TlvDq8ikWAM"
+  },
+  {
+   "key": "DOMI",
+   "name": "Domi",
+   "provider": "elevenlabs",
+   "providerVoiceId": "AZnzlk1XvdvUeBnXmlld"
+  },
+  {
+   "key": "BELLA",
+   "name": "Bella",
+   "provider": "elevenlabs",
+   "providerVoiceId": "EXAVITQu4vr4xnSDxMaL"
+  },
+  {
+   "key": "GRANDMA",
+   "name": "Grandma",
+   "provider": "elevenlabs",
+   "providerVoiceId": "0rEo3eAjssGDUCXHYENf"
+  },
+  {
+   "key": "ADAM",
+   "name": "Adam",
+   "provider": "elevenlabs",
+   "providerVoiceId": "pNInz6obpgDQGcFmaJgB"
+  },
+  {
+   "key": "ANTONI",
+   "name": "Antoni",
+   "provider": "elevenlabs",
+   "providerVoiceId": "ErXwobaYiN019PkySvjV"
+  },
+  {
+   "key": "SANTA",
+   "name": "Santa",
+   "provider": "elevenlabs",
+   "providerVoiceId": "Gqe8GJJLg3haJkTwYj2L"
+  },
+  {
+   "key": "JERRY",
+   "name": "Jerry",
+   "provider": "elevenlabs",
+   "providerVoiceId": "rHWSYoq8UlV0YIBKMryp"
+  },
+  {
+   "key": "DRILL_SERGEANT",
+   "name": "Drill Sergeant",
+   "provider": "elevenlabs",
+   "providerVoiceId": "DGzg6RaUqxGRTHSBjfgF"
+  },
+  {
+   "key": "DUMBLEDORE",
+   "name": "Dumbledore",
+   "provider": "elevenlabs",
+   "providerVoiceId": "xKVZyzPbevL5aE4ZEkHJ"
+  },
+  {
+   "key": "COWBOY",
+   "name": "Cowboy",
+   "provider": "elevenlabs",
+   "providerVoiceId": "Bj9UqZbhQsanLzgalpEG"
+  },
+  {
+   "key": "ASHLEY",
+   "name": "Ashley",
+   "provider": "inworld",
+   "providerVoiceId": "Ashley"
+  },
+  {
+   "key": "HANA",
+   "name": "Hana",
+   "provider": "inworld",
+   "providerVoiceId": "Hana"
+  },
+  {
+   "key": "BUTLER",
+   "name": "Butler",
+   "provider": "inworld",
+   "providerVoiceId": "Clive"
+  },
+  {
+   "key": "PIRATE",
+   "name": "Pirate",
+   "provider": "inworld",
+   "providerVoiceId": "chill-robin-4026__sparrow"
+  }
+ ],
+ "personalities": [
+  {
+   "key": "bad_santa",
+   "name": "Bad Santa",
+   "provider": "elevenlabs",
+   "voiceKey": "SANTA",
+   "voiceMode": "fixed",
+   "providerVoiceId": "Gqe8GJJLg3haJkTwYj2L"
+  },
+  {
+   "key": "butler",
+   "name": "Butler",
+   "provider": "inworld",
+   "voiceKey": "BUTLER",
+   "voiceMode": "fixed",
+   "providerVoiceId": "Clive"
+  },
+  {
+   "key": "cowboy",
+   "name": "Cowboy",
+   "provider": "elevenlabs",
+   "voiceKey": "COWBOY",
+   "voiceMode": "fixed",
+   "providerVoiceId": "Bj9UqZbhQsanLzgalpEG"
+  },
+  {
+   "key": "dashie",
+   "name": "Standard",
+   "provider": "elevenlabs",
+   "voiceKey": "RACHEL",
+   "voiceMode": "preferred",
+   "providerVoiceId": "21m00Tcm4TlvDq8ikWAM"
+  },
+  {
+   "key": "drill_sergeant",
+   "name": "Drill Sergeant",
+   "provider": "elevenlabs",
+   "voiceKey": "DRILL_SERGEANT",
+   "voiceMode": "fixed",
+   "providerVoiceId": "DGzg6RaUqxGRTHSBjfgF"
+  },
+  {
+   "key": "pirate",
+   "name": "Pirate Captain",
+   "provider": "inworld",
+   "voiceKey": "PIRATE",
+   "voiceMode": "fixed",
+   "providerVoiceId": "chill-robin-4026__sparrow"
+  },
+  {
+   "key": "princess",
+   "name": "Princess",
+   "provider": "inworld",
+   "voiceKey": "HANA",
+   "voiceMode": "fixed",
+   "providerVoiceId": "Hana"
+  },
+  {
+   "key": "santa",
+   "name": "Santa",
+   "provider": "elevenlabs",
+   "voiceKey": "SANTA",
+   "voiceMode": "fixed",
+   "providerVoiceId": "Gqe8GJJLg3haJkTwYj2L"
+  },
+  {
+   "key": "surfer_dude",
+   "name": "Surfer Dude",
+   "provider": "elevenlabs",
+   "voiceKey": "JERRY",
+   "voiceMode": "fixed",
+   "providerVoiceId": "rHWSYoq8UlV0YIBKMryp"
+  },
+  {
+   "key": "wizard",
+   "name": "Wizard",
+   "provider": "elevenlabs",
+   "voiceKey": "DUMBLEDORE",
+   "voiceMode": "fixed",
+   "providerVoiceId": "xKVZyzPbevL5aE4ZEkHJ"
+  }
+ ]
+}
