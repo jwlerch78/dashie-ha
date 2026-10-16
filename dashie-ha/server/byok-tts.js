@@ -146,6 +146,32 @@ async function resolveProvider() {
     // answer is null, which means credits pay for the SAME Gemini voice (gemini-tts-lane.js). It does
     // not fall through to an ElevenLabs key: that would change the voice to save the household money
     // it didn't ask to save. Every other choice keeps the rules below exactly as released.
+    //
+    // ⚠️⚠️ THE RULING ABOVE IS SUPERSEDED. THE CODE BELOW IS NOT — YET. Read both before changing
+    // either; they disagree on purpose and for a bounded time.
+    //
+    // John, 2026-10-16, answering whether VH's new default-voice ladder reversed him: *"i agree this
+    // was a reversal. the new methdology for picking which key and voice to use is what i want."*
+    //
+    // So "never which voice speaks" no longer holds for the DEFAULT voice. The new ladder, tried in
+    // order per reply, is: Gemini on the household's Gemini key → Inworld "Ashley" on Dashie credits
+    // → ElevenLabs on the household's key → device voice. Gemini-on-credits is deliberately NOT a
+    // rung: it would always beat Inworld, and Inworld costs less. That substitution — a cheaper
+    // voice the household did not choose — is exactly what the paragraph above forbids, which is
+    // why it is called out here rather than quietly deleted. The old reasoning was not wrong; it
+    // was overruled, and knowing that is the difference between implementing a decision and
+    // re-litigating one.
+    //
+    // 🔴 WHAT THIS FUNCTION STILL DOES, TODAY: the OLD rule. VH owns the new ladder
+    // (server/elevenlabs-tts-lane.js + the tablet half) and is implementing it; nothing here has
+    // moved. So this comment describes a live contradiction, and that is the honest state — a
+    // comment rewritten to describe the new ladder would be a lie about the code beneath it.
+    // Ruling A is UNAFFECTED: a key OUTAGE (not the key's fault) still never falls to a credits rung.
+    //
+    // 📌 The console's Gemini row copy ("Dashie credits pay when there is no key") is still CORRECT
+    // against this code and becomes wrong the moment the ladder lands. It is B's one-line change and
+    // must ship in the SAME release as the lane, never before. Delete this whole block, and that
+    // note, when the ladder is in.
     if (await choseGeminiVoice()) return status.gemini === true ? 'gemini' : null;
     if (status.elevenlabs === true) return 'elevenlabs';
     // 🔴 John 2026-10-10: a Gemini key buys speech when no speech key is stored
