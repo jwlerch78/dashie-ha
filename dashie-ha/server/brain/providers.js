@@ -155,6 +155,45 @@ const VALIDATE = {
     // so it's the right no-charge probe. (/models is PUBLIC on OpenRouter and would 200
     // for a garbage key, which would make the Test button lie.)
     openrouter: { url: 'https://openrouter.ai/api/v1/key', headers: (k) => ({ Authorization: `Bearer ${k}` }) },
+    // ── ElevenLabs (John 2026-10-15: "there's no test yet for this key. We should have B add one") ──
+    //
+    // /v1/user returns the account + subscription and synthesises NOTHING, so it answers
+    // "is my key good?" at no charge. MEASURED 2026-10-15, not assumed — the OpenRouter
+    // note above is this file already having been burned once by a PUBLIC probe endpoint:
+    //   · a garbage key  → 401 {"status":"invalid_api_key","message":"Invalid API key"}
+    //   · no key at all  → 401 {"status":"needs_authorization"}
+    // so it genuinely requires auth and is not the /models trap.
+    //
+    // 🔴 `scoped` EXISTS BECAUSE 403 HERE DOES NOT MEAN A BAD KEY, and the generic branch
+    // below treats 401 and 403 alike. ElevenLabs keys are RESTRICTED BY DEFAULT and carry
+    // per-group permissions; a key perfectly able to synthesise speech can be denied
+    // /v1/user when its "User" permission is off, and an IP allow-list also answers 403.
+    // Reporting that as "Key was rejected — check it and re-save" would tell a household
+    // to replace a key that works. That is the inverse of the OpenRouter lie and worse:
+    // the OpenRouter trap passes a bad key, this one would FAIL A GOOD ONE.
+    //   401 = authentication_error  → the key string itself is wrong/revoked  → ok:false
+    //   403 = authorization_error   → the key is REAL, this call is not permitted → ok:null
+    // ok:null is this module's existing "cannot verify" state, which is the honest answer:
+    // we learned the key authenticates and learned nothing about speech.
+    elevenlabs: {
+        url: 'https://api.elevenlabs.io/v1/user',
+        headers: (k) => ({ 'xi-api-key': k }),
+        scoped: 'The key is real, but it is not allowed to read your ElevenLabs account — '
+              + "either its \"User\" permission is off, or this box's IP is not allow-listed. "
+              + 'Speech may well still work; this test cannot tell.',
+        // Turns "it authenticates" into something worth reading. A green otherwise does NOT
+        // prove there is quota left, and quota is the next thing that breaks. Defensive by
+        // construction: any missing field falls back to the plain "Key is valid."
+        // ⚠️ REASONED FROM THE DOCS, NOT MEASURED — verifying the 200 body needs a real key,
+        // which I do not have. If the shape is different, this degrades to the plain line.
+        summarize: (j) => {
+            const sub = j && j.subscription;
+            const used = sub && typeof sub.character_count === 'number' ? sub.character_count : null;
+            const cap  = sub && typeof sub.character_limit === 'number' ? sub.character_limit : null;
+            if (used == null || cap == null) return null;
+            return `Key is valid — ${used.toLocaleString()} of ${cap.toLocaleString()} characters used this period.`;
+        },
+    },
 };
 
 /**
@@ -190,8 +229,13 @@ async function validateProvider(provider) {
             // Same distinction getLocalWakeWordCatalog() draws, for the same reason.
             let n = null;
             let models = null;
+            // 🔴 Hoisted so the summary below can reuse it. The body may be read ONCE —
+            // resp.clone() has to happen BEFORE the first read, so a second .json() here
+            // would throw and silently cost the summary on every provider.
+            let body = null;
             try {
                 const j = await resp.json();
+                body = j;
                 if (Array.isArray(j?.data)) {
                     n = j.data.length;
                     // OpenAI-compatible list shape: [{id}]. Anthropic's /v1/models
@@ -202,15 +246,23 @@ async function validateProvider(provider) {
                     models = ids.length ? ids : null;
                 }
             } catch { /* body optional */ }
+            // A provider-specific summary wins when it can be built; it never invents, and
+            // returns null the moment a field it needs is absent.
+            let summary = null;
+            try { summary = spec.summarize && body ? spec.summarize(body) : null; } catch { /* optional */ }
             return {
                 ok: true,
-                detail: n != null ? `Key is valid (${n} models available).` : 'Key is valid.',
+                detail: summary || (n != null ? `Key is valid (${n} models available).` : 'Key is valid.'),
                 models,
             };
         }
         // httpStatus + errorText let key-health classify the failure (Gemini answers a bad key with 400 +
         // API_KEY_INVALID, not 401). errorText is for classification only: never logged or returned to a page.
         const errorText = (await resp.text().catch(() => '')).slice(0, 600);
+        // 🔴 A PROVIDER THAT SCOPES ITS KEYS GETS 403 SPLIT OFF FIRST. Everywhere else 401
+        // and 403 stay merged exactly as released — this is deliberately additive, because
+        // changing the shared branch would re-classify every other provider's failures too.
+        if (resp.status === 403 && spec.scoped) return { ok: null, detail: spec.scoped, httpStatus: 403, errorText };
         if (resp.status === 401 || resp.status === 403) return { ok: false, detail: `Key was rejected (HTTP ${resp.status}) — check it and re-save.`, httpStatus: resp.status, errorText };
         if (resp.status === 400 && /API_KEY_INVALID|API key not valid|pass a valid API key/i.test(errorText)) return { ok: false, detail: 'Key was rejected (HTTP 400, API key not valid) — check it and re-save.', httpStatus: 400, errorText };
         return { ok: false, detail: `Unexpected response (HTTP ${resp.status}).`, httpStatus: resp.status, errorText };

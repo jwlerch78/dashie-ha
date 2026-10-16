@@ -279,6 +279,13 @@ node "$ADDON_ROOT/scripts/check-personalities.mjs"
 echo "==> Checking the personality lock (built-in disabled · custom never · unknown locks nothing)"
 node "$ADDON_ROOT/scripts/check-personality-lock.mjs"
 
+# ElevenLabs key test (John 2026-10-15 "there's no test yet for this key"): the probe
+# must fail a bad key, and must NOT fail a good-but-SCOPED one. ElevenLabs keys are
+# restricted by default, so a 403 means the key is real and this call is not permitted
+# — reporting that as "rejected" tells a household to replace a working key.
+echo "==> Checking the ElevenLabs key test (bad key fails · scoped key is cannot-verify)"
+node "$ADDON_ROOT/scripts/check-key-test-elevenlabs.mjs"
+
 # Device setup: Layout/Orientation are gated on the ACCOUNT seam, not the build
 # seam — and the signed-in rows must survive, because the easy wrong fix passes
 # the removal leg and quietly reverses a documented decision.
