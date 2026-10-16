@@ -46,6 +46,7 @@ const VoiceSamples = {
     DIR: 'assets/voices',
 
     _manifest: undefined,   // undefined = not loaded; null = load failed; object = loaded
+    _index: null,           // case-folded id → entry; built at load (see load())
     _loading: null,
 
     /** Providers whose synth costs the household money per press. A preview of one of
@@ -70,6 +71,23 @@ const VoiceSamples = {
                 const j = await r.json();
                 this._manifest = (j && typeof j.samples === 'object') ? j : null;
                 if (!this._manifest) console.warn('DROP: voice-samples manifest has no samples map');
+                // 🔴 CASE-FOLDED INDEX, built once at load. The manifest's ids carry the
+                // vendor's own capitalisation — Gemini's voices are `Aoede`, `Charon`,
+                // `Zephyr`, and a personality key is `butler` — while every lookup here
+                // normalises. Comparing a normalised key against an unnormalised map is
+                // the bug this exists to make impossible, and it SHIPPED: 0.9.61 rendered
+                // all 30 Gemini samples correctly and then told John "No recorded sample
+                // for this voice yet" for every one of them, because `voice:gemini:aoede`
+                // is not `voice:gemini:Aoede`. The personality rows worked throughout and
+                // hid it, since their ids were already lower-case.
+                // Folding at LOAD rather than at each call-site means one place decides,
+                // and a future id in any casing resolves without anyone remembering.
+                this._index = {};
+                if (this._manifest) {
+                    for (const [id, entry] of Object.entries(this._manifest.samples)) {
+                        this._index[this._key(id)] = entry;
+                    }
+                }
             } catch (e) {
                 // Expected on any add-on built before the samples shipped. Loud, because
                 // silently falling back to live synth is exactly the billing we are here
@@ -89,16 +107,14 @@ const VoiceSamples = {
 
     /** The sample recorded for a built-in personality, by template key (`butler`). */
     forPersonality(key) {
-        const m = this._manifest;
-        if (!m) return null;
-        return m.samples[`personality:${this._key(key)}`] || null;
+        if (!this._index) return null;
+        return this._index[this._key(`personality:${key}`)] || null;
     },
 
     /** The sample recorded for a stock voice, by ref (`elevenlabs:butler`, `gemini:Charon`). */
     forVoice(ref) {
-        const m = this._manifest;
-        if (!m) return null;
-        return m.samples[`voice:${this._key(ref)}`] || null;
+        if (!this._index) return null;
+        return this._index[this._key(`voice:${ref}`)] || null;
     },
 
     /** Absolute-within-the-console URL for a manifest entry. */
