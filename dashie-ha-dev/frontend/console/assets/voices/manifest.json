@@ -1,0 +1,338 @@
+{
+ "version": 1,
+ "samples": {
+  "personality:bad_santa": {
+   "file": "personality-bad-santa.mp3",
+   "ref": "elevenlabs:SANTA",
+   "text": "Yeah, yeah — the trash goes out tonight. I already told you. Twice.",
+   "bytes": 97845
+  },
+  "personality:butler": {
+   "file": "personality-butler.mp3",
+   "ref": "inworld:BUTLER",
+   "text": "Your laundry has been sitting there since Tuesday. I have, of course, said nothing.",
+   "bytes": 64365
+  },
+  "personality:cowboy": {
+   "file": "personality-cowboy.mp3",
+   "ref": "elevenlabs:COWBOY",
+   "text": "Mornin'. Storm's rollin' in by supper, so get them chores done early.",
+   "bytes": 81127
+  },
+  "personality:dashie": {
+   "file": "personality-dashie.mp3",
+   "ref": "elevenlabs:RACHEL",
+   "text": "Good morning. Soccer practice is at four, and it's going to rain — grab a jacket.",
+   "bytes": 83634,
+   "note": "voice_mode=preferred — this demonstrates the default Dashie voice, not a fixed character voice"
+  },
+  "personality:drill_sergeant": {
+   "file": "personality-drill-sergeant.mp3",
+   "ref": "elevenlabs:DRILL_SERGEANT",
+   "text": "Listen up! Beds made, dishes done, and you move out in ten minutes!",
+   "bytes": 74439
+  },
+  "personality:pirate": {
+   "file": "personality-pirate.mp3",
+   "ref": "inworld:PIRATE",
+   "text": "Arrr, yer calendar be packed, matey. Dentist at three — no escapin' that one.",
+   "bytes": 84845
+  },
+  "personality:princess": {
+   "file": "personality-princess.mp3",
+   "ref": "inworld:HANA",
+   "text": "Good morning! You have ballet at five, and you are going to be wonderful.",
+   "bytes": 65619
+  },
+  "personality:santa": {
+   "file": "personality-santa.mp3",
+   "ref": "elevenlabs:SANTA",
+   "text": "Ho ho ho! Two chores left on your list, and I'm checking it twice.",
+   "bytes": 106622
+  },
+  "personality:surfer_dude": {
+   "file": "personality-surfer-dude.mp3",
+   "ref": "elevenlabs:JERRY",
+   "text": "Hey, so, practice got moved to four. No stress, dude — plenty of time.",
+   "bytes": 85724
+  },
+  "personality:wizard": {
+   "file": "personality-wizard.mp3",
+   "ref": "elevenlabs:DUMBLEDORE",
+   "text": "Ah, a busy day ahead. Soccer at four — though the weather has other plans.",
+   "bytes": 71514
+  },
+  "voice:elevenlabs:RACHEL": {
+   "file": "voice-elevenlabs-rachel.mp3",
+   "ref": "elevenlabs:RACHEL",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 87396
+  },
+  "voice:elevenlabs:DOMI": {
+   "file": "voice-elevenlabs-domi.mp3",
+   "ref": "elevenlabs:DOMI",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 74021
+  },
+  "voice:elevenlabs:BELLA": {
+   "file": "voice-elevenlabs-bella.mp3",
+   "ref": "elevenlabs:BELLA",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 63572
+  },
+  "voice:elevenlabs:GRANDMA": {
+   "file": "voice-elevenlabs-grandma.mp3",
+   "ref": "elevenlabs:GRANDMA",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 100771
+  },
+  "voice:elevenlabs:ADAM": {
+   "file": "voice-elevenlabs-adam.mp3",
+   "ref": "elevenlabs:ADAM",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 74021
+  },
+  "voice:elevenlabs:ANTONI": {
+   "file": "voice-elevenlabs-antoni.mp3",
+   "ref": "elevenlabs:ANTONI",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 72350
+  },
+  "voice:elevenlabs:SANTA": {
+   "file": "voice-elevenlabs-santa.mp3",
+   "ref": "elevenlabs:SANTA",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 119161
+  },
+  "voice:elevenlabs:JERRY": {
+   "file": "voice-elevenlabs-jerry.mp3",
+   "ref": "elevenlabs:JERRY",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 78201
+  },
+  "voice:elevenlabs:DRILL_SERGEANT": {
+   "file": "voice-elevenlabs-drill-sergeant.mp3",
+   "ref": "elevenlabs:DRILL_SERGEANT",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 76111
+  },
+  "voice:elevenlabs:DUMBLEDORE": {
+   "file": "voice-elevenlabs-dumbledore.mp3",
+   "ref": "elevenlabs:DUMBLEDORE",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 71514
+  },
+  "voice:elevenlabs:COWBOY": {
+   "file": "voice-elevenlabs-cowboy.mp3",
+   "ref": "elevenlabs:COWBOY",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 64826
+  },
+  "voice:inworld:ASHLEY": {
+   "file": "voice-inworld-ashley.mp3",
+   "ref": "inworld:ASHLEY",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 74814
+  },
+  "voice:inworld:HANA": {
+   "file": "voice-inworld-hana.mp3",
+   "ref": "inworld:HANA",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 75650
+  },
+  "voice:inworld:BUTLER": {
+   "file": "voice-inworld-butler.mp3",
+   "ref": "inworld:BUTLER",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 71471
+  },
+  "voice:inworld:PIRATE": {
+   "file": "voice-inworld-pirate.mp3",
+   "ref": "inworld:PIRATE",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 71471
+  },
+  "voice:gemini:Aoede": {
+   "file": "voice-gemini-aoede.mp3",
+   "ref": "gemini:Aoede",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 37676
+  },
+  "voice:gemini:Zephyr": {
+   "file": "voice-gemini-zephyr.mp3",
+   "ref": "gemini:Zephyr",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 39596
+  },
+  "voice:gemini:Puck": {
+   "file": "voice-gemini-puck.mp3",
+   "ref": "gemini:Puck",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 37868
+  },
+  "voice:gemini:Charon": {
+   "file": "voice-gemini-charon.mp3",
+   "ref": "gemini:Charon",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 32108
+  },
+  "voice:gemini:Kore": {
+   "file": "voice-gemini-kore.mp3",
+   "ref": "gemini:Kore",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 38636
+  },
+  "voice:gemini:Fenrir": {
+   "file": "voice-gemini-fenrir.mp3",
+   "ref": "gemini:Fenrir",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 36140
+  },
+  "voice:gemini:Leda": {
+   "file": "voice-gemini-leda.mp3",
+   "ref": "gemini:Leda",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 39020
+  },
+  "voice:gemini:Orus": {
+   "file": "voice-gemini-orus.mp3",
+   "ref": "gemini:Orus",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34028
+  },
+  "voice:gemini:Callirrhoe": {
+   "file": "voice-gemini-callirrhoe.mp3",
+   "ref": "gemini:Callirrhoe",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 36332
+  },
+  "voice:gemini:Autonoe": {
+   "file": "voice-gemini-autonoe.mp3",
+   "ref": "gemini:Autonoe",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 35564
+  },
+  "voice:gemini:Enceladus": {
+   "file": "voice-gemini-enceladus.mp3",
+   "ref": "gemini:Enceladus",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34796
+  },
+  "voice:gemini:Iapetus": {
+   "file": "voice-gemini-iapetus.mp3",
+   "ref": "gemini:Iapetus",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 33836
+  },
+  "voice:gemini:Umbriel": {
+   "file": "voice-gemini-umbriel.mp3",
+   "ref": "gemini:Umbriel",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 33836
+  },
+  "voice:gemini:Algieba": {
+   "file": "voice-gemini-algieba.mp3",
+   "ref": "gemini:Algieba",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 33836
+  },
+  "voice:gemini:Despina": {
+   "file": "voice-gemini-despina.mp3",
+   "ref": "gemini:Despina",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 36908
+  },
+  "voice:gemini:Erinome": {
+   "file": "voice-gemini-erinome.mp3",
+   "ref": "gemini:Erinome",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 39404
+  },
+  "voice:gemini:Algenib": {
+   "file": "voice-gemini-algenib.mp3",
+   "ref": "gemini:Algenib",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 31724
+  },
+  "voice:gemini:Rasalgethi": {
+   "file": "voice-gemini-rasalgethi.mp3",
+   "ref": "gemini:Rasalgethi",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34028
+  },
+  "voice:gemini:Laomedeia": {
+   "file": "voice-gemini-laomedeia.mp3",
+   "ref": "gemini:Laomedeia",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 38636
+  },
+  "voice:gemini:Achernar": {
+   "file": "voice-gemini-achernar.mp3",
+   "ref": "gemini:Achernar",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34796
+  },
+  "voice:gemini:Alnilam": {
+   "file": "voice-gemini-alnilam.mp3",
+   "ref": "gemini:Alnilam",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 36332
+  },
+  "voice:gemini:Schedar": {
+   "file": "voice-gemini-schedar.mp3",
+   "ref": "gemini:Schedar",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 36908
+  },
+  "voice:gemini:Gacrux": {
+   "file": "voice-gemini-gacrux.mp3",
+   "ref": "gemini:Gacrux",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 41708
+  },
+  "voice:gemini:Pulcherrima": {
+   "file": "voice-gemini-pulcherrima.mp3",
+   "ref": "gemini:Pulcherrima",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 35756
+  },
+  "voice:gemini:Achird": {
+   "file": "voice-gemini-achird.mp3",
+   "ref": "gemini:Achird",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34220
+  },
+  "voice:gemini:Zubenelgenubi": {
+   "file": "voice-gemini-zubenelgenubi.mp3",
+   "ref": "gemini:Zubenelgenubi",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 34220
+  },
+  "voice:gemini:Vindemiatrix": {
+   "file": "voice-gemini-vindemiatrix.mp3",
+   "ref": "gemini:Vindemiatrix",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 33452
+  },
+  "voice:gemini:Sadachbia": {
+   "file": "voice-gemini-sadachbia.mp3",
+   "ref": "gemini:Sadachbia",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 31532
+  },
+  "voice:gemini:Sadaltager": {
+   "file": "voice-gemini-sadaltager.mp3",
+   "ref": "gemini:Sadaltager",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 35756
+  },
+  "voice:gemini:Sulafat": {
+   "file": "voice-gemini-sulafat.mp3",
+   "ref": "gemini:Sulafat",
+   "text": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+   "bytes": 38444
+  }
+ },
+ "generated": "2026-10-16",
+ "sourcesReadAt": "2026-10-15"
+}
