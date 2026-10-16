@@ -41,29 +41,13 @@ class PowerManagementEngineImpl {
             }
         });
 
-        // Listen for native watchdog toggle commands (Kotlin runs hysteresis
-        // natively during Doze/screen-off, sends toggle via this event)
-        window.addEventListener('power-watchdog-toggle', (e) => {
-            const { entityId, turnOn } = e.detail || {};
-            if (!entityId) return;
-            const action = turnOn ? 'turn_on' : 'turn_off';
-            console.log(`${TAG} Watchdog toggle: switch.${action} → ${entityId}`);
-            if (typeof window.evalInHaIframe !== 'function') {
-                console.warn(`${TAG} [watchdog] evalInHaIframe not available`);
-                return;
-            }
-            window.evalInHaIframe(`
-                (function() {
-                    try {
-                        var haEl = document.querySelector('home-assistant');
-                        var hass = haEl && haEl.hass;
-                        if (!hass) { console.warn('PowerEngine: hass not available'); return; }
-                        hass.callService('switch', '${action}', { entity_id: '${entityId}' });
-                        console.log('PowerEngine: switch.${action} sent to ${entityId} (watchdog)');
-                    } catch (e) { console.error('PowerEngine: switch toggle failed', e); }
-                })();
-            `);
-        });
+        // REMOVED 2026-10-09: a 'power-watchdog-toggle' listener that actuated the switch
+        // through the HA iframe on Kotlin's behalf. Nothing dispatches that event — the
+        // native watchdog has sent its own toggles over the HA REST API since 04840730b
+        // (2026-03-04), with its own PersistentLog trail (PowerManagementWatchdog
+        // .toggleSwitch). Keeping a second, DOM-dependent actuator for a caller that no
+        // longer exists only invited someone to revive it; the native path is the robust
+        // one precisely because it does not need a live HA frontend.
     }
 
     /** Start the polling loop. Safe to call multiple times. */
@@ -214,7 +198,10 @@ class PowerManagementEngineImpl {
         }
 
         if (typeof window.evalInHaIframe !== 'function') {
-            console.warn(`${TAG} FAILED (${reason}): evalInHaIframe not available`);
+            // 'PowerEngine DROP:' is forwarded to PersistentLog by ConsoleMarkerForward —
+            // without it this failure lived only in a WebView console nobody can read, so a
+            // plug that never switched looked identical to one that was never configured.
+            console.warn(`${TAG} PowerEngine DROP: switch not sent (${reason}) — evalInHaIframe unavailable, so the HA page cannot be reached from the kiosk shell`);
             return false;
         }
 
@@ -226,10 +213,10 @@ class PowerManagementEngineImpl {
                 try {
                     var haEl = document.querySelector('home-assistant');
                     var hass = haEl && haEl.hass;
-                    if (!hass) { console.warn('PowerEngine: ❌ hass not available in iframe'); return; }
+                    if (!hass) { console.warn('PowerEngine DROP: switch not sent - hass is not available in the HA iframe, so nothing was asked to switch'); return; }
                     hass.callService('switch', '${action}', { entity_id: '${entityId}' });
-                    console.log('PowerEngine: ✅ switch.${action} sent to ${entityId}');
-                } catch (e) { console.error('PowerEngine: ❌ switch toggle failed', e); }
+                    console.log('PowerEngine: switch.${action} sent to ${entityId}');
+                } catch (e) { console.error('PowerEngine DROP: switch toggle threw - ' + (e && e.message)); }
             })();
         `);
 

@@ -19,7 +19,7 @@ import {
   LATCH_ATTR, VERIFY_POLL_MS, createLatchVerifier, dropMessageFor,
 } from './utils/ha-viewport-latch.js';
 import * as haOfflineOverlay from './ha-offline-overlay.js';
-import { getVideoFeedConfig, VIDEO_FEED_STORAGE_KEY } from '../../js/utils/video-feed-config.js';
+import { getVideoFeedConfig, writeVideoFeedMirror } from '../../js/utils/video-feed-config.js';
 import { initKioskSessionBridge, armKioskSyncTripwire } from './kiosk-settings-sync.js';
 // Side-effect import: registers window.dashieSports (contract row 107), which the NATIVE Sports
 // settings page calls through the WebView.
@@ -1242,7 +1242,7 @@ window.addEventListener('message', function(e) {
       if (added > 0 || removed > 0) {
         // Persist subscription modes so settings page can read them
         if (Object.keys(feedModes).length > 0) config.feedModes = feedModes;
-        localStorage.setItem(VIDEO_FEED_STORAGE_KEY, JSON.stringify(config));
+        writeVideoFeedMirror(config);   // logins stripped where a bridge exists; native below gets them whole
         if (typeof DashieNative !== 'undefined' && DashieNative.saveVideoFeedConfig) {
           DashieNative.saveVideoFeedConfig(JSON.stringify(config));
         }
