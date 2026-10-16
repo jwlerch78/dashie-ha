@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "Sample lines for pre-recorded voice previews (John 2026-10-15). EDIT FREELY — this",
+    "file is the generator's input, not a derived artifact.",
+    "",
+    "🔴 TWO KINDS OF LINE, AND THE DIFFERENCE IS THE WHOLE POINT:",
+    "",
+    "  personalities — each gets its OWN line. You are auditioning CASTING: does this",
+    "    voice sound like this character saying something this character would say. A",
+    "    shared neutral line would hide exactly what you are listening for.",
+    "",
+    "  stockVoiceLine — ONE line, identical for every stock voice. You are auditioning",
+    "    the VOICE, and a different script per voice means you are comparing scripts.",
+    "    It carries a greeting, a name-shaped word, a number and a temperature so",
+    "    prosody, digits and warmth are all exercised in ~3 seconds.",
+    "",
+    "Keep each line short — roughly 10–15 words. These are browse samples; a long clip",
+    "is one people stop waiting for, which defeats the purpose.",
+    "",
+    "⚠️ 'standard' is a special case: that personality has NO voice preference of its",
+    "own (personality-templates.js, deliberately) — it speaks in whatever the household",
+    "chose. So its sample can only demonstrate ONE voice and must be labelled as the",
+    "default Dashie voice, not as 'what Standard sounds like'. Consider dropping it."
+  ],
+
+  "stockVoiceLine": "Good morning. You have three events today, and it's seventy-two degrees and sunny.",
+
+  "personalities": {
+    "standard":       "Good morning. Soccer practice is at four, and it's going to rain — grab a jacket.",
+    "santa":          "Ho ho ho! Two chores left on your list, and I'm checking it twice.",
+    "bad_santa":      "Yeah, yeah — the trash goes out tonight. I already told you. Twice.",
+    "pirate":         "Arrr, yer calendar be packed, matey. Dentist at three — no escapin' that one.",
+    "drill_sergeant": "Listen up! Beds made, dishes done, and you move out in ten minutes!",
+    "surfer_dude":    "Hey, so, practice got moved to four. No stress, dude — plenty of time.",
+    "butler":         "Your laundry has been sitting there since Tuesday. I have, of course, said nothing.",
+    "cowboy":         "Mornin'. Storm's rollin' in by supper, so get them chores done early.",
+    "princess":       "Good morning! You have ballet at five, and you are going to be wonderful.",
+    "wizard":         "Ah, a busy day ahead. Soccer at four — though the weather has other plans."
+  }
+}
