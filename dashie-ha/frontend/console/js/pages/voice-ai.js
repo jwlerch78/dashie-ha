@@ -2142,8 +2142,8 @@ const VoiceAiPage = {
         // ⚠️ Same flex warning as the own-box row: `flex-shrink: 0` and a fixed width, or it steals
         // the select's `flex: 1` and squeezes it to an unclickable sliver.
         const preview = DashieAuth.isAddonMode
-            ? `<button id="gemini-voice-preview-btn" title="Hear this voice"
-                   onclick="event.stopPropagation(); VoiceAiPage.previewGeminiVoice(this)"
+            ? `<button id="gemini-voice-preview-btn" class="voice-sample-btn" title="Hear this voice"
+                   onclick="event.stopPropagation(); this.dataset.sampleKey=''; VoiceAiPage.previewGeminiVoice(this)"
                    style="flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border, #d1d5db);
                           background: var(--bg-card, #fff); color: var(--text-primary); cursor: pointer; font-size: 11px; line-height: 1;
                           display: inline-flex; align-items: center; justify-content: center;">\u25B6</button>`
@@ -2173,44 +2173,34 @@ const VoiceAiPage = {
      * Funding is the SERVER's decision, not this button's (`/api/voice/preview` engine:'gemini'):
      * stored key first, then account credits (John 10-14), else a 409 naming what to fix.
      */
+    /**
+     * Hear the Gemini voice currently in the picker.
+     *
+     * 🔴 REWIRED ONTO RECORDINGS (John 2026-10-15: *"users aren't paying to generate
+     * them everytime"*). This button shipped in 0.9.60 POSTing /api/voice/preview on
+     * EVERY press, so auditioning 30 voices meant 30 billed synthesis calls — and
+     * auditioning is exactly what it is for. All 30 Gemini voices are now pre-rendered,
+     * so a press costs nothing.
+     *
+     * Live synth is kept ONLY as the fallback for a voice with no recording (a catalog
+     * that grew past the last generator run). `allowLive` is false, so playbackPlan()
+     * reaches the live arm solely through its own free-provider branch — a metered
+     * voice with no sample REFUSES with a reason rather than silently billing, which
+     * is the whole policy.
+     *
+     * It also routes through VoiceSamplePlayer so this button and the personality rows
+     * share ONE <audio>: two players meant two clips over each other, and auditioning
+     * two voices at once is useless.
+     */
     async previewGeminiVoice(btn) {
-        // Already playing → this is a stop button. Covers a double-click and switching voices
-        // mid-sample: never two voices at once, which is the one thing that makes auditioning useless.
-        if (this._geminiPreviewAudio) {
-            this._geminiPreviewAudio.pause();
-            URL.revokeObjectURL(this._geminiPreviewAudio.src);
-            this._geminiPreviewAudio = null;
-            if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; }
-            return;
-        }
+        if (!window.VoiceSamples || !window.VoiceSamplePlayer) return;
         const sel = document.getElementById('gemini-voice-select');
-        const voice = String(sel?.value || VoiceAiPage._defaults?.['voice.liveVoiceName'] || 'Aoede');
-        const restore = () => { if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; } };
-        if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
-        try {
-            const r = await fetch(DashieAuth._addonUrl('/api/voice/preview'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ engine: 'gemini', voice }),
-            });
-            if (!r.ok) {
-                // 404 = an add-on older than this arm. Say that rather than blaming the voice.
-                if (r.status === 404) { Toast.error(`Update the ${BRAND.productName} add-on to preview Gemini voices.`); restore(); return; }
-                const err = await r.json().catch(() => ({}));
-                Toast.error(err.message || `Couldn't play a sample — HTTP ${r.status}`);
-                restore();
-                return;
-            }
-            const audio = new Audio(URL.createObjectURL(await r.blob()));
-            this._geminiPreviewAudio = audio;
-            audio.onended = () => { URL.revokeObjectURL(audio.src); if (this._geminiPreviewAudio === audio) this._geminiPreviewAudio = null; restore(); };
-            audio.onerror = () => { Toast.error("Couldn't play the sample."); restore(); };
-            await audio.play();
-            if (btn) btn.textContent = '\u23F8';
-        } catch (e) {
-            Toast.error(`Couldn't play a sample — ${e?.message || e}`);
-            restore();
-        }
+        const voice = String(sel?.value || this._defaults?.['voice.liveVoiceName'] || 'Aoede');
+        if (btn && !btn.dataset.sampleKey) btn.dataset.sampleKey = `voice:gemini:${voice}`;
+        await VoiceSamples.load();
+        const plan = VoiceSamples.playbackPlan({ ref: `gemini:${voice}` });
+        if (plan.mode === 'none') Toast.error(plan.why);
+        await VoiceSamplePlayer.toggle(btn, plan, { liveSynth: (ref) => this._synthPreview(ref) });
     },
 
     /** The voice-id field to render as the Voice row under Text-to-speech, for whatever
