@@ -37,7 +37,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "ga",
     "page": null,
     "action": null,
-    "body": "Calendars: Google and Outlook accounts, plus Home Assistant and CalDAV calendars, merged into one\nview. Photos come from several sources — Home Assistant media, a local folder, Immich, Google\nPhotos, Google Drive, and Dropbox — and you can also upload photos straight from your phone (see\n\"How do I add my own photos?\")."
+    "body": "Calendars: Google and Outlook accounts, plus Home Assistant and CalDAV calendars, merged into one\nview. Photos come from Dashie Cloud (photos you upload straight from your phone — see \"How do I add\nmy own photos?\"), Home Assistant media or Immich (when Home Assistant is connected), or Unsplash\nstock photos. Google Photos and Dropbox are not supported."
   },
   {
     "id": "faq:can-multiple-family-members-use-it-how-do-roles-work",
@@ -117,7 +117,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "ga",
     "page": null,
     "action": null,
-    "body": "They're configured separately. The **screensaver** slideshow (what shows when the screen is idle)\nis set under Display → Screensaver and can use HA media, a local folder, Immich, or Google Photos.\nThe **Photos widget** (part of the dashboard grid) is set under Settings → Photos and can use\nDropbox albums. You can use different sources for each."
+    "body": "The **screensaver** (what shows when the screen is idle) is set under **Settings → Display →\nScreensaver**: when it starts and what it shows — dimmed, black, the clock and weather, a Home\nAssistant page, or your photos. The **photo source** and slideshow (Dashie Cloud uploads, Home\nAssistant media, Immich, or Unsplash; timing, transition, shuffle) are set under **Settings →\nPhotos**."
   },
   {
     "id": "features:what-widgets-can-i-put-on-the-dashboard",
@@ -167,7 +167,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "ga",
     "page": null,
     "action": null,
-    "body": "Dashie can show a photo slideshow both as a screensaver and as a dashboard widget. Photo sources\ninclude Home Assistant media, a local folder, Immich, Google Photos, and Dropbox (in full mode).\nYou can control slideshow timing and whether photo metadata (like date or caption) is shown."
+    "body": "Dashie can show a photo slideshow both as a screensaver and as a dashboard widget. Photo sources are\nDashie Cloud (photos you upload from your phone), Home Assistant media and Immich (when Home Assistant\nis connected), and Unsplash stock photos. Google Photos and Dropbox are not supported.\nYou can control slideshow timing and whether photo metadata (like date or caption) is shown."
   },
   {
     "id": "features:what-can-the-weather-widget-show",
@@ -227,7 +227,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "beta",
     "page": null,
     "action": null,
-    "body": "Newer feature — may not be on your plan yet. You can upload photos to Dashie's slideshow straight\nfrom your phone: the TV shows a QR code and a short pairing code, you open the link on your phone,\nand the photos you upload appear in the slideshow — no full sign-in needed. Photos can be kept in\nDashie's own storage or in your Google Drive."
+    "body": "Newer feature — may not be on your plan yet. You can upload photos to Dashie's slideshow straight\nfrom your phone: the TV shows a QR code and a short pairing code, you open the link on your phone,\nand the photos you upload appear in the slideshow — no full sign-in needed. Uploaded photos are kept\nin Dashie's own storage (Dashie Cloud)."
   },
   {
     "id": "features:can-dashie-remind-me-about-things-scheduled-reminders",
@@ -337,7 +337,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "ga",
     "page": "display-screensaver",
     "action": "open_settings_page(display-screensaver)",
-    "body": "Open **Settings → Display → Screensaver**. Choose the photo source (Home Assistant media, a local\nfolder, Immich, or Google Photos), how long each photo shows, the transition, dim brightness, and\nwhether photo metadata is displayed."
+    "body": "Open **Settings → Display → Screensaver** to choose when the screensaver starts, what it shows\n(dimmed, black, photos, the clock and weather, a Home Assistant page, or a web page), and the dim\nbrightness. The photo source and slideshow timing are under **Settings → Photos**."
   },
   {
     "id": "settings-map:how-do-i-add-or-remove-a-calendar",
@@ -410,14 +410,14 @@ export const KB_CHUNKS: KbChunk[] = [
     "body": "Open **Settings → Chores & Rewards** to create and manage chores (points, assignment, time of\nday, icons) and the rewards catalog (point costs, approval)."
   },
   {
-    "id": "settings-map:where-do-i-connect-photos-dropbox-albums-slideshow-timing",
+    "id": "settings-map:where-do-i-choose-the-photo-source-and-slideshow-timing",
     "file": "settings-map.md",
-    "title": "Where do I connect photos (Dropbox / albums / slideshow timing)?",
+    "title": "Where do I choose the photo source and slideshow timing?",
     "topic": "settings",
     "status": "ga",
     "page": "photos",
     "action": "open_settings_page(photos)",
-    "body": "Open **Settings → Photos** to connect Dropbox, choose albums, and set slideshow timing for the\nPhotos widget. (The screensaver's photo source is set separately under Display → Screensaver.)"
+    "body": "Open **Settings → Photos** to pick the photo source (Dashie Cloud uploads, Home Assistant media,\nImmich, or Unsplash) and set how long each photo shows, the transition, shuffle, and whether photo\ndetails are shown. Google Photos and Dropbox are not supported."
   },
   {
     "id": "settings-map:where-do-i-set-up-home-assistant-dashboard-url-token",
@@ -537,7 +537,7 @@ export const KB_CHUNKS: KbChunk[] = [
     "status": "ga",
     "page": "display-screensaver",
     "action": "open_settings_page(display-screensaver)",
-    "body": "Confirm the photo source is set and reachable under **Settings → Display → Screensaver** (for the\nscreensaver) or **Settings → Photos** (for the widget and Dropbox). If the source is Google\nPhotos, Immich, Dropbox, or HA media, make sure that connection is still authorized. An empty\nalbum or an expired connection shows no photos."
+    "body": "Confirm the photo source under **Settings → Photos**, and that the screensaver is set to show photos\nunder **Settings → Display → Screensaver**. With Dashie Cloud, make sure photos have been uploaded;\nwith Home Assistant media or Immich, make sure Home Assistant is still connected. An empty album or\na lost connection shows no photos."
   },
   {
     "id": "troubleshooting:home-assistant-isn-t-connecting-or-the-dashboard-is-blank",
