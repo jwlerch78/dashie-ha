@@ -286,6 +286,21 @@ function callerFulfills(req: VoiceRequest, tool: string): boolean {
 
 /** Weather location for the server fallback: a user-named place wins ("weather in Boston"),
  *  else the account's home ZIP. null → no location known (graceful spoken prompt upstream). */
+/**
+ * KIDSEARCH (A, 2026-10-21). On a KID turn a third-party search vendor (Tavily/Brave via web-search-gateway, Google
+ * Places via maps-gateway) only ever receives a query the MODEL wrote - never the child's raw transcript. This returns
+ * that model-authored query, or null when there is none. Three sites used `req.text` as the query: the web_search
+ * fallback, the FORCED mutable-entity search (by construction) and the place_search fallback. Adult turns unchanged.
+ * 🔴 To give kids a lookup back, have the model author the query; never restore `req.text`.
+ * Checked and left alone: the sports fallback `{ team: req.text }` never leaves Dashie (ESPN URLs carry team ids from
+ * the fetched list; api-sports filters client-side), and native Gemini grounding is the model provider, not a vendor.
+ */
+function authoredSearchQuery(query: unknown): string | null {
+  const q = typeof query === 'string' ? query
+    : (query && typeof query === 'object' ? ((query as Record<string, unknown>).query ?? (query as Record<string, unknown>).q) : null);
+  return typeof q === 'string' && q.trim() ? q : null;
+}
+
 function resolveWeatherLocation(query: Record<string, unknown>, zip: string | null): WeatherLocation | null {
   const named = typeof query.location === 'string' ? query.location.trim() : '';
   if (named) return { locationName: named };
@@ -875,7 +890,13 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // (respects the privacy/cost opt-out). The MODEL-routed web_search is also gated: the
   // prompt omits web_search from the tools list (buildPrompt, via context.webSearchEnabled)
   // + a hard guard in the web_search branch. So "web search off" is fully honored.
-  const forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
+  let forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
+  // KIDSEARCH: the forced search's query IS the transcript (below), so a kid turn that would send it to Tavily/Brave
+  // skips the force and lets the model decide - and author its own query - as on any other turn.
+  if (forced && kid && !geminiGrounds) {
+    console.warn(`DROP: KIDSEARCH forced web_search (${forced}) skipped on a kid turn - its query would be the child's raw transcript; withheld from the search vendor`);
+    forced = null;
+  }
   // §23.6: caller-supplied pre-fetched sports → pass-1 voices it in personality
   // (the reward for pre-fetching). Absent → route + template, unchanged.
   const providedSports = req.provided_context?.sports as SportsResult | undefined;
@@ -1204,6 +1225,15 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       };
       const groundedStage: Stage = { name: 'grounded_search', latency_ms: 0, provider: 'google-grounding' };
       return await secondPass(io, deps, t0, prep, 'web-search', GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+    }
+
+    // KIDSEARCH: no model-authored query on a kid turn ⇒ nothing goes to the vendor; answer from the model's knowledge.
+    if (kid && !authoredSearchQuery(p1Parsed.query)) {
+      console.warn("DROP: KIDSEARCH web_search with no model-authored query on a kid turn - the child's raw transcript is withheld from the search vendor");
+      const KID_NO_SEARCH = {
+        note: 'Do NOT claim to have searched. Answer the question from your own knowledge; if you are not certain of a current fact, say you are not able to look it up right now.',
+      };
+      return await secondPass(io, deps, t0, prep, 'web-search', KID_NO_SEARCH, [p1Stage, { name: 'web_search_withheld_kid', latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
     }
 
     const tFetch = Date.now();
@@ -1727,7 +1757,10 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
     const tFetch = Date.now();
     let payload: unknown = null;
     try {
-      if (isPlaces && io.runPlaceSearch) {
+      if (isPlaces && io.runPlaceSearch && kid && !authoredSearchQuery(q.query)) {
+        // KIDSEARCH: the fallback below would send the child's raw transcript (plus "near <zip>") to Google Places.
+        console.warn("DROP: KIDSEARCH place_search with no model-authored query on a kid turn - the child's raw transcript is withheld from the search vendor");
+      } else if (isPlaces && io.runPlaceSearch) {
         // NEED ⑧ — bias the search toward where the household actually is. `runPlaceSearch`'s IO
         // signature is (query, auth) and is implemented by several runtimes, so widening it is the
         // expensive way to do this; biasing the QUERY here needs no interface change and reaches

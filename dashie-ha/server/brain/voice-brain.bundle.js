@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: a600955bee70740958e6896622ce27c4d70b025f
+   Source git SHA: a9fcba2c907b8295bc94d32f0966a64f202f95e5
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5292,6 +5292,10 @@ function callerFulfills(req, tool) {
   if (!Array.isArray(list)) return true;
   return list.includes(tool);
 }
+function authoredSearchQuery(query) {
+  const q = typeof query === "string" ? query : query && typeof query === "object" ? query.query ?? query.q : null;
+  return typeof q === "string" && q.trim() ? q : null;
+}
 function resolveWeatherLocation(query, zip) {
   const named = typeof query.location === "string" ? query.location.trim() : "";
   if (named) return { locationName: named };
@@ -5501,7 +5505,11 @@ async function orchestrate(deps, io, voiceCtx) {
     assistantName: req.assistant_name || null,
     caps
   };
-  const forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
+  let forced = webSearchAllowed ? detectMutableEntity(req.text) : null;
+  if (forced && kid && !geminiGrounds) {
+    console.warn(`DROP: KIDSEARCH forced web_search (${forced}) skipped on a kid turn - its query would be the child's raw transcript; withheld from the search vendor`);
+    forced = null;
+  }
   const providedSports = req.provided_context?.sports;
   const providedCalendar = req.provided_context?.calendar;
   const p1PromptBase = buildPrompt({
@@ -5710,6 +5718,13 @@ ${p1PromptBase}` : p1PromptBase;
       };
       const groundedStage = { name: "grounded_search", latency_ms: 0, provider: "google-grounding" };
       return await secondPass(io, deps, t0, prep, "web-search", GROUNDED_SENTINEL, [p1Stage, groundedStage], pass1, provider, modelId, context, sessionId, retain, route, true);
+    }
+    if (kid && !authoredSearchQuery(p1Parsed.query)) {
+      console.warn("DROP: KIDSEARCH web_search with no model-authored query on a kid turn - the child's raw transcript is withheld from the search vendor");
+      const KID_NO_SEARCH = {
+        note: "Do NOT claim to have searched. Answer the question from your own knowledge; if you are not certain of a current fact, say you are not able to look it up right now."
+      };
+      return await secondPass(io, deps, t0, prep, "web-search", KID_NO_SEARCH, [p1Stage, { name: "web_search_withheld_kid", latency_ms: 0 }], pass1, provider, modelId, context, sessionId, retain, route, false);
     }
     const tFetch = Date.now();
     let search;
@@ -6257,7 +6272,9 @@ ${p1PromptBase}` : p1PromptBase;
     const tFetch = Date.now();
     let payload = null;
     try {
-      if (isPlaces && io.runPlaceSearch) {
+      if (isPlaces && io.runPlaceSearch && kid && !authoredSearchQuery(q.query)) {
+        console.warn("DROP: KIDSEARCH place_search with no model-authored query on a kid turn - the child's raw transcript is withheld from the search vendor");
+      } else if (isPlaces && io.runPlaceSearch) {
         payload = await io.runPlaceSearch(biasQuery(String(q.query ?? req.text), account.zipCode ?? void 0), token);
       } else if (!isPlaces && io.runDirections) {
         payload = await io.runDirections({
@@ -6724,4 +6741,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "a600955bee70740958e6896622ce27c4d70b025f";
+module.exports.BRAIN_SOURCE_SHA = "a9fcba2c907b8295bc94d32f0966a64f202f95e5";

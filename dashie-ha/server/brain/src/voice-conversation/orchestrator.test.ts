@@ -2198,3 +2198,78 @@ Deno.test('alternate voice: a personality switch replaces the alternate too (no 
   assertEquals(turn.voice_alt_id, undefined);
   assertEquals(turn.voice_alt_provider, undefined);
 });
+
+// ── KIDSEARCH: a child's raw transcript never goes to a third-party search vendor (A, 2026-10-21) ───────────
+// Three sites sent req.text out on a kid turn: the web_search query fallback, the FORCED mutable-entity search
+// (query: req.text by construction), and the place_search query fallback (Google Places). A query the MODEL wrote is
+// still used - the same rule as adult turns. The CONTROL legs pin adult behavior unchanged at all three sites.
+function kidIO(m: ReturnType<typeof makeIO>) {
+  m.io.resolveKidTurn = () => Promise.resolve({ ok: true as const, personalityId: 'pirate', childName: 'Ava' });
+  m.io.countKidTurn = () => Promise.resolve({ ok: true as const });
+  return m;
+}
+function recordSearches(m: ReturnType<typeof makeIO>) {
+  const web: string[] = [];
+  const places: string[] = [];
+  m.io.runWebSearch = (q) => { web.push(q); return Promise.resolve({ provider: 'tavily', query: q, results: [{ title: 'r', url: 'u', snippet: 's' }], result_count: 1, latency: 1 }); };
+  (m.io as unknown as Record<string, unknown>).runPlaceSearch = (q: string) => { places.push(q); return Promise.resolve({ found: true, places: [{ name: 'X', address: '1 Main' }], count: 1 }); };
+  return { web, places };
+}
+async function captureWarn<T>(fn: () => Promise<T>): Promise<{ out: T; warns: string[] }> {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => { warns.push(a.map(String).join(' ')); };
+  try { return { out: await fn(), warns }; } finally { console.warn = orig; }
+}
+const SPOKEN = 'my name is Ava and I live on Elm Street, what is the price of gold';
+
+Deno.test('🔴 KIDSEARCH: kid turn, web_search with NO model query → the transcript is NOT sent, DROP logged', async () => {
+  const m = kidIO(makeIO(['{"type":"info_request","tool":"web_search"}', '{"type":"response","voice":"I am not sure."}'], { model: 'claude-sonnet-4-6' }));
+  const s = recordSearches(m);
+  const { out: turn, warns } = await captureWarn(() => runOrchestration(deps({ kid_session_id: 's1', text: SPOKEN }), m.io));
+  assertEquals(s.web, [], 'the child\'s words must not reach the search vendor');
+  assert(warns.some((w) => w.includes('DROP: KIDSEARCH')), 'the withheld query is loud');
+  assert(turn.voice && turn.voice.length > 0, 'the child still gets an answer');
+});
+
+Deno.test('KIDSEARCH: kid turn, web_search WITH a model-authored query → that query is searched (same rule as adults)', async () => {
+  const m = kidIO(makeIO(['{"type":"info_request","tool":"web_search","query":"gold price today"}', '{"type":"response","voice":"About two thousand."}'], { model: 'claude-sonnet-4-6' }));
+  const s = recordSearches(m);
+  await runOrchestration(deps({ kid_session_id: 's1', text: SPOKEN }), m.io);
+  assertEquals(s.web, ['gold price today']);
+});
+
+Deno.test('🔴 KIDSEARCH: kid turn, mutable-entity ask → NOT force-searched with the transcript', async () => {
+  // NON-Gemini: on Gemini a forced search is native grounding and never calls runWebSearch, so this leg would pass for
+  // the wrong reason (found on the first red run: the vendor assertion was green on the default model).
+  const m = kidIO(makeIO(['{"type":"response","voice":"From what I know, it is someone."}'], { model: 'claude-sonnet-4-6' }));
+  const s = recordSearches(m);
+  const { warns } = await captureWarn(() => runOrchestration(deps({ kid_session_id: 's1', text: 'who is the president' }), m.io));
+  assertEquals(s.web, [], 'the forced path must not send the child\'s words');
+  assert(warns.some((w) => w.includes('DROP: KIDSEARCH')), 'the skipped force-search is loud');
+});
+
+Deno.test('🔴 KIDSEARCH: kid turn, place_search with NO model query → Places is NOT called with the transcript', async () => {
+  const m = kidIO(makeIO(['{"type":"info_request","tool":"place_search","query":{}}', '{"type":"response","voice":"I cannot look that up."}']));
+  const s = recordSearches(m);
+  const { warns } = await captureWarn(() => runOrchestration(deps({ kid_session_id: 's1', text: SPOKEN }), m.io));
+  assert(!s.places.some((q) => q.includes('Elm Street')), `the child's words reached Places: ${JSON.stringify(s.places)}`);
+  assert(warns.some((w) => w.includes('DROP: KIDSEARCH')));
+});
+
+Deno.test('CONTROL KIDSEARCH: ADULT turns are unchanged at all three sites (fallback, force, places)', async () => {
+  const a = makeIO(['{"type":"info_request","tool":"web_search"}', '{"type":"response","voice":"ok"}'], { model: 'claude-sonnet-4-6' });
+  const sa = recordSearches(a);
+  await runOrchestration(deps({ text: SPOKEN }), a.io);
+  assertEquals(sa.web, [SPOKEN], 'adult fallback still searches the request');
+
+  const b = makeIO(['{"type":"response","voice":"searched"}'], { model: 'claude-sonnet-4-6' });
+  const sb = recordSearches(b);
+  await runOrchestration(deps({ text: 'who is the president' }), b.io);
+  assertEquals(sb.web, ['who is the president'], 'adult force-search still searches the request');
+
+  const c = makeIO(['{"type":"info_request","tool":"place_search","query":{}}', '{"type":"response","voice":"ok"}']);
+  const sc = recordSearches(c);
+  await runOrchestration(deps({ text: SPOKEN }), c.io);
+  assert(sc.places.some((q) => q.includes('Elm Street')), `adult places fallback still uses the request: ${JSON.stringify(sc.places)}`);
+});
