@@ -82,6 +82,8 @@ export interface Game {
   homeShootout?: number | null; awayShootout?: number | null;
   events?: Array<{ type?: string; clock?: string; side?: 'home' | 'away'; player?: string; scoreValue?: number }>;
   homeRecord?: string; awayRecord?: string;
+  // Top 25 rank (college only). ABSENT means unranked — never 0 and never 99; see `espnRankOf`.
+  homeRank?: number; awayRank?: number;
   // Compact display forms for stacked slate rows ("Diamondbacks" / "ARI") — card-only.
   homeShort?: string; awayShort?: string; homeAbbr?: string; awayAbbr?: string;
   homeLogo?: string; awayLogo?: string; homeColor?: string; awayColor?: string;
@@ -98,6 +100,11 @@ export type State = 'pre' | 'in' | 'post';
 
 export interface SportsTeam {
   name: string; score: number | null; record?: string; logo?: string; color?: string;
+  /** Top 25 rank (college only). ADDITIVE and OPTIONAL, like `abbr` below: a renderer that does not
+   *  know the field ignores it, so an old APK is unaffected. ABSENT means unranked — the provider
+   *  drops ESPN's `99` sentinel and anything outside 1–25 before it reaches here (`espnRankOf`), so a
+   *  reader may draw this number as-is and never has to know what 99 means. */
+  rank?: number;
   /** The provider's own short form ("CIN"), used for the name plate. ADDITIVE and OPTIONAL: the
    *  native renderer ignores an unknown field, so an old APK is unaffected, and a JS renderer with
    *  no `abbr` falls back to computed initials. Added 2026-09-07 because the plate showed "CB" for
@@ -456,8 +463,8 @@ function card(g: Game, state: State, tz?: string): SportsCard {
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)
-    home: { name: g.home || '', score: state === 'pre' ? null : (g.homeScore ?? null), record: g.homeRecord, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
-    away: { name: g.away || '', score: state === 'pre' ? null : (g.awayScore ?? null), record: g.awayRecord, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
+    home: { name: g.home || '', score: state === 'pre' ? null : (g.homeScore ?? null), record: g.homeRecord, rank: g.homeRank, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
+    away: { name: g.away || '', score: state === 'pre' ? null : (g.awayScore ?? null), record: g.awayRecord, rank: g.awayRank, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
     winner: g.winner ?? null,
     // Per-sport population of the generic stats. Standout leader lines render for every
     // sport whose provider fills home/awayLeader (baseball batting, basketball PTS,

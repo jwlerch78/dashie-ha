@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: a9fcba2c907b8295bc94d32f0966a64f202f95e5
+   Source git SHA: 68654fc2527213863f1764a31d5acb1234b9b1f5
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -3291,8 +3291,8 @@ function card(g, state, tz) {
     // A PRE/future game has NO score — force null even when the provider sends 0 (ESPN returns
     // "0"/"0" for a scheduled game), so the card never shows a misleading "0 – 0". `?? null` alone
     // keeps a numeric 0; the state gate is what suppresses it. (Mirrors the no-R/H/E-lines rule.)
-    home: { name: g.home || "", score: state === "pre" ? null : g.homeScore ?? null, record: g.homeRecord, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
-    away: { name: g.away || "", score: state === "pre" ? null : g.awayScore ?? null, record: g.awayRecord, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
+    home: { name: g.home || "", score: state === "pre" ? null : g.homeScore ?? null, record: g.homeRecord, rank: g.homeRank, logo: g.homeLogo, color: g.homeColor, abbr: g.homeAbbr },
+    away: { name: g.away || "", score: state === "pre" ? null : g.awayScore ?? null, record: g.awayRecord, rank: g.awayRank, logo: g.awayLogo, color: g.awayColor, abbr: g.awayAbbr },
     winner: g.winner ?? null,
     // Per-sport population of the generic stats. Standout leader lines render for every
     // sport whose provider fills home/awayLeader (baseball batting, basketball PTS,
@@ -6741,4 +6741,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "a9fcba2c907b8295bc94d32f0966a64f202f95e5";
+module.exports.BRAIN_SOURCE_SHA = "68654fc2527213863f1764a31d5acb1234b9b1f5";
