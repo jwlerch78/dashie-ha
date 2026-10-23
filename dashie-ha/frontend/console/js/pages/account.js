@@ -270,6 +270,7 @@ const AccountPage = {
             }
             // Per the model: schedule, then sign the user out. The pending state +
             // Keep/Delete-now live in the global banner shown on next sign-in.
+            await this._showAppleNoteIfAny(result);
             const when = result.deletion_scheduled_at
                 ? new Date(result.deletion_scheduled_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                 : null;
@@ -315,8 +316,9 @@ const AccountPage = {
         if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
         try {
             const r = await DashieAuth.dbRequest('delete_account', { immediate: true });
-            if (r?.deleted === true) { App._onAccountDeleted(); return; }
+            if (r?.deleted === true) { await this._showAppleNoteIfAny(r); App._onAccountDeleted(); return; }
             if (r?.scheduled === true && r?.deletion_scheduled_at) {
+                await this._showAppleNoteIfAny(r);
                 const when = new Date(r.deletion_scheduled_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
                 Toast.error(`Couldn't finish deleting right away. Your account is scheduled for deletion on ${when}. Signing you out.`);
                 setTimeout(() => {
@@ -333,6 +335,14 @@ const AccountPage = {
             if (btn) { btn.disabled = false; btn.textContent = 'Delete now'; }
             Toast.error(`Couldn't delete your account: ${String(err?.message || err)}`);
         }
+    },
+
+    /** An Apple account deleted from the web is NOT revoked at Apple (appleDeletionGate, account-apple-revoke.ts): the
+     *  deletion proceeds and the user must be told the one manual step, or they reasonably think they are done. */
+    async _showAppleNoteIfAny(reply) {
+        const note = typeof ConsoleAppleSignIn !== 'undefined' ? ConsoleAppleSignIn.notRevokedNote(reply) : '';
+        if (!note) return;
+        await ConfirmModal.confirm({ title: 'One more step for your Apple ID', message: note, confirmLabel: 'OK', hideCancel: true });
     },
 
     /** Set by App when the visitor arrived on `?open=delete-account`: scroll to and highlight the Danger Zone, once.

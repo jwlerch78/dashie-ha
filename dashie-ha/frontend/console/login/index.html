@@ -44,12 +44,35 @@
          See ../vendor/README.md. -->
     <script src="../vendor/supabase-js-2.111.0.min.js"></script>
     <script src="../js/lib/console-auth.js"></script>
+    <script src="../js/lib/console-apple-signin.js"></script>
     <script>
         // OAuth callback handler. Google redirects here with ?code=...&state=...
-        // Exchange code, bootstrap JWT, redirect back to console root.
+        // Apple (D-448) comes back as ?apple_return=ok|cancelled|error from apple-web-callback.
+        // Exchange / poll, set the JWT, redirect back to console root.
         (async function() {
             try {
                 const params = new URLSearchParams(window.location.search);
+                const appleOutcome = ConsoleAppleSignIn.readReturn(window.location.search);
+                if (appleOutcome) {
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    const r = await ConsoleAppleSignIn.complete({
+                        outcome: appleOutcome,
+                        edgeFunctionUrl: DashieAuth.edgeFunctionUrl,
+                        anonKey: DashieAuth.anonKey,
+                        setJWT: (jwt) => DashieAuth.setJWT(jwt),
+                    });
+                    if (r.status === 'signed_in') {
+                        try {
+                            if (r.user?.email) localStorage.setItem('dashie-user-data', JSON.stringify({
+                                name: r.user.name || '', email: r.user.email, picture: r.user.picture || '',
+                            }));
+                        } catch (_) {}
+                        window.location.href = '../';
+                        return;
+                    }
+                    if (r.status === 'cancelled') { window.location.href = '../'; return; }
+                    throw new Error('Apple sign-in did not complete. Please try again.');
+                }
                 if (!params.has('code')) {
                     window.location.href = '../';
                     return;

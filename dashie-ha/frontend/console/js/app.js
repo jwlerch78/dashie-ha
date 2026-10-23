@@ -223,6 +223,22 @@ const App = {
         }
     },
 
+    /** Sign in with Apple (D-448): mint a pairing and leave for Apple; /console/login/ completes it on return. */
+    async _signInWithApple() {
+        const btn = document.getElementById('apple-signin-btn');
+        if (btn) btn.disabled = true;
+        try {
+            await ConsoleAppleSignIn.start({
+                edgeFunctionUrl: DashieAuth.edgeFunctionUrl,
+                anonKey: DashieAuth.anonKey,
+                navigate: (url) => { window.location.href = url; },
+            });
+        } catch (e) {
+            if (btn) btn.disabled = false;
+            if (typeof Toast !== 'undefined') Toast.error(e?.message || 'Apple sign-in could not start. Please try again.');
+        }
+    },
+
     /** "Delete now" — hard-delete immediately (skips the remaining grace). */
     async deleteNow() {
         // Typed-email confirm, as on the Account page (D11, 2026-10-23): this is the IRREVERSIBLE step, and the likeliest
@@ -585,6 +601,21 @@ const App = {
                                 <span class="dashie-path-desc">${googleDesc}</span>
                             </span>
                         </button>
+
+                        ${/* Sign in with Apple — browser mode only (D-448). The add-on has its own sign-in paths, and the
+                              web arm is a same-tab redirect through apple-web-callback (js/lib/console-apple-signin.js). */
+                          !addonMode && typeof ConsoleAppleSignIn !== 'undefined' ? `
+                        <button class="dashie-path-btn secondary" id="apple-signin-btn" onclick="App._signInWithApple()">
+                            <span class="dashie-path-icon">
+                                <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.86-.76-1.47.02-2.83.86-3.59 2.17-1.53 2.66-.39 6.59 1.1 8.75.73 1.05 1.6 2.23 2.73 2.19 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.46-.03-.01-2.3-.88-2.3-3.5zM14.2 6.13c.6-.73 1.01-1.75.9-2.76-.87.03-1.92.58-2.54 1.31-.56.65-1.05 1.68-.92 2.67.97.08 1.96-.49 2.56-1.22z"/>
+                                </svg>
+                            </span>
+                            <span class="dashie-path-text">
+                                <span class="dashie-path-label">Sign in with Apple</span>
+                                <span class="dashie-path-desc">${googleDesc}</span>
+                            </span>
+                        </button>` : ''}
 
                         <div class="dashie-path-divider"><span>or</span></div>
 
