@@ -23,7 +23,7 @@ const OpenIntent = {
     ALLOWED: { 'delete-account': 'account' },
 
     /** Read `?open=` from a search string and stash it. Returns the intent or null. */
-    capture(search, storage) {
+    capture(search, storage = globalThis.sessionStorage) {
         let v = null;
         try { v = new URLSearchParams(search || '').get('open'); } catch (_) { return null; }
         if (!v) return null;
@@ -36,7 +36,7 @@ const OpenIntent = {
     },
 
     /** Take the stashed intent, once. Returns { intent, page } or null. */
-    consume(storage) {
+    consume(storage = globalThis.sessionStorage) {
         let v = null;
         try {
             v = storage.getItem(this.KEY);
