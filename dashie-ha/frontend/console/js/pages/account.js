@@ -9,28 +9,11 @@
    ship without it and every delegate below renders ''.
    ============================================================ */
 
-/**
- * The account-deletion grace window, in days, for the copy shown BEFORE the
- * user commits. 90 since 2026-08-24 (was 15).
- *
- * 🔴 This is a DISPLAY MIRROR, not the source of truth. The window is decided
- * by the backend (`database-operations` → `handlers/account.ts`), and it is
- * NOT readable before the request: the only response carrying `grace_days` is
- * `delete_account`'s, which arrives after the user has already committed. So
- * the pre-action copy has to state a number it cannot ask for.
- *
- * Everything AFTER the request is derived and self-correcting — the pending
- * banner (`App._deletionBannerHtml`) formats the returned
- * `deletion_scheduled_at`, so it cannot drift. Only the four strings below can,
- * which is why they now read one constant instead of four literals: this fix
- * exists because the backend moved 15 → 90 and four hand-written copies stayed
- * behind, telling users a deadline that was two and a half months wrong.
- *
- * If the backend window changes again, change it here too — or make
- * `check-subscription` publish the constant and read it from `this._data`,
- * which is the real cure.
- */
-const DELETION_GRACE_DAYS = 90;
+// 🔴 NO GRACE-PERIOD NUMBER IN THIS FILE (O's ruling, D11, 2026-10-23). This used to hold DELETION_GRACE_DAYS = 90, an
+// unguarded display mirror of the backend window (database-operations handlers/account.ts `graceMs`), because the window
+// is not readable before the request. The pre-request copy now states no number, and the only date a user ever sees is
+// the server's returned `deletion_scheduled_at`. If a number is wanted before the request, add a read op that returns
+// it — never a literal here. Registry: JS_KOTLIN_CONTRACTS row 247.
 
 const AccountPage = {
     _data: null,
@@ -77,6 +60,8 @@ const AccountPage = {
         if (this._loading) return this._renderLoading();
         if (this._error) return this._renderError();
 
+        // `?open=delete-account` arrivals: reveal the Danger Zone after this markup is in the DOM.
+        if (this._revealDeletion) setTimeout(() => this._revealDeletionIfAsked(), 0);
         return this._renderLoaded();
     },
 
@@ -187,8 +172,8 @@ const AccountPage = {
 
                 ${planSection}
 
-                <div class="section-header" style="color: var(--status-error, #c00); margin-top: 32px;">Danger Zone</div>
-                <div class="card" style="border-color: var(--status-error, #c00);">
+                <div class="section-header" id="danger-zone" style="color: var(--status-error, #c00); margin-top: 32px;">Danger Zone</div>
+                <div class="card" id="danger-zone-card" style="border-color: var(--status-error, #c00);">
                     <div class="card-body">
                         <div style="font-weight: 500; margin-bottom: 6px;">Delete your ${BRAND.productName} account</div>
                         ${d.deletion_scheduled_at ? `
@@ -196,9 +181,13 @@ const AccountPage = {
                             Your account is already scheduled for deletion — use the banner at the top of this page to keep it.
                         </div>` : `
                         <div style="color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.5; margin-bottom: 16px;">
-                            Schedules your ${BRAND.productName} account for deletion in ${DELETION_GRACE_DAYS} days. Billing stops now; your data (calendars, photos, chores, rewards, family members, OAuth tokens, voice profiles, devices) is removed when the ${DELETION_GRACE_DAYS} days are up. You can cancel any time before then with “Keep account.”
+                            Schedule deletion: your account is kept for a grace period, then permanently deleted — calendars, photos, chores, rewards, family members, OAuth tokens, voice profiles and devices. We'll show you the exact date and email it to you. Sign in before then and choose “Keep account” to cancel.
                         </div>
-                        <button class="btn btn-danger" id="delete-account-btn" onclick="AccountPage.handleDeleteAccount()">Delete Account</button>`}
+                        <button class="btn btn-danger" id="delete-account-btn" onclick="AccountPage.handleDeleteAccount('schedule')">Schedule deletion</button>
+                        <div style="color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.5; margin: 20px 0 16px;">
+                            Or delete it immediately: your account and all its data are permanently deleted right away. This cannot be undone.
+                        </div>
+                        <button class="btn btn-danger" id="delete-account-now-btn" onclick="AccountPage.handleDeleteAccount('now')">Delete now</button>`}
                     </div>
                 </div>
             </div>
@@ -225,8 +214,8 @@ const AccountPage = {
     },
 
     /**
-     * Schedule account deletion (soft delete — see DELETION_GRACE_DAYS at the
-     * top of this file for the window and why it is mirrored here). Backend
+     * Schedule account deletion (soft delete — the window is the backend's; see
+     * the note at the top of this file for why no number is stated here). Backend
      * (`delete_account` op → handleRequestAccountDeletion) sets
      * deletion_scheduled_at = now() + the grace and stops billing (cancel-at-period-end)
      * WITHOUT touching data; the purge cron hard-deletes after the grace. The
@@ -237,24 +226,30 @@ const AccountPage = {
      * Confirmation requires typing the email — defense in depth against a misclick
      * on a shared session.
      */
-    async handleDeleteAccount() {
+    async handleDeleteAccount(mode) {
         const email = DashieAuth.user?.email || '';
         if (!email) {
             Toast.error('Not signed in — please reload and try again.');
+            return;
+        }
+        // Two explicit choices, one op (D11, 2026-10-23). An unknown mode does NOTHING: a missing argument must never
+        // fall through to either deletion. "now" is decided server-side (delete_account + immediate), not chained here.
+        if (mode === 'now') return this._deleteNow(email);
+        if (mode !== 'schedule') {
+            console.warn(`DROP: DELETE_ACCOUNT unknown mode '${mode}' ignored`);
             return;
         }
 
         const confirmed = await ConfirmModal.confirm({
             title: 'Schedule account deletion?',
             message: [
-                `Your account will be permanently deleted in ${DELETION_GRACE_DAYS} days. Until then:`,
-                '  • Billing stops now — no further charges',
-                '  • Your data stays intact and you can cancel any time',
+                'Your account is kept for a grace period, then permanently deleted. We\'ll show you',
+                'the exact date and email it to you.',
                 '',
-                `After ${DELETION_GRACE_DAYS} days this removes everything — calendars, photos, chores,`,
+                'Until then your data stays intact. Sign in and choose “Keep account” to cancel.',
+                '',
+                'When the date arrives this removes everything — calendars, photos, chores,',
                 'rewards, family members, OAuth tokens, voice profiles, and devices.',
-                '',
-                `You can undo this with “Keep account” before the ${DELETION_GRACE_DAYS} days are up.`,
             ].join('\n'),
             confirmLabel: 'Schedule deletion',
             cancelLabel: 'Keep My Account',
@@ -265,7 +260,7 @@ const AccountPage = {
         if (!confirmed) return;
 
         const btn = document.getElementById('delete-account-btn');
-        const restore = () => { if (btn) { btn.disabled = false; btn.textContent = 'Delete Account'; } };
+        const restore = () => { if (btn) { btn.disabled = false; btn.textContent = 'Schedule deletion'; } };
         if (btn) { btn.disabled = true; btn.textContent = 'Scheduling…'; }
 
         try {
@@ -275,7 +270,12 @@ const AccountPage = {
             }
             // Per the model: schedule, then sign the user out. The pending state +
             // Keep/Delete-now live in the global banner shown on next sign-in.
-            Toast.info('Account scheduled for deletion. Signing you out — sign back in any time before the deadline to keep it or delete now.');
+            const when = result.deletion_scheduled_at
+                ? new Date(result.deletion_scheduled_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                : null;
+            Toast.info(when
+                ? `Your account will be deleted on ${when}. Signing you out — sign back in before then to keep it or delete now.`
+                : 'Account scheduled for deletion. Signing you out — sign back in before the deadline to keep it or delete now.');
             setTimeout(() => {
                 try { localStorage.clear(); } catch (_) {}
                 try { sessionStorage.clear(); } catch (_) {}
@@ -287,6 +287,65 @@ const AccountPage = {
             restore();
             Toast.error(`Couldn't schedule deletion: ${String(err?.message || err)}`);
         }
+    },
+
+    /**
+     * Delete NOW (D11; John 2026-10-23: "Yes - give a delete now option"). One request: `delete_account` with
+     * `immediate: true`. The server runs the schedule step first (that is where Sign in with Apple is revoked), then
+     * the hard delete. If the hard delete does not finish, the server leaves the account SCHEDULED and says so.
+     */
+    async _deleteNow(email) {
+        const confirmed = await ConfirmModal.confirm({
+            title: 'Delete account now?',
+            message: [
+                'This permanently deletes your account and ALL its data right now — calendars, photos, chores,',
+                'rewards, family members, OAuth tokens, voice profiles, and devices.',
+                '',
+                'This cannot be undone.',
+            ].join('\n'),
+            confirmLabel: 'Delete now',
+            cancelLabel: 'Keep My Account',
+            danger: true,
+            requireTypedConfirmation: email,
+            typedConfirmationLabel: `Type ${email} to confirm`,
+        });
+        if (!confirmed) return;
+
+        const btn = document.getElementById('delete-account-now-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+        try {
+            const r = await DashieAuth.dbRequest('delete_account', { immediate: true });
+            if (r?.deleted === true) { App._onAccountDeleted(); return; }
+            if (r?.scheduled === true && r?.deletion_scheduled_at) {
+                const when = new Date(r.deletion_scheduled_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                Toast.error(`Couldn't finish deleting right away. Your account is scheduled for deletion on ${when}. Signing you out.`);
+                setTimeout(() => {
+                    try { localStorage.clear(); } catch (_) {}
+                    try { sessionStorage.clear(); } catch (_) {}
+                    try { DashieAuth.signOut?.(); } catch (_) {}
+                    window.location.replace(window.location.origin + window.location.pathname);
+                }, 2500);
+                return;
+            }
+            throw new Error(r?.error || 'Deletion did not complete');
+        } catch (err) {
+            console.error('[AccountPage] _deleteNow failed:', err);
+            if (btn) { btn.disabled = false; btn.textContent = 'Delete now'; }
+            Toast.error(`Couldn't delete your account: ${String(err?.message || err)}`);
+        }
+    },
+
+    /** Set by App when the visitor arrived on `?open=delete-account`: scroll to and highlight the Danger Zone, once.
+     *  It reveals; it never presses a button or opens a confirm. */
+    _revealDeletion: false,
+
+    _revealDeletionIfAsked() {
+        if (!this._revealDeletion) return;
+        const card = document.getElementById('danger-zone-card');
+        if (!card) return;           // not rendered yet (still loading) — the next render tries again
+        this._revealDeletion = false;
+        try { document.getElementById('danger-zone')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+        card.style.boxShadow = '0 0 0 3px var(--status-error, #c00)';
     },
 
     // The pending-deletion banner + Keep/Delete-now now live globally on App

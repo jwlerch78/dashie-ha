@@ -55,6 +55,12 @@ const App = {
         // the Google OAuth round-trip. Honored once authed.
         this._captureNextParam();
 
+        // `?open=delete-account` (the stores' deletion link): stash it before auth so it survives the Google round
+        // trip, and strip it from the URL so a refresh never replays it. See js/lib/open-intent.js.
+        if (typeof OpenIntent !== 'undefined' && OpenIntent.capture(window.location.search, sessionStorage)) {
+            try { window.history.replaceState({}, '', window.location.pathname + OpenIntent.stripFrom(window.location.search) + window.location.hash); } catch (_) {}
+        }
+
         // NOTE: the dropdown-options catalog fetch deliberately does NOT run
         // here. It is the only network call the console could make before
         // sign-in, and PRIVACY.md promises no startup phone-home — so it is
@@ -219,12 +225,18 @@ const App = {
 
     /** "Delete now" — hard-delete immediately (skips the remaining grace). */
     async deleteNow() {
+        // Typed-email confirm, as on the Account page (D11, 2026-10-23): this is the IRREVERSIBLE step, and the likeliest
+        // wrong-target failure is being signed in as the wrong Google account (sign-in uses prompt: select_account).
+        const email = DashieAuth.user?.email || '';
+        if (!email) { if (typeof Toast !== 'undefined') Toast.error('Not signed in — please reload and try again.'); return; }
         const ok = await ConfirmModal.confirm({
             title: 'Delete account now?',
             message: 'This permanently deletes your account and ALL data right now — calendars, photos, family, devices, everything. This cannot be undone.',
             confirmLabel: 'Delete now',
             cancelLabel: 'Cancel',
             danger: true,
+            requireTypedConfirmation: email,
+            typedConfirmationLabel: `Type ${email} to confirm`,
         });
         if (!ok) return;
         try {
@@ -807,6 +819,16 @@ const App = {
             // Quietly redirect — no toast, no error; user may have an old
             // bookmark or a link from a different env.
             window.location.hash = this._currentPage;
+        }
+
+        // A stashed open-intent wins over the hash: it only picks the page and asks it to REVEAL (never act).
+        const intent = typeof OpenIntent !== 'undefined' ? OpenIntent.consume(sessionStorage) : null;
+        if (intent && this._isRoutable(intent.page)) {
+            this._currentPage = intent.page;
+            try { window.history.replaceState({}, '', window.location.pathname + window.location.search + '#' + intent.page); } catch (_) {}
+            if (intent.intent === 'delete-account' && typeof AccountPage !== 'undefined') AccountPage._revealDeletion = true;
+        } else if (intent) {
+            console.warn(`DROP: OPEN_INTENT ${intent.intent} → page '${intent.page}' not routable in this build`);
         }
 
         this.renderPage();
