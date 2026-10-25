@@ -2762,7 +2762,12 @@ const VoiceAiPage = {
         // previewable"). It is rendered OUTSIDE the dimmed content and exempted from the
         // locked row's pointer-events rule, so the one control a locked row keeps is the
         // one that says what the lock is costing the household.
-        const preview = (window.VoiceSamplePlayer)
+        //
+        // 🔴 ADD-ON ONLY, like the Gemini voice ▶ (D-496, O 2026-10-25: "whatever needs a runtime the tree lacks,
+        // gate"). The samples live in assets/voices/, which vendor-core.sh does not copy into the family web console,
+        // and a custom personality's ▶ POSTs /api/voice/preview, a route only the add-on serves. On the web every
+        // press would end in "update the add-on", so the web gets no button rather than a button that cannot work.
+        const preview = (window.VoiceSamplePlayer && DashieAuth.isAddonMode)
             ? VoiceSamplePlayer.button({
                   key: `personality:${key}`,
                   onclick: `VoiceAiPage.previewPersonality(this, '${id}', ${isCustom ? 'true' : 'false'})`,
