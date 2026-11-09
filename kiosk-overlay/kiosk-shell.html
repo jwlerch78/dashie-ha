@@ -12,6 +12,38 @@
   <link rel="stylesheet" href="css/kiosk-shell.css">
   <link rel="stylesheet" href="css/weather-overlay.css">
   <link rel="stylesheet" href="css/onboarding.css">
+
+  <!-- ── FIRST-FRAME ZOOM PAINTER — GitHub #21 item 3, kiosk half ──────────────────────
+       A reporter saw the dashboard "reset its zoom" on boot. Kotlin's apply was moved earlier
+       (MainKioskController.applyInitialDashboardZoom, 94b17bf25), which fixes the custom-URL page
+       where Kotlin is the only applier — but NOT this one. In kiosk mode the shell applies the
+       zoom itself, from inside dist/kiosk-shell.bundle.js, and a ~624 KB module cannot run before
+       the first paint. So the page is painted at 100 % and then snaps, which reads as a reset
+       rather than as a late apply. Nothing downstream can fix that: by the time any module runs,
+       the unzoomed frame has already been shown.
+
+       Inline and synchronous ON PURPOSE. It must beat the first paint, so it cannot be a module,
+       cannot be deferred, and cannot live in the bundle. css/kiosk-shell.css already consumes
+       --dashboard-zoom with a fallback of 1 (:24, :57, :79), so setting the variable here is the
+       whole fix; the iframes size off it.
+
+       ⚠️ THIS IS A DELIBERATE SECOND READER of 'dashie-dashboard-zoom' — a hand-mirror under
+       standing rule 1, kept because the seam cannot be shared: the authoritative apply is a module
+       and the point is to act before modules exist. It is bounded on purpose. It is a FAST PATH
+       ONLY: it reads localStorage and sets the variable, nothing else. It does NOT set
+       data-dashboard-zoom (Kotlin's bookkeeping, which decides the HA-iframe reload) and it does
+       NOT fall back to DashieNative.getDashboardZoom(). js/kiosk-shell.js:126 remains the
+       authoritative apply and re-applies the same value a moment later, so this can only ever be
+       EARLY, never DIFFERENT. What is duplicated is the key name, the 10-300 clamp and the /100 —
+       change any of the three and you must change both ends. The other end says so too. -->
+  <script>
+    try {
+      var z = parseInt(localStorage.getItem('dashie-dashboard-zoom'), 10);
+      if (z) {
+        document.documentElement.style.setProperty('--dashboard-zoom', Math.max(10, Math.min(300, z)) / 100);
+      }
+    } catch (e) { /* localStorage blocked — js/kiosk-shell.js:126 still applies it, just later */ }
+  </script>
 </head>
 <body>
   <!-- HA content area (URL set by Kotlin via evaluateJavascript) -->

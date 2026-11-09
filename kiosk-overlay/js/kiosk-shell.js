@@ -124,6 +124,16 @@ function init() {
 
   // Apply dashboard zoom from localStorage or native SharedPreferences
   // localStorage is set by web Settings UI; SharedPreferences is set by HA plugin (textScaling API)
+  //
+  // 🔑 THIS IS THE AUTHORITATIVE APPLY, BUT IT IS NOT THE FIRST ONE (GitHub #21 item 3).
+  // kiosk-shell.html's <head> carries an inline first-frame painter that sets --dashboard-zoom
+  // from the SAME localStorage key before any module runs, because this code lives in a ~624 KB
+  // bundle and therefore cannot beat the first paint — which is what made a reporter see the zoom
+  // "reset itself" on boot. That painter is a fast path only (no DashieNative fallback, no
+  // data-dashboard-zoom attribute); this block still decides the final value.
+  // ⚠️ The key name 'dashie-dashboard-zoom', the 10-300 clamp and the /100 are duplicated there.
+  // Change any of them here and you MUST change kiosk-shell.html too, or the first frame paints a
+  // different zoom than the one that lands a moment later.
   try {
     let zoomPercent = null;
     const storedZoom = localStorage.getItem('dashie-dashboard-zoom');
