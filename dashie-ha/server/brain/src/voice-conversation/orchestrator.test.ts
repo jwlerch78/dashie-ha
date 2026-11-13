@@ -2273,3 +2273,97 @@ Deno.test('CONTROL KIDSEARCH: ADULT turns are unchanged at all three sites (fall
   await runOrchestration(deps({ text: SPOKEN }), c.io);
   assert(sc.places.some((q) => q.includes('Elm Street')), `adult places fallback still uses the request: ${JSON.stringify(sc.places)}`);
 });
+
+// ── voice_fixed (John 2026-11-13): a personality's OWN voice outranks the tablet's Gemini setting ──
+// Field: the Kingtop on Surfer Dude spoke Gemini Leda, because the tablet only walks a personality's
+// ladder when its voice setting is the cloud voice. The brain now says when the voice is the personality's.
+
+const SURFER = { key: 'surfer_dude', name: 'Surfer Dude', voice_mode: 'fixed', voice: 'JERRY' };
+
+Deno.test('voice_fixed: a fixed-voice personality stamps voice_fixed beside its voice_id', async () => {
+  const { io } = makeIO(['{"type":"response","voice":"Duuude.","text":null}']);
+  io.resolvePersonality = () => Promise.resolve(SURFER);
+  io.resolveVoiceId = (_s, key) => Promise.resolve(key === 'JERRY'
+    ? { voiceId: 'rHWSYoq8UlV0YIBKMryp', provider: 'elevenlabs' } : { voiceId: null, provider: null });
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.voice_id, 'rHWSYoq8UlV0YIBKMryp');   // control: the personality's voice WAS resolved
+  assertEquals(turn.voice_fixed, true);
+});
+
+Deno.test('voice_fixed: a preferred-voice personality (Dashie) never stamps it', async () => {
+  const { io } = makeIO(['{"type":"response","voice":"Hi.","text":null}']);
+  io.resolvePersonality = () => Promise.resolve({ key: 'dashie', name: 'Dashie', voice_mode: 'preferred', voice: 'RACHEL' });
+  io.resolveVoiceId = () => Promise.resolve({ voiceId: '21m00Tcm4TlvDq8ikWAM', provider: 'elevenlabs' });
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.voice_id, '21m00Tcm4TlvDq8ikWAM');   // control: a voice was stamped
+  assertEquals(turn.voice_fixed, undefined);
+});
+
+Deno.test('voice_fixed: no resolved voice id → not stamped (nothing for the tablet to walk)', async () => {
+  const { io } = makeIO(['{"type":"response","voice":"Duuude.","text":null}']);
+  io.resolvePersonality = () => Promise.resolve(SURFER);
+  io.resolveVoiceId = () => Promise.resolve({ voiceId: null, provider: null });
+  const turn = await runOrchestration(deps(), io);
+  assertEquals(turn.voice_fixed, undefined);
+});
+
+Deno.test('voice_fixed: a switch FROM a fixed personality TO Dashie clears it; TO Princess sets it', async () => {
+  for (const [target, expected] of [
+    [{ key: 'dashie', name: 'Dashie', description: 'd', voice_mode: 'preferred', voice: 'RACHEL', greeting_fallback: 'Hi!' }, undefined],
+    [{ key: 'princess', name: 'Princess', description: 'p', voice_mode: 'fixed', voice: 'HANA', greeting_fallback: 'Greetings!' }, true],
+  ] as const) {
+    const { io } = makeIO([
+      `{"type":"action","voice":"Switching.","text":null,"action":{"category":"personality","command":"set_personality","parameters":{"key":"${target.key}","name":"${target.name}"}}}`,
+    ]);
+    io.resolvePersonality = () => Promise.resolve(SURFER);
+    io.listPersonalities = () => Promise.resolve([target]);
+    io.resolveVoiceId = (_s, key) => Promise.resolve({ voiceId: `${key}-id`, provider: 'elevenlabs' });
+    const turn = await runOrchestration(deps(), io);
+    assertEquals(turn.voice_id, `${target.voice}-id`, 'control: the switch restamp ran');
+    assertEquals(turn.voice_fixed, expected, target.key);
+  }
+});
+
+// ── PROSE picture promise (field 2026-11-13, Kingtop): a grounded answer that came back as plain
+// sentences skipped the picture net, so "Check out this shot of Neptune" left the screen blank.
+
+Deno.test('prose picture promise: a plain-sentence answer that promises a picture still searches for one', async () => {
+  const m = makeIO(['Duuude! Check out this totally rad shot of Neptune, the chillest blue giant in our solar system.']);
+  await runOrchestration(deps({ text: 'Can you show me a picture of Neptune?', retrieve_pictures: true }), m.io);
+  const log = m.logs.at(-1)!;
+  assertEquals(log.tool_used, 'show_image');
+  const args = (log.tool_trace as { args?: { salvaged?: boolean } }).args!;
+  assertEquals(args.salvaged, true);
+});
+
+Deno.test('prose picture promise: CONTROL — the same prose with pictures OFF does not search', async () => {
+  const m = makeIO(['Duuude! Check out this totally rad shot of Neptune, the chillest blue giant in our solar system.']);
+  await runOrchestration(deps({ text: 'Can you show me a picture of Neptune?', retrieve_pictures: false }), m.io);
+  assertEquals(m.logs.at(-1)!.tool_used ?? null, null);
+});
+
+Deno.test('prose picture promise: a plain-sentence answer with NO promise does not search', async () => {
+  const m = makeIO(['Duuude, Saturn has seven main rings, labeled A through G. Each has tons of ringlets.']);
+  await runOrchestration(deps({ text: 'How many rings does Saturn have?', retrieve_pictures: true }), m.io);
+  assertEquals(m.logs.at(-1)!.tool_used ?? null, null);
+});
+
+Deno.test('prose picture promise: an unkept promise is walked back in the SPOKEN part, not the painted remainder', async () => {
+  // Long enough that splitSalvage paints a remainder: a walk-back appended to the blob would land on screen.
+  const prose = 'Duuude! Check out this totally rad shot of Neptune, the chillest blue giant in our solar system. ' +
+    'It is the eighth planet from the Sun and has the fastest winds anywhere. Its moon Triton orbits backwards, which is wild.';
+  const m = makeIO([prose]);
+  // force_image_fail: the resolver otherwise reaches the real network under --allow-net and FINDS Neptune.
+  const turn = await runOrchestration(deps({ text: 'Can you show me a picture of Neptune?', retrieve_pictures: true, options: { force_image_fail: true } }), m.io);
+  const args = (m.logs.at(-1)!.tool_trace as { args?: { resolved?: boolean; promise_amended?: boolean } }).args!;
+  assertEquals(args.resolved, false, 'precondition: no card came back');
+  assertEquals(args.promise_amended, true);
+  assert(turn.voice.includes("wasn't able to pull up an image"), `walk-back not spoken: ${turn.voice}`);
+  assert(!String(turn.text ?? '').includes("wasn't able to pull up"), 'walk-back leaked into the painted text');
+  assert(String(turn.text ?? '').includes('Triton'), 'control: the remainder is still painted');
+});
+
+Deno.test('promisedPictureQuery: "check out this shot of X" counts and names X; "a shot of espresso" does not', () => {
+  assertEquals(promisedPictureQuery('Duuude! Check out this totally rad shot of Neptune, the chillest blue giant.', 'show me neptune'), 'Neptune');
+  assertEquals(promisedPictureQuery('I had a shot of espresso this morning.', 'what did you drink'), null);
+});

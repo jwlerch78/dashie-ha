@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: 68654fc2527213863f1764a31d5acb1234b9b1f5
+   Source git SHA: f0b5139d6b11f9ee690fda35d1e996425698f47c
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -30,6 +30,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var orchestrator_exports = {};
 __export(orchestrator_exports, {
   SCHEDULE_UNSUPPORTED_REPLY: () => SCHEDULE_UNSUPPORTED_REPLY,
+  UNKEPT_PICTURE_WALKBACK: () => UNKEPT_PICTURE_WALKBACK,
   amendUnkeptPicturePromise: () => amendUnkeptPicturePromise,
   looksLikeSportsAsk: () => looksLikeSportsAsk,
   looksLikeWeatherAsk: () => looksLikeWeatherAsk,
@@ -2795,6 +2796,23 @@ function splitSalvage(raw, budget = SALVAGE_VOICE_WORD_BUDGET) {
   const rest = sentences.slice(taken).join(" ").trim();
   return { voice: sanitizeVoice(spoken), text: rest || null };
 }
+function appendToSpokenLead(raw, clause2, budget = SALVAGE_VOICE_WORD_BUDGET) {
+  const prose = String(raw ?? "").trim();
+  const add = clause2.trim().replace(/^[A-Z]/, (c) => c.toLowerCase());
+  if (!prose) return clause2.trim();
+  const sentences = splitSentences(prose);
+  let taken = 0;
+  let words = 0;
+  while (taken < sentences.length && words < budget) {
+    words += wordCount(sentences[taken]);
+    taken++;
+  }
+  if (sentences.length <= 1) taken = sentences.length;
+  const last = sentences[taken - 1].replace(/[.!?]+(["'”’)\]]*)$/, "$1");
+  const lead = [...sentences.slice(0, taken - 1), `${last} \u2014 ${add}`].join(" ");
+  const rest = sentences.slice(taken).join(" ").trim();
+  return rest ? `${lead} ${rest}` : lead;
+}
 
 // supabase/functions/voice-conversation/dialog-policy.ts
 var NOISE_REPLY = "Sorry, I didn't catch that.";
@@ -5322,6 +5340,7 @@ async function restampVoiceForSwitch(io, supabase, voiceCtx, row) {
       voiceCtx.voiceProvider = v.provider;
       voiceCtx.voiceAltId = v.altVoiceId ?? null;
       voiceCtx.voiceAltProvider = v.altProvider ?? null;
+      voiceCtx.voiceFixed = row?.voice_mode === "fixed";
     }
   } catch (e) {
     console.warn("set_personality voice restamp failed (turn keeps the prior voice):", e);
@@ -5344,6 +5363,7 @@ function stampTurn(turn, deps, voiceCtx) {
     turn.voice_alt_id = voiceCtx.voiceAltId;
     turn.voice_alt_provider = voiceCtx.voiceAltProvider;
   }
+  if (turn.voice_fixed === void 0 && voiceCtx.voiceId && voiceCtx.voiceFixed) turn.voice_fixed = true;
   if (classifyMiss(turn.route, turn.voice).miss) {
     const isFirstTurn = !deps.req.history || deps.req.history.length === 0;
     turn.metadata = { ...turn.metadata ?? {}, miss: true };
@@ -5409,6 +5429,7 @@ async function orchestrate(deps, io, voiceCtx) {
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
   voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
   voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
+  voiceCtx.voiceFixed = personality?.voice_mode === "fixed" && !!personality.voice && voiceKey === personality.voice;
   if (io.checkSpendable) {
     voiceCtx.credit = {
       balance: Number.isFinite(spend.balance) ? spend.balance : null,
@@ -5618,7 +5639,8 @@ ${p1PromptBase}` : p1PromptBase;
     }
     const sportsCard = providedSports && p1Parsed?.type === "response" ? templateSports(providedSports, providedSports.query || {}, { timezone: req.timezone }).structured_data : void 0;
     const imageHint = !sportsCard && retrievePictures && p1Parsed?.type === "response" ? p1Parsed.image : void 0;
-    const salvagedTerms = !imageHint?.searchTerms && !sportsCard && retrievePictures && p1Parsed?.type === "response" ? promisedPictureQuery(p1Parsed?.voice, req.text) : null;
+    const proseVoice = p1Parsed ? null : pass1.raw.content || "";
+    const salvagedTerms = !imageHint?.searchTerms && !sportsCard && retrievePictures && (p1Parsed?.type === "response" || proseVoice !== null) ? promisedPictureQuery(p1Parsed ? p1Parsed.voice : proseVoice, req.text) : null;
     const effImageHint = imageHint?.searchTerms ? imageHint : salvagedTerms ? { searchTerms: salvagedTerms } : void 0;
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field \u2192 searching "${salvagedTerms}"`);
     const earlySent = !!voiceCtx.emitEarly && !!effImageHint?.searchTerms && isEarlyAnswerEligible({
@@ -5651,10 +5673,11 @@ ${p1PromptBase}` : p1PromptBase;
     if (earlySent && !imageCard) {
       console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" AFTER the early answer was sent \u2014 tablet shows the fallback`);
     } else if (effImageHint?.searchTerms && !imageCard) {
-      const amended = amendUnkeptPicturePromise(p1Parsed?.voice);
+      const amended = p1Parsed ? amendUnkeptPicturePromise(p1Parsed.voice) : voicePromisesPicture(splitSalvage(proseVoice ?? "").voice) ? appendToSpokenLead(proseVoice ?? "", UNKEPT_PICTURE_WALKBACK) : null;
       if (amended) {
         console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture \u2014 amending the spoken line`);
-        p1Parsed.voice = amended;
+        if (p1Parsed) p1Parsed.voice = amended;
+        else pass1.raw.content = amended;
         imagePromiseAmended = true;
       }
     }
@@ -6436,16 +6459,20 @@ ${promptBase}` : promptBase;
 function voicePromisesPicture(voice) {
   const v = String(voice || "");
   return /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) || // "a picture of X"
-  /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
+  /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one|shot)\b/i.test(v) || // "here's a picture/one/shot"
   /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) || // "here he is"
-  /\btake a look\b/i.test(v);
+  /\btake a look\b/i.test(v) || // "Check out this totally rad shot of Neptune" (field 2026-11-13, Surfer Dude): no picture noun
+  // the other patterns know, so the screen stayed blank. Scoped to "check out/this" + a picture
+  // noun in the same sentence, so "a shot of espresso" alone never counts.
+  /\bcheck (?:out|this)\b[^.!?]*\b(?:picture|photo|image|pic|shot|snap)s?\b/i.test(v);
 }
 function amendUnkeptPicturePromise(voice) {
   const v = String(voice || "").trim();
   if (!v || !voicePromisesPicture(v)) return null;
   const sep = /[.!?]$/.test(v) ? " " : ". ";
-  return `${v}${sep}Actually, I wasn't able to pull up an image just now \u2014 sorry about that.`;
+  return `${v}${sep}${UNKEPT_PICTURE_WALKBACK}`;
 }
+var UNKEPT_PICTURE_WALKBACK = "Actually, I wasn't able to pull up an image just now \u2014 sorry about that.";
 var USER_PICTURE_LEADIN_RE = new RegExp(
   `^(?:hey dashie[,\\s]*)?(?:can you |could you |please |will you )?(?:${[...PICTURE_SHOW_VERBS, ...PICTURE_FETCH_VERBS].join("|")})\\s+`,
   "i"
@@ -6454,7 +6481,7 @@ var USER_PICTURE_NOUN_OF_RE = new RegExp(`\\b(?:a |an |the )?${PICTURE_NOUN}\\s+
 function promisedPictureQuery(voice, userText) {
   const v = String(voice || "");
   if (!voicePromisesPicture(v)) return null;
-  const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
+  const m = v.match(/\b(?:picture|photo|image|pic|shot)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
   let subject = m?.[1]?.trim();
   if (!subject) {
     subject = String(userText || "").replace(USER_PICTURE_LEADIN_RE, "").replace(USER_PICTURE_NOUN_OF_RE, "").replace(/[?.!]+$/, "").trim();
@@ -6730,6 +6757,7 @@ function toolMeta(parsed, route, caps) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   SCHEDULE_UNSUPPORTED_REPLY,
+  UNKEPT_PICTURE_WALKBACK,
   amendUnkeptPicturePromise,
   looksLikeSportsAsk,
   looksLikeWeatherAsk,
@@ -6741,4 +6769,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "68654fc2527213863f1764a31d5acb1234b9b1f5";
+module.exports.BRAIN_SOURCE_SHA = "f0b5139d6b11f9ee690fda35d1e996425698f47c";

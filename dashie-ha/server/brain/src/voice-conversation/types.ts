@@ -268,6 +268,11 @@ export interface Turn {
   // cannot (John 2026-10-15). Present only as a pair, only beside voice_id. Additive/nullable.
   voice_alt_id?: string | null;
   voice_alt_provider?: string | null;
+  // true when [voice_id] is the personality's OWN voice (personality_templates.voice_mode='fixed'):
+  // the tablet speaks it down that personality's ladder even when the device's voice setting is
+  // Gemini (John 2026-11-13, "we had designed a ladder for each personality"). Stamped only when
+  // true; absent = the device's voice setting decides, as before. Additive — old clients ignore it.
+  voice_fixed?: boolean;
   text: string | null;
   action: ParsedResponse['action'];
   parsed_ok: boolean;

@@ -42,7 +42,7 @@ const KNOWN_DEVICE_TOOL_DECLINES: Record<string, string> = {
 };
 import { redactToolArgs } from './redact-args.ts';
 import { parseContent, isLikelyNoise } from './parse.ts';
-import { splitSalvage } from './salvage.ts';
+import { splitSalvage, appendToSpokenLead } from './salvage.ts';
 import { isEndIntent, classifyMiss, NOISE_REPLY } from './dialog-policy.ts';
 import { providerForModel } from './models.ts';
 import { modelLabel } from '../_shared/model-labels.ts';
@@ -356,6 +356,7 @@ async function restampVoiceForSwitch(
       voiceCtx.voiceProvider = v.provider;
       voiceCtx.voiceAltId = v.altVoiceId ?? null;
       voiceCtx.voiceAltProvider = v.altProvider ?? null;
+      voiceCtx.voiceFixed = row?.voice_mode === 'fixed';
     }
   } catch (e) {
     console.warn('set_personality voice restamp failed (turn keeps the prior voice):', e);
@@ -504,6 +505,8 @@ function stampTurn(turn: Turn, deps: OrchestrationDeps, voiceCtx: OrchestrateCtx
     turn.voice_alt_id = voiceCtx.voiceAltId;
     turn.voice_alt_provider = voiceCtx.voiceAltProvider;
   }
+  // A fixed personality voice outranks the device's Gemini setting on the tablet (Turn.voice_fixed).
+  if (turn.voice_fixed === undefined && voiceCtx.voiceId && voiceCtx.voiceFixed) turn.voice_fixed = true;
   // Unified dialog policy (20260707): tag a no-intent turn (`miss`) and decide the first-turn
   // give-up (`end_conversation`) HERE, so every surface just renders it (silent notice / close)
   // instead of each loop running its own miss-cap. A miss = the noise short-circuit OR the model
@@ -545,6 +548,8 @@ interface OrchestrateCtx {
   /** The voice's alternate (tts_voices.alt_*), spoken on the household's own key. */
   voiceAltId?: string | null;
   voiceAltProvider?: string | null;
+  /** [voiceId] is the personality's own (voice_mode='fixed') voice → Turn.voice_fixed. */
+  voiceFixed?: boolean;
   credit?: { balance: number | null; spendable: boolean; low: boolean };
   /** The web-capability block mode ACTUALLY APPLIED this turn (bench echo). Left undefined on any
    *  turn that short-circuited before a prompt was built (credits, noise, rate limit) — there is
@@ -662,6 +667,7 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
   voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
   voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
+  voiceCtx.voiceFixed = personality?.voice_mode === 'fixed' && !!personality.voice && voiceKey === personality.voice;
 
   // CR2/CR4: expose the credit snapshot for the wrapper's metadata stamp (only when the
   // shell actually did the read — absent IO / Node shell stays metadata-silent).
@@ -1111,8 +1117,14 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       : undefined;
     // Safety-net: the model SPOKE a picture promise but set no `image` — derive a query from its
     // own words (or the user's) so we don't leave the screen blank. `salvaged` marks the trace.
-    const salvagedTerms = (!imageHint?.searchTerms && !sportsCard && retrievePictures && p1Parsed?.type === 'response')
-      ? promisedPictureQuery(p1Parsed?.voice, req.text)
+    // PROSE pass-1 (field 2026-11-13, Kingtop): a grounded Gemini answer often comes back as plain
+    // sentences, not the JSON envelope (33 of 71 grounded staging turns over 60 days). Those used
+    // to skip this net entirely, so "Check out this shot of Neptune" left the screen blank. The
+    // prose IS the spoken line (finalize's splitSalvage voices it), so the same net applies to it.
+    // JSON-ish garbage never reaches here (the hard rule above returned a clarify for it).
+    const proseVoice = p1Parsed ? null : (pass1.raw.content || '');
+    const salvagedTerms = (!imageHint?.searchTerms && !sportsCard && retrievePictures && (p1Parsed?.type === 'response' || proseVoice !== null))
+      ? promisedPictureQuery(p1Parsed ? p1Parsed.voice : proseVoice, req.text)
       : null;
     const effImageHint = imageHint?.searchTerms ? imageHint : (salvagedTerms ? { searchTerms: salvagedTerms } : undefined);
     if (salvagedTerms) console.warn(`[orchestrator] image-salvage: voice promised a picture with no image field → searching "${salvagedTerms}"`);
@@ -1140,10 +1152,15 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
       // image_promise_broken and the tablet shows the on-screen fallback (never silent, rule 2).
       console.warn(`DROP: image-resolve returned no card for "${effImageHint!.searchTerms}" AFTER the early answer was sent — tablet shows the fallback`);
     } else if (effImageHint?.searchTerms && !imageCard) {
-      const amended = amendUnkeptPicturePromise(p1Parsed?.voice as string | null | undefined);
+      const amended = p1Parsed
+        ? amendUnkeptPicturePromise(p1Parsed.voice as string | null | undefined)
+        : (voicePromisesPicture(splitSalvage(proseVoice ?? '').voice) ? appendToSpokenLead(proseVoice ?? '', UNKEPT_PICTURE_WALKBACK) : null);
       if (amended) {
         console.warn(`DROP: image-resolve returned no card for "${effImageHint.searchTerms}" while the voice promised a picture — amending the spoken line`);
-        (p1Parsed as { voice?: string }).voice = amended;
+        // A prose turn is spoken from raw.content (finalize's splitSalvage), so its walk-back goes there,
+        // joined to the spoken lead (appendToSpokenLead) rather than the painted remainder.
+        if (p1Parsed) (p1Parsed as { voice?: string }).voice = amended;
+        else pass1.raw.content = amended;
         imagePromiseAmended = true;
       }
     }
@@ -2019,9 +2036,13 @@ export function voicePromisesPicture(voice: string | null | undefined): boolean 
   const v = String(voice || '');
   return (
     /\b(?:picture|photo|image|pic)s?\s+of\b/i.test(v) ||           // "a picture of X"
-    /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one)\b/i.test(v) || // "here's a picture/one"
+    /\b(?:here'?s?|here is)\b[^.!?]*\b(?:picture|photo|image|pic|one|shot)\b/i.test(v) || // "here's a picture/one/shot"
     /\bhere (?:he|she|it|they) (?:is|are)\b/i.test(v) ||           // "here he is"
-    /\btake a look\b/i.test(v)
+    /\btake a look\b/i.test(v) ||
+    // "Check out this totally rad shot of Neptune" (field 2026-11-13, Surfer Dude): no picture noun
+    // the other patterns know, so the screen stayed blank. Scoped to "check out/this" + a picture
+    // noun in the same sentence, so "a shot of espresso" alone never counts.
+    /\bcheck (?:out|this)\b[^.!?]*\b(?:picture|photo|image|pic|shot|snap)s?\b/i.test(v)
   );
 }
 
@@ -2043,8 +2064,9 @@ export function amendUnkeptPicturePromise(voice: string | null | undefined): str
   const v = String(voice || '').trim();
   if (!v || !voicePromisesPicture(v)) return null;
   const sep = /[.!?]$/.test(v) ? ' ' : '. ';
-  return `${v}${sep}Actually, I wasn't able to pull up an image just now — sorry about that.`;
+  return `${v}${sep}${UNKEPT_PICTURE_WALKBACK}`;
 }
+export const UNKEPT_PICTURE_WALKBACK = "Actually, I wasn't able to pull up an image just now — sorry about that.";
 
 /**
  * IMAGE PROMISE SAFETY-NET: when a direct answer's SPOKEN line promises a picture ("here's a
@@ -2069,7 +2091,7 @@ export function promisedPictureQuery(voice: string | null | undefined, userText:
   const v = String(voice || '');
   if (!voicePromisesPicture(v)) return null;
   // Prefer the subject the model NAMED in its voice ("…picture of a chickadee, …" → "chickadee").
-  const m = v.match(/\b(?:picture|photo|image|pic)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
+  const m = v.match(/\b(?:picture|photo|image|pic|shot)s?\s+of\s+(?:a |an |the )?([A-Za-z0-9][\w' -]{1,60}?)(?:[.,!?;:]|\s+(?:for you|right here|here)\b|$)/i);
   let subject = m?.[1]?.trim();
   if (!subject) {
     // Fall back to the user's request with the "show me a picture of" lead-in stripped.

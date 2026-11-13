@@ -114,3 +114,32 @@ export function splitSalvage(
   const rest = sentences.slice(taken).join(' ').trim();
   return { voice: sanitizeVoice(spoken), text: rest || null };
 }
+
+/**
+ * Attach [clause] to the END OF THE SPOKEN LEAD of a prose answer, so a later [splitSalvage] speaks
+ * it. Appending it to the end of the whole blob would put it in the painted remainder whenever the
+ * blob runs past the budget — a walk-back nobody hears. The clause joins the last spoken sentence
+ * with a dash and no sentence boundary, so the split takes exactly the same sentences as before.
+ * Used for the unkept-picture walk-back on prose turns (orchestrator, field 2026-11-13).
+ */
+export function appendToSpokenLead(
+  raw: string,
+  clause: string,
+  budget: number = SALVAGE_VOICE_WORD_BUDGET,
+): string {
+  const prose = String(raw ?? '').trim();
+  const add = clause.trim().replace(/^[A-Z]/, (c) => c.toLowerCase());
+  if (!prose) return clause.trim();
+  const sentences = splitSentences(prose);
+  let taken = 0;
+  let words = 0;
+  while (taken < sentences.length && words < budget) {
+    words += wordCount(sentences[taken]);
+    taken++;
+  }
+  if (sentences.length <= 1) taken = sentences.length;
+  const last = sentences[taken - 1].replace(/[.!?]+(["'”’)\]]*)$/, '$1');
+  const lead = [...sentences.slice(0, taken - 1), `${last} — ${add}`].join(' ');
+  const rest = sentences.slice(taken).join(' ').trim();
+  return rest ? `${lead} ${rest}` : lead;
+}
