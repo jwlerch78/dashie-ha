@@ -4,7 +4,7 @@
    The voice-conversation brain core, bundled for the Node add-on (on-prem L3).
    ONE core, TWO runtimes: the cloud Deno edge fn runs the TS source directly;
    this CJS bundle is the add-on's copy of the SAME source. Never hand-edit.
-   Source git SHA: f0b5139d6b11f9ee690fda35d1e996425698f47c
+   Source git SHA: 4721be739db072e1a918b96526bb8ff1d1c9f3db
    Regenerate:  node scripts/build-node-brain.mjs && ./sync-brain-bundle.sh
    Contract:    supabase/functions/voice-conversation/README.md
    ============================================================ */
@@ -5213,6 +5213,26 @@ async function dispatchMultiTurn(steps, deps) {
   return { steps: out, stages, usage, latencyMs };
 }
 
+// supabase/functions/voice-conversation/simple-profile.ts
+var SIMPLE_VOICE_PROFILE = "simple";
+function isSimpleProfile(req) {
+  return req.voice_profile === SIMPLE_VOICE_PROFILE;
+}
+async function resolveModelId(simple, requested, accountModel, getDefault) {
+  if (simple) return await getDefault();
+  return requested || accountModel || await getDefault();
+}
+function resolveWebSearch(simple, accountEnabled, paidToolsOk) {
+  return (simple || accountEnabled !== false) && paidToolsOk;
+}
+function resolveRetrievePictures(simple, requested, accountEnabled) {
+  if (simple) return true;
+  return requested ?? (accountEnabled ?? false);
+}
+function simpleVoiceKey(simple, personality) {
+  return simple && personality?.voice ? personality.voice : null;
+}
+
 // supabase/functions/voice-conversation/early-answer.ts
 var PICTURE_SHOW_VERBS = ["show me", "show us", "pull up", "display", "let me see", "i want to see", "can i see"];
 var PICTURE_FETCH_VERBS = ["find", "get me"];
@@ -5423,13 +5443,15 @@ async function orchestrate(deps, io, voiceCtx) {
     // CR3: per-account rate-limit backstop. Absent IO → allowed. Inert until enabled.
     io.checkRateLimit ? io.checkRateLimit(supabase, userId) : Promise.resolve({ allowed: true, retryAfterSeconds: 0 })
   ]));
-  const voiceKey = io.resolveEffectiveVoiceKey ? await timed("prep_voice_key", prep, () => io.resolveEffectiveVoiceKey(supabase, userId, req.endpoint_id, personality)) || DEFAULT_VOICE_KEY : personality?.voice || DEFAULT_VOICE_KEY;
+  const simple = isSimpleProfile(req);
+  const simpleVoice = simpleVoiceKey(simple, personality);
+  const voiceKey = simpleVoice ? simpleVoice : io.resolveEffectiveVoiceKey ? await timed("prep_voice_key", prep, () => io.resolveEffectiveVoiceKey(supabase, userId, req.endpoint_id, personality)) || DEFAULT_VOICE_KEY : personality?.voice || DEFAULT_VOICE_KEY;
   const resolvedVoice = io.resolveVoiceId ? await timed("prep_voice_id", prep, () => io.resolveVoiceId(supabase, voiceKey)) : null;
   voiceCtx.voiceId = resolvedVoice?.voiceId ?? null;
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
   voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
   voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
-  voiceCtx.voiceFixed = personality?.voice_mode === "fixed" && !!personality.voice && voiceKey === personality.voice;
+  voiceCtx.voiceFixed = (simple || personality?.voice_mode === "fixed") && !!personality?.voice && voiceKey === personality.voice;
   if (io.checkSpendable) {
     voiceCtx.credit = {
       balance: Number.isFinite(spend.balance) ? spend.balance : null,
@@ -5445,10 +5467,18 @@ async function orchestrate(deps, io, voiceCtx) {
     if (!c.ok) return kidRefusedTurn(t0, c.code);
   }
   const paidToolsOk = spend.spendable && io.paidTools !== false;
-  const modelId = req.options?.model || account.model || await timed("prep_model", prep, () => io.getDefaultModel(supabase));
+  const modelId = await resolveModelId(
+    simple,
+    req.options?.model,
+    account.model,
+    () => timed("prep_model", prep, () => io.getDefaultModel(supabase))
+  );
   const provider = providerForModel(modelId);
-  const webSearchAllowed = account.webSearchEnabled !== false && paidToolsOk;
-  const retrievePictures = req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false);
+  const webSearchAllowed = resolveWebSearch(simple, account.webSearchEnabled, paidToolsOk);
+  const retrievePictures = resolveRetrievePictures(simple, req.retrieve_pictures, account.retrievePicturesEnabled);
+  if (simple) {
+    console.log(`SIMPLE-PROFILE: model=${modelId} web_search=${webSearchAllowed} pictures=${retrievePictures} voice=${voiceKey} fixed=${voiceCtx.voiceFixed}`);
+  }
   const picture = choosePictureSource(account.pictureSource, paidToolsOk);
   if (retrievePictures && picture.degraded) {
     console.warn("DROP: picture-source google \u2192 free (no credits to spend; John 10-13: degrade, not fail)");
@@ -6769,4 +6799,4 @@ function toolMeta(parsed, route, caps) {
   voicePromisesPicture,
   wantsGameDetail
 });
-module.exports.BRAIN_SOURCE_SHA = "f0b5139d6b11f9ee690fda35d1e996425698f47c";
+module.exports.BRAIN_SOURCE_SHA = "4721be739db072e1a918b96526bb8ff1d1c9f3db";

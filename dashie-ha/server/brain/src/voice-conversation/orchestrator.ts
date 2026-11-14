@@ -83,6 +83,7 @@ import type { WeatherLocation, WeatherResult } from './weather.ts';
 import type { CapsSnapshot, Personality, Stage, StageEvent, TurnStep, Turn, Usage, VoiceRequest, WebGuidanceMode } from './types.ts';
 import { timed, mark, newPrepSink, sealPrep, PREP_TOTAL, type PrepSink } from './prep-timing.ts';
 import { dispatchMultiTurn, recoverHaAction } from './multi-dispatch.ts';
+import { isSimpleProfile, resolveModelId, resolveRetrievePictures, resolveWebSearch, simpleVoiceKey } from './simple-profile.ts';
 import { EARLY_PENDING_META, earlyFinalMeta, isEarlyAnswerEligible, PICTURE_FETCH_VERBS, PICTURE_NOUN, PICTURE_SHOW_VERBS } from './early-answer.ts';
 
 export interface OrchestrationDeps {
@@ -656,7 +657,11 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   // before the model is asked anything. Measured here, NOT changed: whether they matter is what
   // this instrument is for, and a fix aimed at them before the numbers exist could be aimed at
   // the wrong await entirely.
-  const voiceKey = io.resolveEffectiveVoiceKey
+  // Simple voice profile (John 11-14, simple-profile.ts): the personality's own voice, no device/account
+  // override — so the override reads are skipped, not merely ignored.
+  const simple = isSimpleProfile(req);
+  const simpleVoice = simpleVoiceKey(simple, personality);
+  const voiceKey = simpleVoice ? simpleVoice : io.resolveEffectiveVoiceKey
     ? (await timed('prep_voice_key', prep, () =>
         io.resolveEffectiveVoiceKey!(supabase, userId, req.endpoint_id, personality))) || DEFAULT_VOICE_KEY
     : (personality?.voice || DEFAULT_VOICE_KEY);
@@ -667,7 +672,9 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
   voiceCtx.voiceProvider = resolvedVoice?.provider ?? null;
   voiceCtx.voiceAltId = resolvedVoice?.altVoiceId ?? null;
   voiceCtx.voiceAltProvider = resolvedVoice?.altProvider ?? null;
-  voiceCtx.voiceFixed = personality?.voice_mode === 'fixed' && !!personality.voice && voiceKey === personality.voice;
+  // Simple: the personality's voice is THE voice, preferred ones included (Standard → Rachel), so the
+  // tablet's Gemini setting must never outrank it — the same signal a fixed personality sends.
+  voiceCtx.voiceFixed = (simple || personality?.voice_mode === 'fixed') && !!personality?.voice && voiceKey === personality.voice;
 
   // CR2/CR4: expose the credit snapshot for the wrapper's metadata stamp (only when the
   // shell actually did the read — absent IO / Node shell stays metadata-silent).
@@ -703,16 +710,21 @@ async function orchestrate(deps: OrchestrationDeps, io: OrchestratorIO, voiceCtx
 
   // T3 resolution — request override → ACCOUNT setting → global default. This is what
   // makes the console's model/tool choices actually take effect (§16.7 item 4).
-  const modelId = req.options?.model || account.model
-    || (await timed('prep_model', prep, () => io.getDefaultModel(supabase)));
+  // Simple profile: the global default (runtime_config) only — see simple-profile.ts.
+  const modelId = await resolveModelId(simple, req.options?.model, account.model,
+    () => timed('prep_model', prep, () => io.getDefaultModel(supabase)));
   const provider = providerForModel(modelId);
-  // web search: ON unless the account explicitly disabled it (null/unset → ON, unchanged).
+  // web search: ON unless the account explicitly disabled it (null/unset → ON, unchanged); simple → ON.
   // paidToolsOk gates the Dashie-funded tools on a BYOK out-of-credits turn.
-  const webSearchAllowed = account.webSearchEnabled !== false && paidToolsOk;
-  // retrieve pictures: explicit request wins; else the account default; else off. Credits no longer decide WHETHER a
-  // picture shows, only WHERE it comes from (John 10-13): the free source needs none, and Google (Serper, billed) is
-  // used only when the household chose it AND can spend. Chosen without credits it degrades to free, never to nothing.
-  const retrievePictures = req.retrieve_pictures ?? (account.retrievePicturesEnabled ?? false);
+  const webSearchAllowed = resolveWebSearch(simple, account.webSearchEnabled, paidToolsOk);
+  // retrieve pictures: explicit request wins; else the account default; else off; simple → ON. Credits no longer
+  // decide WHETHER a picture shows, only WHERE it comes from (John 10-13): the free source needs none, and Google
+  // (Serper, billed) is used only when the household chose it AND can spend. Chosen without credits it degrades to
+  // free, never to nothing.
+  const retrievePictures = resolveRetrievePictures(simple, req.retrieve_pictures, account.retrievePicturesEnabled);
+  if (simple) {
+    console.log(`SIMPLE-PROFILE: model=${modelId} web_search=${webSearchAllowed} pictures=${retrievePictures} voice=${voiceKey} fixed=${voiceCtx.voiceFixed}`);
+  }
   const picture = choosePictureSource(account.pictureSource, paidToolsOk);
   if (retrievePictures && picture.degraded) {
     console.warn('DROP: picture-source google → free (no credits to spend; John 10-13: degrade, not fail)');

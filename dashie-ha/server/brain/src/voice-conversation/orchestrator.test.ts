@@ -2367,3 +2367,67 @@ Deno.test('promisedPictureQuery: "check out this shot of X" counts and names X; 
   assertEquals(promisedPictureQuery('Duuude! Check out this totally rad shot of Neptune, the chillest blue giant.', 'show me neptune'), 'Neptune');
   assertEquals(promisedPictureQuery('I had a shot of espresso this morning.', 'what did you drink'), null);
 });
+
+// ── SIMPLE VOICE PROFILE (John 2026-11-14, simple-profile.ts): no HA + Advanced Tablet Controls off ⇒ the
+// global default Gemini model, web search ON, pictures ON, the personality's own voice — whatever the
+// request options, device row or account row say. Each test pairs the simple run with a CONTROL that
+// proves the same inputs DO move the value without the flag (so a green is not an inert harness).
+
+type Caps = { web_search: boolean; retrieve_pictures: boolean };
+const capsOf = (m: ReturnType<typeof makeIO>) => (m.logs.at(-1)!.tool_trace as { caps: Caps }).caps;
+
+Deno.test('simple profile: the request and account model are ignored; the global default runs', async () => {
+  const ctl = makeIO(['{"type":"response","voice":"hi"}'], { model: 'gemini-2.5-flash', account: { model: 'claude-sonnet-4-6' } });
+  await runOrchestration(deps({ options: { model: 'gpt-5.5' } }), ctl.io);
+  assertEquals(ctl.lastModel(), 'gpt-5.5', 'control: without the flag the request model wins');
+  const m = makeIO(['{"type":"response","voice":"hi"}'], { model: 'gemini-2.5-flash', account: { model: 'claude-sonnet-4-6' } });
+  await runOrchestration(deps({ options: { model: 'gpt-5.5' }, voice_profile: 'simple' }), m.io);
+  assertEquals(m.lastModel(), 'gemini-2.5-flash');
+});
+
+Deno.test('simple profile: web search and pictures are ON even when the account and request turn them off', async () => {
+  const ctl = makeIO(['{"type":"response","voice":"hi"}'], { account: { webSearchEnabled: false, retrievePicturesEnabled: false } });
+  await runOrchestration(deps({ retrieve_pictures: false }), ctl.io);
+  assertEquals(capsOf(ctl), { ...capsOf(ctl), web_search: false, retrieve_pictures: false }, 'control: off without the flag');
+  const m = makeIO(['{"type":"response","voice":"hi"}'], { account: { webSearchEnabled: false, retrievePicturesEnabled: false } });
+  await runOrchestration(deps({ retrieve_pictures: false, voice_profile: 'simple' }), m.io);
+  assertEquals(capsOf(m).web_search, true);
+  assertEquals(capsOf(m).retrieve_pictures, true);
+});
+
+Deno.test('simple profile: web search still honors the paid-tool gate (no credits → off)', async () => {
+  const m = makeIO(['{"type":"response","voice":"hi"}'], { spendable: false });
+  m.io.billing = 'byok';   // BYOK turns proceed out of credits, with Dashie-funded tools gated off
+  await runOrchestration(deps({ voice_profile: 'simple' }), m.io);
+  assertEquals(capsOf(m).web_search, false);
+});
+
+Deno.test('simple profile: a PREFERRED personality speaks its own voice, skips the device override, and is marked fixed', async () => {
+  const STANDARD = { key: 'dashie', name: 'Dashie', voice_mode: 'preferred', voice: 'RACHEL' };
+  const ids = (_s: unknown, key?: string | null) => Promise.resolve({ voiceId: `${key}-id`, provider: 'elevenlabs' });
+  const ctl = makeIO(['{"type":"response","voice":"Hi.","text":null}']);
+  ctl.io.resolvePersonality = () => Promise.resolve(STANDARD);
+  ctl.io.resolveEffectiveVoiceKey = () => Promise.resolve('BELLA');   // a device/account override
+  ctl.io.resolveVoiceId = ids;
+  const c = await runOrchestration(deps(), ctl.io);
+  assertEquals(c.voice_id, 'BELLA-id', 'control: without the flag the override wins');
+  assertEquals(c.voice_fixed, undefined);
+  const m = makeIO(['{"type":"response","voice":"Hi.","text":null}']);
+  let overrideRead = false;
+  m.io.resolvePersonality = () => Promise.resolve(STANDARD);
+  m.io.resolveEffectiveVoiceKey = () => { overrideRead = true; return Promise.resolve('BELLA'); };
+  m.io.resolveVoiceId = ids;
+  const t = await runOrchestration(deps({ voice_profile: 'simple' }), m.io);
+  assertEquals(t.voice_id, 'RACHEL-id');
+  assertEquals(t.voice_fixed, true);
+  assertEquals(overrideRead, false, 'the override read is skipped, not just ignored');
+});
+
+Deno.test('simple profile: no personality → the normal voice chain still answers', async () => {
+  const m = makeIO(['{"type":"response","voice":"Hi.","text":null}']);
+  m.io.resolveEffectiveVoiceKey = () => Promise.resolve('ASHLEY');
+  m.io.resolveVoiceId = (_s, key) => Promise.resolve({ voiceId: `${key}-id`, provider: 'inworld' });
+  const t = await runOrchestration(deps({ voice_profile: 'simple' }), m.io);
+  assertEquals(t.voice_id, 'ASHLEY-id');
+  assertEquals(t.voice_fixed, undefined);
+});

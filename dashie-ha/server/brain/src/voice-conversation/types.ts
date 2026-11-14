@@ -20,6 +20,11 @@ export interface VoiceRequest {
   // {type:'image'} card (enrichment, §3.5) — gated by the client's
   // ai.retrievePicturesEnabled setting. Default off (resolving costs a Serper call).
   retrieve_pictures?: boolean;
+  // SIMPLE VOICE PROFILE (John 2026-11-14, simple-profile.ts): 'simple' = a household with no HA and
+  // Advanced Tablet Controls off. The brain then runs the global default Gemini model, web search ON,
+  // pictures ON and the personality's own voice, ignoring options.model / retrieve_pictures / voice
+  // overrides. Sent only by APKs that know it; absent → today's resolution, unchanged.
+  voice_profile?: 'simple';
   // SPEAK FIRST (early-answer.ts, VH 2026-10-11): when true on a STREAMING request, a supplemental
   // image turn's answer is emitted as {kind:'stage', stage:'answer_ready', turn} (no `status`, so
   // old consumers ignore it) before the picture resolves; the card follows in the final line. Sent
