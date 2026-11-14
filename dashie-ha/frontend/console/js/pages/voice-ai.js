@@ -1841,6 +1841,15 @@ const VoiceAiPage = {
         // model). Gated on the Customize-pipeline toggle so it's opt-in. Asterisked in Live.
         const sttReal = customPipeline;
         const showStt = sttReal;                        // both modes (see showTts above)
+        // ── SIMPLE VOICE PROFILE (John 2026-11-14) ─────────────────────────────────
+        // A NON-HA household in Simple mode gets no model / engine / preset choices: their tablets (no HA +
+        // Advanced Tablet Controls off) run one Gemini model, web search + pictures on, the personality's own
+        // voice, whatever is stored (brain simple-profile.ts, tablet SimpleVoiceProfile.kt). Showing those
+        // cards here would offer choices those tablets ignore. The console cannot see a tablet's Advanced
+        // Tablet Controls (device-local, not synced), so Advanced mode keeps every card for the households that
+        // turned it on. HA context (add-on, or an HA account) is untouched. Hides CONTROLS only: the summary
+        // below still names the stored values.
+        const nonHaSimple = simple && !DashieAuth.isHaContext;
         // "HA entities" card: which HA entities voice can control. HA users only, and
         // grouped with the pipeline (only while Customize is on) — sits below Web search
         // source. Not shown under HA Assist (HA owns entity control there).
@@ -1938,8 +1947,9 @@ const VoiceAiPage = {
             ${showStt ? card('Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : ''}
             ${showTts ? card('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : ''}
             ${showPipeline && voiceField ? this._renderVoiceRow(voiceField, d) : ''}` : `
+            ${nonHaSimple ? this._renderSimpleProfileNote() : ''}
             ${S.grid([
-                gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
+                nonHaSimple ? '' : gridCard('AI Model', 'model', this._markUnavailable(this._markKeyed(this._applyProbed(this._modelOptions(preset)))), this._selectedModelId(agentMode)),
                 // Wake word is Advanced (D8): one choice, set once, and 'Hey Dashie'
                 // is right for nearly every household. Its VALUE is not lost — a
                 // non-default wake word is named in the section summary below.
@@ -1954,8 +1964,8 @@ const VoiceAiPage = {
                     saving: this._savingKey === 'ai.defaultPersonalityId',
                     compact: true,
                 }),
-                showStt ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : '',
-                showTts ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
+                showStt && !nonHaSimple ? gridCard(isLive ? 'Speech-to-text*' : 'Speech-to-text', 'stt', O.applyLanes('stt', this._applyProbed(isLive ? this._haFilter(O.sttOptions(this._engines, d['voice.sttProvider'])) : filtered('stt', O.sttOptions(this._engines, d['voice.sttProvider']))), this._lanes), sttSelectedId) : '',
+                showTts && !nonHaSimple ? gridCard('Text-to-speech', 'tts', ttsCardOpts, ttsSelectedId) : '',
                 // Full-width: these are notes and sub-rows that belong under the grid,
                 // not beside it. Kept in the same list so their conditions stay where
                 // they were rather than migrating into a second block that can drift.
@@ -2092,7 +2102,7 @@ const VoiceAiPage = {
                 title: 'Voice & LLM',
                 summary: voiceSummary,
                 body: `
-                    ${VoiceAiPresetPicker.render({
+                    ${nonHaSimple ? '' : VoiceAiPresetPicker.render({
                         presets: this._haFilter(O.PRESETS),
                         selectedId: preset,
                         available: (id) => this._presetAvailable(id),
@@ -2115,6 +2125,16 @@ const VoiceAiPage = {
         // Conversation memory (+ duration) hidden for now (John, 2026-07-12) —
         // not in use yet. Re-add via ai.conversationContextEnabled /
         // ai.conversationTimeout toggle+select rows when it ships.
+    },
+
+    /** Simple voice profile (John 2026-11-14): what a non-HA household's tablets run, in place of the model /
+     *  engine cards, and where the choices went. Copy only — no setting is read or written. */
+    _renderSimpleProfileNote() {
+        return `<div class="card" style="margin: 0 0 12px;"><div class="card-body" style="font-size: 13px; line-height: 1.5;">
+            Your tablets use Google Gemini, with web search and pictures, and speak in each personality's own voice.
+            <span style="color: var(--text-muted);">Pick a personality and wake word below. To choose models, voices and
+            speech engines, turn on <b>Advanced Tablet Controls</b> on the tablet and switch this page to Advanced.</span>
+        </div></div>`;
     },
 
     /** Subtext BELOW the STT card in Live mode. Live still needs an STT for the FIRST

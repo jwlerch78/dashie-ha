@@ -85,7 +85,7 @@ const die = (m) => { console.log(`BLIND: ${m}`); process.exit(2); };
  * evaluated — that is how leg 16 injects the pre-D8 summary without the
  * injection leaking into any other leg.
  */
-function build({ mutate = null } = {}) {
+function build({ mutate = null, haContext = true } = {}) {
     const store = {};
     const warnings = [];
     const sandbox = {
@@ -93,8 +93,8 @@ function build({ mutate = null } = {}) {
         sessionStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } },
         localStorage: { getItem: (k) => store[`ls:${k}`] ?? null, setItem: (k, v) => { store[`ls:${k}`] = String(v); }, removeItem: (k) => { delete store[`ls:${k}`]; } },
         document: { title: '', querySelector: () => null, getElementById: () => null, visibilityState: 'visible', addEventListener() {} },
-        DashieAuth: { isAddonMode: true, isLocalMode: false, isHaContext: true, isAuthenticated: true, async dbRequest() { return {}; } },
-        FeatureGate: { isAddonMode: () => true, isPageEnabled: () => true, shouldShow: () => true, optionAllowed: () => true, isPublishedBuild: () => true },
+        DashieAuth: { isAddonMode: haContext, isLocalMode: false, isHaContext: haContext, isAuthenticated: true, async dbRequest() { return {}; } },
+        FeatureGate: { isAddonMode: () => haContext, isPageEnabled: () => true, shouldShow: () => true, optionAllowed: () => true, isPublishedBuild: () => true },
         App: { renderPage() {}, navigate() {} },
         Toast: { success() {}, error() {}, info() {}, friendly: (e) => String(e) },
         BRAND: { assistantName: 'Dashie', consoleName: 'Dashie Console', productName: 'Dashie', cloudName: 'Dashie Cloud' },
@@ -283,6 +283,34 @@ t(`13 the partition is a partition (${M.SIMPLE_CARDS?.length} simple, ${M.ADVANC
       readsReal && !readsRenderFlags,
       'a COLLAPSED section shows only the summary. Reading `showStt`/`showPipeline` there would '
       + 'make a collapsed page describe this VIEW rather than the household\'s pipeline.');
+}
+
+// ── 17. SIMPLE VOICE PROFILE (John 2026-11-14): a NON-HA household in Simple ──────────────
+// Their tablets (no HA + Advanced Tablet Controls off) run one Gemini model, web search + pictures, the
+// personality's own voice (brain simple-profile.ts, tablet SimpleVoiceProfile.kt), so the console offers
+// no model / engine / preset choice there. Asked of the SAME self-hosted world, so the values the summary
+// must still name could not have come from a default. Controls are the HA render above (legs 3, 4, 7).
+{
+    const ns = render('simple', SELF_HOSTED, { haContext: false });
+    const na = render('advanced', SELF_HOSTED, { haContext: false });
+    t('17 CONTROL: the non-HA harness reaches the real render', ns.html.length > 500 && na.html.length > 500,
+      `simple=${ns.html.length} advanced=${na.html.length}`);
+    t('17a non-HA Simple withholds the AI Model card', !ns.html.includes('AI Model'));
+    t('17b non-HA Simple withholds the Speech-to-text and Text-to-speech cards',
+      !/VoiceAiPage\.toggleCard\('stt'\)/.test(ns.html) && !/VoiceAiPage\.toggleCard\('tts'\)/.test(ns.html));
+    t('17c non-HA Simple withholds the preset picker', !/VoiceAiPage\.selectPreset\(|tryStarterGrant\(/.test(ns.html));
+    t('17d non-HA Simple explains what the tablets run and where the choices went',
+      ns.html.includes('Your tablets use Google Gemini') && ns.html.includes('Advanced Tablet Controls'));
+    t('17e non-HA Simple keeps Personality, Wake word and Conversation dialog',
+      ns.html.includes('Personality') && ns.html.includes('Wake word') && ns.html.includes('Conversation dialog'));
+    t(`17f 🔴 non-HA Simple still NAMES the stored engines in the summary ('${SELF_STT}' / '${SELF_TTS}')`,
+      ns.html.includes(SELF_STT) && ns.html.includes(SELF_TTS),
+      'Simple may hide a control, never a value: a household whose ADVANCED tablets run their own boxes '
+      + 'must still see that here');
+    t('17g CONTROL: non-HA ADVANCED brings the AI Model and engine cards back',
+      na.html.includes('AI Model') && /VoiceAiPage\.toggleCard\('stt'\)/.test(na.html)
+      && /VoiceAiPage\.toggleCard\('tts'\)/.test(na.html) && !na.html.includes('Your tablets use Google Gemini'));
+    t('17h CONTROL: the HA Simple render shows no simple-profile note', !simple.html.includes('Your tablets use Google Gemini'));
 }
 
 console.log(`\ncheck-voice-simple-mode: ${pass} pass, ${fail} fail`);
